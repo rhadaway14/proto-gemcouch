@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  geode:
+    image: apachegeode/geode:latest
+    container_name: geode-server
+    hostname: geode-server
+    ports:
+      - "10334:10334"
+      - "40404:40404"
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        gfsh -e "start locator --name=locator --port=10334 --hostname-for-clients=127.0.0.1" \
+             -e "start server --name=server1 --server-port=40404 --hostname-for-clients=127.0.0.1 --locators=127.0.0.1[10334]" \
+             -e "create region --name=helloWorld --type=PARTITION" \
+             -e "list members" \
+             -e "describe region --name=helloWorld"
+        tail -f /dev/null
