@@ -1,5 +1,12 @@
 package com.protogemcouch.shim;
 
+import com.couchbase.client.java.Bucket;
+import com.couchbase.client.java.Cluster;
+import com.couchbase.client.java.Collection;
+import com.couchbase.client.java.Scope;
+import com.couchbase.client.java.env.ClusterEnvironment;
+import com.couchbase.client.java.json.JsonObject;
+import com.couchbase.client.java.kv.GetResult;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemFrameDecoder;
 import com.protogemcouch.wire.GemPart;
@@ -23,8 +30,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 
 public class RawShimServer {
 
@@ -39,14 +45,26 @@ public class RawShimServer {
             "01018800040000ff000300000003e1dba9ded533"
     );
 
-    private static final Map<String, String> STORE = new ConcurrentHashMap<>();
+    private static final byte[] PUT_RESPONSE_TAG = hex(
+            "018800040000ff000300000003d18f8c81d633"
+    );
 
-    static {
-        STORE.put(docId("/helloWorld", "proto::seed-key"), "hello-proto-gemcouch");
-    }
+    private static final int SHIM_PORT = 40405;
+
+    private static final String CB_CONNSTR = envOrDefault("CB_CONNSTR", "couchbase://127.0.0.1");
+    private static final String CB_USERNAME = envOrDefault("CB_USERNAME", "Administrator");
+    private static final String CB_PASSWORD = envOrDefault("CB_PASSWORD", "password");
+    private static final String CB_BUCKET = envOrDefault("CB_BUCKET", "test");
+    private static final String CB_SCOPE = envOrDefault("CB_SCOPE", "_default");
+    private static final String CB_COLLECTION = envOrDefault("CB_COLLECTION", "_default");
+
+    private static Cluster cluster;
+    private static Bucket bucket;
+    private static Scope scope;
+    private static Collection collection;
 
     public static void main(String[] args) throws Exception {
-        int port = 40405;
+        initCouchbase();
 
         EventLoopGroup boss = new NioEventLoopGroup(1);
         EventLoopGroup workers = new NioEventLoopGroup();
@@ -62,12 +80,49 @@ public class RawShimServer {
                         }
                     });
 
-            Channel ch = bootstrap.bind(port).sync().channel();
-            System.out.println("RawShimServer listening on " + port);
+            Channel ch = bootstrap.bind(SHIM_PORT).sync().channel();
+            System.out.println("RawShimServer listening on " + SHIM_PORT);
             ch.closeFuture().sync();
         } finally {
-            boss.shutdownGracefully();
             workers.shutdownGracefully();
+            boss.shutdownGracefully();
+            closeCouchbase();
+        }
+    }
+
+    private static void initCouchbase() {
+        System.out.println("Connecting to Couchbase...");
+        System.out.println("  connstr    = " + CB_CONNSTR);
+        System.out.println("  bucket     = " + CB_BUCKET);
+        System.out.println("  scope      = " + CB_SCOPE);
+        System.out.println("  collection = " + CB_COLLECTION);
+
+        ClusterEnvironment env = ClusterEnvironment.builder()
+                .timeoutConfig(tc -> tc
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .kvTimeout(Duration.ofSeconds(5)))
+                .build();
+
+        cluster = Cluster.connect(
+                CB_CONNSTR,
+                com.couchbase.client.java.ClusterOptions.clusterOptions(CB_USERNAME, CB_PASSWORD)
+                        .environment(env)
+        );
+
+        bucket = cluster.bucket(CB_BUCKET);
+        bucket.waitUntilReady(Duration.ofSeconds(15));
+        scope = bucket.scope(CB_SCOPE);
+        collection = scope.collection(CB_COLLECTION);
+
+        System.out.println("Couchbase connected.");
+    }
+
+    private static void closeCouchbase() {
+        try {
+            if (cluster != null) {
+                cluster.disconnect();
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -149,9 +204,11 @@ public class RawShimServer {
                     ? bytesToString(frame.getParts().get(1).getPayload())
                     : "";
 
-            System.out.println("GET REQUEST RECEIVED region=" + region + " key=" + key);
+            String docId = docId(region, key);
+            System.out.println("GET REQUEST RECEIVED region=" + region + " key=" + key + " docId=" + docId);
 
-            String value = STORE.get(docId(region, key));
+            String value = cbGet(docId);
+
             byte[] response = (value != null)
                     ? buildGetResponse(frame.getTransactionId(), value)
                     : buildNullGetResponse(frame.getTransactionId());
@@ -160,29 +217,64 @@ public class RawShimServer {
         }
 
         private void handlePut(ChannelHandlerContext ctx, GemFrame frame) {
-            String region = frame.getParts().size() > 0
-                    ? bytesToString(frame.getParts().get(0).getPayload())
-                    : "";
-
-            String key = frame.getParts().size() > 3
-                    ? bytesToString(frame.getParts().get(3).getPayload())
-                    : "";
-
+            String region = null;
+            String key = null;
             String value = null;
-            if (frame.getParts().size() > 5) {
-                byte[] valueBytes = frame.getParts().get(5).getPayload();
+
+            for (GemPart part : frame.getParts()) {
+                byte[] payload = part.getPayload();
+
+                // --- DEBUG: dump raw hex ---
+                System.out.println("PUT PART HEX: " + ByteBufUtil.hexDump(payload));
+
+                // --- Try Geode deserialize ---
                 try {
-                    value = geodeDeserializeString(valueBytes);
-                } catch (Exception e) {
-                    System.out.println("PUT value deserialize failed, falling back to printable text");
-                    value = bytesToString(valueBytes);
+                    String candidate = geodeDeserializeString(payload);
+
+                    if (candidate != null && !candidate.isBlank()) {
+                        System.out.println("DESERIALIZED STRING: " + candidate);
+
+                        if (candidate.startsWith("proto::")) {
+                            key = candidate;
+                        } else if (!candidate.startsWith("/") && !candidate.startsWith("proto::")) {
+                            value = candidate;
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // ignore
+                }
+
+                // --- Fallback raw string parsing ---
+                String text = new String(payload, StandardCharsets.UTF_8)
+                        .replace("\u0000", "")
+                        .trim();
+
+                if (!text.isBlank()) {
+                    System.out.println("RAW STRING: " + text);
+
+                    if (region == null && text.startsWith("/")) {
+                        region = text;
+                    } else if (key == null && text.startsWith("proto::")) {
+                        key = text;
+                    } else if (value == null && text.contains("value")) {
+                        value = text;
+                    }
                 }
             }
 
-            System.out.println("PUT REQUEST RECEIVED region=" + region + " key=" + key + " value=" + value);
+            System.out.println("PUT PARSED:");
+            System.out.println("  region=" + region);
+            System.out.println("  key=" + key);
+            System.out.println("  value=" + value);
 
-            if (!region.isEmpty() && !key.isEmpty() && value != null) {
-                STORE.put(docId(region, key), value);
+            if (region != null && key != null && value != null) {
+                String docId = region + "::" + key;
+
+                cbPut(docId, value);
+
+                System.out.println("PUT STORED docId=" + docId);
+            } else {
+                System.out.println("FAILED TO PARSE PUT");
             }
 
             ctx.writeAndFlush(Unpooled.wrappedBuffer(buildPutResponse(frame.getTransactionId())));
@@ -195,32 +287,52 @@ public class RawShimServer {
         }
     }
 
+    private static String cbGet(String docId) {
+        try {
+            GetResult result = collection.get(docId);
+            JsonObject content = result.contentAsObject();
+            System.out.println("CB GET OK docId=" + docId + " content=" + content);
+            if (content.containsKey("value")) {
+                return content.getString("value");
+            }
+            return null;
+        } catch (Exception e) {
+            System.out.println("CB GET MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+            return null;
+        }
+    }
+
+    private static void cbPut(String docId, String value) {
+        JsonObject body = JsonObject.create()
+                .put("value", value);
+
+        collection.upsert(docId, body);
+        System.out.println("CB UPSERT OK docId=" + docId + " body=" + body);
+    }
+
     private static byte[] buildGetResponse(int transactionId, String value) {
         byte[] serializedValue = geodeSerializeString(value);
 
         ByteBuf buf = Unpooled.buffer();
 
-        buf.writeInt(1);              // RESPONSE
-        buf.writeInt(0);              // payloadLength placeholder
-        buf.writeInt(3);              // numberOfParts
+        buf.writeInt(1);
+        buf.writeInt(0);
+        buf.writeInt(3);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
         int payloadStart = buf.writerIndex();
 
-        // Part 1: value object
         buf.writeInt(serializedValue.length);
-        buf.writeByte(0x01);          // OBJECT
+        buf.writeByte(0x01);
         buf.writeBytes(serializedValue);
 
-        // Part 2: flags/status int
         buf.writeInt(4);
-        buf.writeByte(0x00);          // BYTE/int-style
+        buf.writeByte(0x00);
         buf.writeInt(0);
 
-        // Part 3: metadata object
         buf.writeInt(RESPONSE_META.length);
-        buf.writeByte(0x01);          // OBJECT
+        buf.writeByte(0x01);
         buf.writeBytes(RESPONSE_META);
 
         int payloadLength = buf.writerIndex() - payloadStart;
@@ -234,27 +346,24 @@ public class RawShimServer {
     private static byte[] buildNullGetResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
-        buf.writeInt(1);              // RESPONSE
-        buf.writeInt(0);              // payloadLength placeholder
-        buf.writeInt(3);              // numberOfParts
+        buf.writeInt(1);
+        buf.writeInt(0);
+        buf.writeInt(3);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
         int payloadStart = buf.writerIndex();
 
-        // Part 1: null object marker
         buf.writeInt(1);
-        buf.writeByte(0x01);          // OBJECT
-        buf.writeByte(0x29);          // null marker
+        buf.writeByte(0x01);
+        buf.writeByte(0x29);
 
-        // Part 2: flags/status int
         buf.writeInt(4);
-        buf.writeByte(0x00);          // BYTE/int-style
+        buf.writeByte(0x00);
         buf.writeInt(0);
 
-        // Part 3: metadata object
         buf.writeInt(RESPONSE_META.length);
-        buf.writeByte(0x01);          // OBJECT
+        buf.writeByte(0x01);
         buf.writeBytes(RESPONSE_META);
 
         int payloadLength = buf.writerIndex() - payloadStart;
@@ -268,28 +377,24 @@ public class RawShimServer {
     private static byte[] buildPutResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
-        buf.writeInt(6);   // REPLY
-        buf.writeInt(0);   // payloadLength placeholder
-        buf.writeInt(3);   // numberOfParts
+        buf.writeInt(6);
+        buf.writeInt(0);
+        buf.writeInt(3);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
         int payloadStart = buf.writerIndex();
 
-        // PART 1: NULL old value
-        buf.writeInt(1);
+        buf.writeInt(0);
         buf.writeByte(0x01);
-        buf.writeByte(0x29);
 
-        // PART 2: flags
         buf.writeInt(4);
         buf.writeByte(0x00);
         buf.writeInt(4);
 
-        // PART 3: NULL VersionTag (THIS FIXES ClassCastException)
-        buf.writeInt(1);
+        buf.writeInt(PUT_RESPONSE_TAG.length);
         buf.writeByte(0x01);
-        buf.writeByte(0x29);
+        buf.writeBytes(PUT_RESPONSE_TAG);
 
         int payloadLength = buf.writerIndex() - payloadStart;
         buf.setInt(4, payloadLength);
@@ -322,7 +427,9 @@ public class RawShimServer {
     }
 
     private static String bytesToString(byte[] bytes) {
-        return new String(bytes, StandardCharsets.UTF_8).replace("\u0000", "").trim();
+        return new String(bytes, StandardCharsets.UTF_8)
+                .replace("\u0000", "")
+                .trim();
     }
 
     private static byte[] geodeSerializeString(String value) {
@@ -347,18 +454,6 @@ public class RawShimServer {
         }
     }
 
-    private static byte[] geodeSerializeObject(Object value) {
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            DataOutputStream dos = new DataOutputStream(baos);
-            DataSerializer.writeObject(value, dos);
-            dos.flush();
-            return baos.toByteArray();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialize object", e);
-        }
-    }
-
     private static byte[] hex(String s) {
         int len = s.length();
         byte[] out = new byte[len / 2];
@@ -366,5 +461,10 @@ public class RawShimServer {
             out[i / 2] = (byte) Integer.parseInt(s.substring(i, i + 2), 16);
         }
         return out;
+    }
+
+    private static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

@@ -8,21 +8,30 @@ import org.apache.geode.cache.client.ClientRegionShortcut;
 public class GetOnlyProbe {
     public static void main(String[] args) {
         String host = "127.0.0.1";
-        int port = 40405;
-        String regionName = "helloWorld";
-        String key = "proto::shim-put-test";
+        int port = 40405; // MUST match RawShimServer
 
-        try (ClientCache cache = new ClientCacheFactory()
-                .addPoolServer(host, port)
-                .set("log-level", "config")
-                .create()) {
+        ClientCache cache = null;
+        try {
+            cache = new ClientCacheFactory()
+                    .addPoolServer(host, port)
+                    .setPoolSubscriptionEnabled(false)
+                    .set("log-level", "warn")
+                    .create();
 
             Region<String, String> region = cache
                     .<String, String>createClientRegionFactory(ClientRegionShortcut.PROXY)
-                    .create(regionName);
+                    .create("helloWorld");
 
+            String key = "proto::shim-put-test";
             String value = region.get(key);
+
             System.out.println("GET: " + key + "=" + value);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (cache != null) {
+                cache.close();
+            }
         }
     }
 }
