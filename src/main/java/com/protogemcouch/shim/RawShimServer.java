@@ -181,6 +181,7 @@ public class RawShimServer {
                 case 0 -> handleGet(ctx, frame);
                 case 7 -> handlePut(ctx, frame);
                 case 9 -> handleRemove(ctx, frame);
+                case 38 -> handleContainsKey(ctx, frame);
                 case 18 -> {
                     System.out.println("CONTROL FRAME type=18 received");
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(buildSimpleAck(frame.getTransactionId())));
@@ -296,6 +297,25 @@ public class RawShimServer {
             ctx.writeAndFlush(Unpooled.wrappedBuffer(buildRemoveResponse(frame.getTransactionId())));
         }
 
+        private void handleContainsKey(ChannelHandlerContext ctx, GemFrame frame) {
+            String region = frame.getParts().size() > 0
+                    ? bytesToString(frame.getParts().get(0).getPayload())
+                    : "";
+            String key = frame.getParts().size() > 1
+                    ? bytesToString(frame.getParts().get(1).getPayload())
+                    : "";
+
+            String docId = docId(region, key);
+            boolean exists = cbContainsKey(docId);
+
+            System.out.println("CONTAINS KEY REQUEST RECEIVED region=" + region
+                    + " key=" + key
+                    + " docId=" + docId
+                    + " exists=" + exists);
+
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(buildContainsKeyResponse(frame.getTransactionId(), exists)));
+        }
+
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             cause.printStackTrace();
@@ -332,6 +352,17 @@ public class RawShimServer {
             System.out.println("CB REMOVE OK docId=" + docId);
         } catch (Exception e) {
             System.out.println("CB REMOVE MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+        }
+    }
+
+    private static boolean cbContainsKey(String docId) {
+        try {
+            boolean exists = collection.exists(docId).exists();
+            System.out.println("CB EXISTS OK docId=" + docId + " exists=" + exists);
+            return exists;
+        } catch (Exception e) {
+            System.out.println("CB EXISTS ERROR docId=" + docId + " msg=" + e.getMessage());
+            return false;
         }
     }
 
@@ -402,23 +433,20 @@ public class RawShimServer {
     private static byte[] buildPutResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
-        // Header
-        buf.writeInt(6);   // REPLY
-        buf.writeInt(16);  // payload length
-        buf.writeInt(2);   // 2 parts
+        buf.writeInt(6);
+        buf.writeInt(16);
+        buf.writeInt(2);
         buf.writeInt(transactionId);
-        buf.writeByte(0);  // flags
+        buf.writeByte(0);
 
-        // Part 0: metadata bytes expected by PutOp
-        buf.writeInt(2);       // part length
-        buf.writeByte(0x00);   // bytes part
-        buf.writeByte(0x00);   // version byte
-        buf.writeByte(0x00);   // metadata byte
+        buf.writeInt(2);
+        buf.writeByte(0x00);
+        buf.writeByte(0x00);
+        buf.writeByte(0x00);
 
-        // Part 1: flags int = 0
-        buf.writeInt(4);       // part length
-        buf.writeByte(0x00);   // bytes/int part
-        buf.writeInt(0);       // flags
+        buf.writeInt(4);
+        buf.writeByte(0x00);
+        buf.writeInt(0);
 
         byte[] responseBytes = ByteBufUtil.getBytes(buf);
         System.out.println("PUT RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
@@ -440,6 +468,31 @@ public class RawShimServer {
 
         byte[] responseBytes = ByteBufUtil.getBytes(buf);
         System.out.println("REMOVE RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
+        return responseBytes;
+    }
+
+    private static byte[] buildContainsKeyResponse(int transactionId, boolean exists) {
+        byte[] serializedBool = geodeSerializeBoolean(exists);
+
+        ByteBuf buf = Unpooled.buffer();
+
+        buf.writeInt(1);   // RESPONSE
+        buf.writeInt(0);   // payload length placeholder
+        buf.writeInt(1);   // one part
+        buf.writeInt(transactionId);
+        buf.writeByte(0);
+
+        int payloadStart = buf.writerIndex();
+
+        buf.writeInt(serializedBool.length);
+        buf.writeByte(0x01);
+        buf.writeBytes(serializedBool);
+
+        int payloadLength = buf.writerIndex() - payloadStart;
+        buf.setInt(4, payloadLength);
+
+        byte[] responseBytes = ByteBufUtil.getBytes(buf);
+        System.out.println("CONTAINS KEY RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
         return responseBytes;
     }
 
@@ -480,6 +533,18 @@ public class RawShimServer {
             return baos.toByteArray();
         } catch (Exception e) {
             throw new RuntimeException("Failed to Geode-serialize string: " + value, e);
+        }
+    }
+
+    private static byte[] geodeSerializeBoolean(boolean value) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputStream dos = new DataOutputStream(baos);
+            DataSerializer.writeObject(Boolean.valueOf(value), dos);
+            dos.flush();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to Geode-serialize boolean: " + value, e);
         }
     }
 
