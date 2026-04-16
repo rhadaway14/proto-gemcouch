@@ -45,10 +45,6 @@ public class RawShimServer {
             "01018800040000ff000300000003e1dba9ded533"
     );
 
-    private static final byte[] PUT_RESPONSE_TAG = hex(
-            "018800040000ff000300000003d18f8c81d633"
-    );
-
     private static final int SHIM_PORT = 40405;
 
     private static final String CB_CONNSTR = envOrDefault("CB_CONNSTR", "couchbase://127.0.0.1");
@@ -184,6 +180,7 @@ public class RawShimServer {
             switch (frame.getMessageType()) {
                 case 0 -> handleGet(ctx, frame);
                 case 7 -> handlePut(ctx, frame);
+                case 9 -> handleRemove(ctx, frame);
                 case 18 -> {
                     System.out.println("CONTROL FRAME type=18 received");
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(buildSimpleAck(frame.getTransactionId())));
@@ -192,7 +189,16 @@ public class RawShimServer {
                     System.out.println("PING FRAME received");
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(buildSimpleAck(frame.getTransactionId())));
                 }
-                default -> System.out.println("IGNORED FRAME type=" + frame.getMessageType());
+                default -> {
+                    System.out.println("UNKNOWN FRAME TYPE: " + frame.getMessageType());
+                    for (int i = 0; i < frame.getParts().size(); i++) {
+                        GemPart p = frame.getParts().get(i);
+                        System.out.println("unknown part[" + i + "] len=" + p.getLength()
+                                + " type=" + String.format("0x%02x", p.getTypeCode())
+                                + " hex=" + ByteBufUtil.hexDump(p.getPayload())
+                                + " text=" + bytesToString(p.getPayload()));
+                    }
+                }
             }
         }
 
@@ -224,10 +230,8 @@ public class RawShimServer {
             for (GemPart part : frame.getParts()) {
                 byte[] payload = part.getPayload();
 
-                // --- DEBUG: dump raw hex ---
                 System.out.println("PUT PART HEX: " + ByteBufUtil.hexDump(payload));
 
-                // --- Try Geode deserialize ---
                 try {
                     String candidate = geodeDeserializeString(payload);
 
@@ -241,10 +245,8 @@ public class RawShimServer {
                         }
                     }
                 } catch (Exception ignored) {
-                    // ignore
                 }
 
-                // --- Fallback raw string parsing ---
                 String text = new String(payload, StandardCharsets.UTF_8)
                         .replace("\u0000", "")
                         .trim();
@@ -268,16 +270,30 @@ public class RawShimServer {
             System.out.println("  value=" + value);
 
             if (region != null && key != null && value != null) {
-                String docId = region + "::" + key;
-
+                String docId = docId(region, key);
                 cbPut(docId, value);
-
                 System.out.println("PUT STORED docId=" + docId);
             } else {
                 System.out.println("FAILED TO PARSE PUT");
             }
 
             ctx.writeAndFlush(Unpooled.wrappedBuffer(buildPutResponse(frame.getTransactionId())));
+        }
+
+        private void handleRemove(ChannelHandlerContext ctx, GemFrame frame) {
+            String region = frame.getParts().size() > 0
+                    ? bytesToString(frame.getParts().get(0).getPayload())
+                    : "";
+            String key = frame.getParts().size() > 1
+                    ? bytesToString(frame.getParts().get(1).getPayload())
+                    : "";
+
+            String docId = docId(region, key);
+            System.out.println("REMOVE REQUEST RECEIVED region=" + region + " key=" + key + " docId=" + docId);
+
+            cbRemove(docId);
+
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(buildRemoveResponse(frame.getTransactionId())));
         }
 
         @Override
@@ -308,6 +324,15 @@ public class RawShimServer {
 
         collection.upsert(docId, body);
         System.out.println("CB UPSERT OK docId=" + docId + " body=" + body);
+    }
+
+    private static void cbRemove(String docId) {
+        try {
+            collection.remove(docId);
+            System.out.println("CB REMOVE OK docId=" + docId);
+        } catch (Exception e) {
+            System.out.println("CB REMOVE MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+        }
     }
 
     private static byte[] buildGetResponse(int transactionId, String value) {
@@ -377,30 +402,44 @@ public class RawShimServer {
     private static byte[] buildPutResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
-        buf.writeInt(6);
-        buf.writeInt(0);
-        buf.writeInt(3);
+        // Header
+        buf.writeInt(6);   // REPLY
+        buf.writeInt(16);  // payload length
+        buf.writeInt(2);   // 2 parts
         buf.writeInt(transactionId);
-        buf.writeByte(0);
+        buf.writeByte(0);  // flags
 
-        int payloadStart = buf.writerIndex();
+        // Part 0: metadata bytes expected by PutOp
+        buf.writeInt(2);       // part length
+        buf.writeByte(0x00);   // bytes part
+        buf.writeByte(0x00);   // version byte
+        buf.writeByte(0x00);   // metadata byte
 
-        buf.writeInt(0);
-        buf.writeByte(0x01);
-
-        buf.writeInt(4);
-        buf.writeByte(0x00);
-        buf.writeInt(4);
-
-        buf.writeInt(PUT_RESPONSE_TAG.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(PUT_RESPONSE_TAG);
-
-        int payloadLength = buf.writerIndex() - payloadStart;
-        buf.setInt(4, payloadLength);
+        // Part 1: flags int = 0
+        buf.writeInt(4);       // part length
+        buf.writeByte(0x00);   // bytes/int part
+        buf.writeInt(0);       // flags
 
         byte[] responseBytes = ByteBufUtil.getBytes(buf);
         System.out.println("PUT RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
+        return responseBytes;
+    }
+
+    private static byte[] buildRemoveResponse(int transactionId) {
+        ByteBuf buf = Unpooled.buffer();
+
+        buf.writeInt(6);
+        buf.writeInt(9);
+        buf.writeInt(1);
+        buf.writeInt(transactionId);
+        buf.writeByte(0);
+
+        buf.writeInt(4);
+        buf.writeByte(0x00);
+        buf.writeInt(0);
+
+        byte[] responseBytes = ByteBufUtil.getBytes(buf);
+        System.out.println("REMOVE RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
         return responseBytes;
     }
 

@@ -5,9 +5,7 @@ import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 
-import java.util.UUID;
-
-public class App {
+public class RemoveOnlyProbe {
     public static void main(String[] args) {
         String host = "127.0.0.1";
         int port = 40405;
@@ -24,26 +22,11 @@ public class App {
                     .<String, String>createClientRegionFactory(ClientRegionShortcut.PROXY)
                     .create("helloWorld");
 
-            String key = "proto::" + UUID.randomUUID();
-            String value = "hello-proto-gemcouch";
-
-            System.out.println("CONNECTED");
-
-            System.out.println("PUT START");
-            region.put(key, value);
-            System.out.println("PUT DONE");
-
-            System.out.println("GET START");
-            String fetched = region.get(key);
-            System.out.println("GET DONE: " + fetched);
+            String key = "proto::remove-test";
 
             System.out.println("REMOVE START");
             Object removed = region.remove(key);
             System.out.println("REMOVE DONE: " + removed);
-
-            System.out.println("GET AFTER REMOVE START");
-            String afterRemove = region.get(key);
-            System.out.println("GET AFTER REMOVE DONE: " + afterRemove);
 
             System.out.println("DONE");
         } catch (Exception e) {

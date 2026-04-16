@@ -8,7 +8,7 @@ import org.apache.geode.cache.client.ClientRegionShortcut;
 public class GetOnlyProbe {
     public static void main(String[] args) {
         String host = "127.0.0.1";
-        int port = 40405; // MUST match RawShimServer
+        int port = 40405;
 
         ClientCache cache = null;
         try {

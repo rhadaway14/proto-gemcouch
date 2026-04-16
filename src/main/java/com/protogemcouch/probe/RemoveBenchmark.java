@@ -5,12 +5,11 @@ import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 
-import java.util.UUID;
-
-public class App {
+public class RemoveBenchmark {
     public static void main(String[] args) {
         String host = "127.0.0.1";
         int port = 40405;
+        int iterations = 1000;
 
         ClientCache cache = null;
         try {
@@ -24,28 +23,27 @@ public class App {
                     .<String, String>createClientRegionFactory(ClientRegionShortcut.PROXY)
                     .create("helloWorld");
 
-            String key = "proto::" + UUID.randomUUID();
-            String value = "hello-proto-gemcouch";
+            for (int i = 0; i < iterations; i++) {
+                region.put("proto::bench-remove-" + i, "value-" + i);
+            }
 
-            System.out.println("CONNECTED");
+            long start = System.nanoTime();
 
-            System.out.println("PUT START");
-            region.put(key, value);
-            System.out.println("PUT DONE");
+            for (int i = 0; i < iterations; i++) {
+                region.remove("proto::bench-remove-" + i);
+            }
 
-            System.out.println("GET START");
-            String fetched = region.get(key);
-            System.out.println("GET DONE: " + fetched);
+            long end = System.nanoTime();
+            double seconds = (end - start) / 1_000_000_000.0;
+            double opsPerSec = iterations / seconds;
+            double avgMs = ((end - start) / 1_000_000.0) / iterations;
 
-            System.out.println("REMOVE START");
-            Object removed = region.remove(key);
-            System.out.println("REMOVE DONE: " + removed);
+            System.out.println("REMOVE benchmark results");
+            System.out.println("Iterations: " + iterations);
+            System.out.println("Total seconds: " + seconds);
+            System.out.println("Ops/sec: " + opsPerSec);
+            System.out.println("Avg ms/op: " + avgMs);
 
-            System.out.println("GET AFTER REMOVE START");
-            String afterRemove = region.get(key);
-            System.out.println("GET AFTER REMOVE DONE: " + afterRemove);
-
-            System.out.println("DONE");
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
