@@ -24,6 +24,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.apache.geode.DataSerializer;
+import org.apache.geode.internal.cache.tier.sockets.VersionedObjectList;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -31,6 +32,10 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class RawShimServer {
 
@@ -53,6 +58,10 @@ public class RawShimServer {
     private static final String CB_BUCKET = envOrDefault("CB_BUCKET", "test");
     private static final String CB_SCOPE = envOrDefault("CB_SCOPE", "_default");
     private static final String CB_COLLECTION = envOrDefault("CB_COLLECTION", "_default");
+
+    private static final int CONTAINS_MODE_KEY = 0;
+    private static final int CONTAINS_MODE_VALUE_FOR_KEY = 1;
+    private static final int CONTAINS_MODE_VALUE = 2;
 
     private static Cluster cluster;
     private static Bucket bucket;
@@ -169,19 +178,15 @@ public class RawShimServer {
                     + " parts=" + frame.getNumberOfParts()
                     + " txId=" + frame.getTransactionId());
 
-            for (int i = 0; i < frame.getParts().size(); i++) {
-                GemPart p = frame.getParts().get(i);
-                String printable = new String(p.getPayload(), StandardCharsets.UTF_8);
-                System.out.println("part[" + i + "] len=" + p.getLength()
-                        + " type=" + String.format("0x%02x", p.getTypeCode())
-                        + " text=" + printable);
-            }
+            dumpParts("part", frame);
 
             switch (frame.getMessageType()) {
                 case 0 -> handleGet(ctx, frame);
                 case 7 -> handlePut(ctx, frame);
                 case 9 -> handleRemove(ctx, frame);
-                case 38 -> handleContainsKey(ctx, frame);
+                case 38 -> handleContainsOp(ctx, frame);
+                case 73 -> handleGetClientPartitionAttributes(ctx, frame);
+                case 100 -> handleGetAll(ctx, frame);
                 case 18 -> {
                     System.out.println("CONTROL FRAME type=18 received");
                     ctx.writeAndFlush(Unpooled.wrappedBuffer(buildSimpleAck(frame.getTransactionId())));
@@ -192,13 +197,7 @@ public class RawShimServer {
                 }
                 default -> {
                     System.out.println("UNKNOWN FRAME TYPE: " + frame.getMessageType());
-                    for (int i = 0; i < frame.getParts().size(); i++) {
-                        GemPart p = frame.getParts().get(i);
-                        System.out.println("unknown part[" + i + "] len=" + p.getLength()
-                                + " type=" + String.format("0x%02x", p.getTypeCode())
-                                + " hex=" + ByteBufUtil.hexDump(p.getPayload())
-                                + " text=" + bytesToString(p.getPayload()));
-                    }
+                    dumpParts("unknown", frame);
                 }
             }
         }
@@ -297,23 +296,95 @@ public class RawShimServer {
             ctx.writeAndFlush(Unpooled.wrappedBuffer(buildRemoveResponse(frame.getTransactionId())));
         }
 
-        private void handleContainsKey(ChannelHandlerContext ctx, GemFrame frame) {
+        private void handleContainsOp(ChannelHandlerContext ctx, GemFrame frame) {
             String region = frame.getParts().size() > 0
                     ? bytesToString(frame.getParts().get(0).getPayload())
                     : "";
             String key = frame.getParts().size() > 1
                     ? bytesToString(frame.getParts().get(1).getPayload())
                     : "";
+            int mode = frame.getParts().size() > 2
+                    ? bytesToInt(frame.getParts().get(2).getPayload())
+                    : CONTAINS_MODE_KEY;
 
             String docId = docId(region, key);
-            boolean exists = cbContainsKey(docId);
+            boolean result;
 
-            System.out.println("CONTAINS KEY REQUEST RECEIVED region=" + region
-                    + " key=" + key
-                    + " docId=" + docId
-                    + " exists=" + exists);
+            if (mode == CONTAINS_MODE_KEY) {
+                result = cbContainsKey(docId);
+                System.out.println("CONTAINS KEY REQUEST RECEIVED region=" + region
+                        + " key=" + key
+                        + " docId=" + docId
+                        + " result=" + result);
+            } else if (mode == CONTAINS_MODE_VALUE_FOR_KEY) {
+                result = cbContainsValueForKey(docId);
+                System.out.println("CONTAINS VALUE FOR KEY REQUEST RECEIVED region=" + region
+                        + " key=" + key
+                        + " docId=" + docId
+                        + " result=" + result);
+            } else if (mode == CONTAINS_MODE_VALUE) {
+                result = false;
+                System.out.println("CONTAINS VALUE REQUEST RECEIVED region=" + region
+                        + " key=" + key
+                        + " docId=" + docId
+                        + " result=" + result
+                        + " (not implemented)");
+            } else {
+                result = false;
+                System.out.println("UNKNOWN CONTAINS MODE region=" + region
+                        + " key=" + key
+                        + " docId=" + docId
+                        + " mode=" + mode
+                        + " result=" + result);
+            }
 
-            ctx.writeAndFlush(Unpooled.wrappedBuffer(buildContainsKeyResponse(frame.getTransactionId(), exists)));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(buildContainsResponse(frame.getTransactionId(), result)));
+        }
+
+        private void handleGetClientPartitionAttributes(ChannelHandlerContext ctx, GemFrame frame) {
+            String region = frame.getParts().size() > 0
+                    ? bytesToString(frame.getParts().get(0).getPayload())
+                    : "";
+            System.out.println("GET_CLIENT_PARTITION_ATTRIBUTES observed for region=" + region + " txId=" + frame.getTransactionId());
+            System.out.println("No explicit response implemented yet for type=73");
+        }
+
+        private void handleGetAll(ChannelHandlerContext ctx, GemFrame frame) {
+            String region = frame.getParts().size() > 0
+                    ? bytesToString(frame.getParts().get(0).getPayload())
+                    : "";
+
+            System.out.println("GET ALL REQUEST RECEIVED type=" + frame.getMessageType()
+                    + " region=" + region
+                    + " txId=" + frame.getTransactionId());
+
+            List<String> keys = new ArrayList<>();
+            if (frame.getParts().size() > 1) {
+                byte[] keyPayload = frame.getParts().get(1).getPayload();
+                System.out.println("GET ALL KEYS RAW HEX: " + ByteBufUtil.hexDump(keyPayload));
+                System.out.println("GET ALL KEYS RAW TEXT: " + bytesToString(keyPayload));
+                logGetAllKeyHints(keyPayload);
+
+                try {
+                    keys = deserializeGetAllKeys(keyPayload);
+                    System.out.println("GET ALL DESERIALIZED KEYS: " + keys);
+                } catch (Exception e) {
+                    System.out.println("GET ALL KEY DESERIALIZE ERROR: " + e.getMessage());
+                }
+            }
+
+            if (frame.getParts().size() > 2) {
+                byte[] callbackPayload = frame.getParts().get(2).getPayload();
+                System.out.println("GET ALL CALLBACK/CFG HEX: " + ByteBufUtil.hexDump(callbackPayload));
+                System.out.println("GET ALL CALLBACK/CFG INT: " + bytesToInt(callbackPayload));
+            }
+
+            Map<String, String> results = cbGetAll(region, keys);
+            System.out.println("GET ALL COUCHBASE RESULTS: " + results);
+
+            byte[] responseBytes = buildGetAllChunkedResponse(frame.getTransactionId(), keys, results);
+            System.out.println("GET ALL CHUNKED RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(responseBytes));
         }
 
         @Override
@@ -338,10 +409,18 @@ public class RawShimServer {
         }
     }
 
-    private static void cbPut(String docId, String value) {
-        JsonObject body = JsonObject.create()
-                .put("value", value);
+    private static Map<String, String> cbGetAll(String region, List<String> keys) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String key : keys) {
+            String docId = docId(region, key);
+            String value = cbGet(docId);
+            out.put(key, value);
+        }
+        return out;
+    }
 
+    private static void cbPut(String docId, String value) {
+        JsonObject body = JsonObject.create().put("value", value);
         collection.upsert(docId, body);
         System.out.println("CB UPSERT OK docId=" + docId + " body=" + body);
     }
@@ -366,11 +445,23 @@ public class RawShimServer {
         }
     }
 
+    private static boolean cbContainsValueForKey(String docId) {
+        try {
+            GetResult result = collection.get(docId);
+            JsonObject content = result.contentAsObject();
+            boolean hasValue = content != null && content.containsKey("value") && content.get("value") != null;
+            System.out.println("CB CONTAINS VALUE FOR KEY OK docId=" + docId + " hasValue=" + hasValue + " content=" + content);
+            return hasValue;
+        } catch (Exception e) {
+            System.out.println("CB CONTAINS VALUE FOR KEY MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+            return false;
+        }
+    }
+
     private static byte[] buildGetResponse(int transactionId, String value) {
         byte[] serializedValue = geodeSerializeString(value);
 
         ByteBuf buf = Unpooled.buffer();
-
         buf.writeInt(1);
         buf.writeInt(0);
         buf.writeInt(3);
@@ -394,14 +485,11 @@ public class RawShimServer {
         int payloadLength = buf.writerIndex() - payloadStart;
         buf.setInt(4, payloadLength);
 
-        byte[] responseBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("GET RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
-        return responseBytes;
+        return ByteBufUtil.getBytes(buf);
     }
 
     private static byte[] buildNullGetResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
-
         buf.writeInt(1);
         buf.writeInt(0);
         buf.writeInt(3);
@@ -425,9 +513,7 @@ public class RawShimServer {
         int payloadLength = buf.writerIndex() - payloadStart;
         buf.setInt(4, payloadLength);
 
-        byte[] responseBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("NULL GET RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
-        return responseBytes;
+        return ByteBufUtil.getBytes(buf);
     }
 
     private static byte[] buildPutResponse(int transactionId) {
@@ -448,9 +534,7 @@ public class RawShimServer {
         buf.writeByte(0x00);
         buf.writeInt(0);
 
-        byte[] responseBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("PUT RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
-        return responseBytes;
+        return ByteBufUtil.getBytes(buf);
     }
 
     private static byte[] buildRemoveResponse(int transactionId) {
@@ -466,19 +550,16 @@ public class RawShimServer {
         buf.writeByte(0x00);
         buf.writeInt(0);
 
-        byte[] responseBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("REMOVE RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
-        return responseBytes;
+        return ByteBufUtil.getBytes(buf);
     }
 
-    private static byte[] buildContainsKeyResponse(int transactionId, boolean exists) {
+    private static byte[] buildContainsResponse(int transactionId, boolean exists) {
         byte[] serializedBool = geodeSerializeBoolean(exists);
 
         ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(1);   // RESPONSE
-        buf.writeInt(0);   // payload length placeholder
-        buf.writeInt(1);   // one part
+        buf.writeInt(1);
+        buf.writeInt(0);
+        buf.writeInt(1);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
@@ -491,9 +572,7 @@ public class RawShimServer {
         int payloadLength = buf.writerIndex() - payloadStart;
         buf.setInt(4, payloadLength);
 
-        byte[] responseBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("CONTAINS KEY RESPONSE HEX: " + ByteBufUtil.hexDump(responseBytes));
-        return responseBytes;
+        return ByteBufUtil.getBytes(buf);
     }
 
     private static byte[] buildSimpleAck(int transactionId) {
@@ -509,9 +588,107 @@ public class RawShimServer {
         buf.writeByte(0x00);
         buf.writeByte(0x00);
 
-        byte[] ackBytes = ByteBufUtil.getBytes(buf);
-        System.out.println("ACK HEX: " + ByteBufUtil.hexDump(ackBytes));
-        return ackBytes;
+        return ByteBufUtil.getBytes(buf);
+    }
+
+    private static byte[] buildGetAllChunkedResponse(int transactionId,
+                                                     List<String> keys,
+                                                     Map<String, String> results) {
+        VersionedObjectList vol = new VersionedObjectList(keys.size(), false, false, false);
+
+        for (String key : keys) {
+            String value = results.get(key);
+            if (value == null) {
+                vol.addObjectPartForAbsentKey(null, null, null);
+            } else {
+                vol.addObjectPart(null, value, true, null);
+            }
+        }
+
+        byte[] volBytes = geodeSerializeObject(vol);
+
+        // ChunkedMessage wire format:
+        // main header: messageType(4) + numberOfParts(4) + txId(4)
+        // chunk header: chunkLength(4) + lastChunk(1)
+        // chunk payload: normal part encoding
+        ByteBuf buf = Unpooled.buffer();
+
+        // Main chunked message header
+        buf.writeInt(1); // RESPONSE
+        buf.writeInt(1); // numberOfParts
+        buf.writeInt(transactionId);
+
+        // One final chunk
+        int chunkLength = 4 + 1 + volBytes.length;
+        buf.writeInt(chunkLength);
+        buf.writeByte(0x01); // last chunk = true
+
+        // Part 0
+        buf.writeInt(volBytes.length);
+        buf.writeByte(0x01); // object part
+        buf.writeBytes(volBytes);
+
+        return ByteBufUtil.getBytes(buf);
+    }
+
+    private static void dumpParts(String prefix, GemFrame frame) {
+        for (int i = 0; i < frame.getParts().size(); i++) {
+            GemPart p = frame.getParts().get(i);
+            System.out.println(prefix + " part[" + i + "] len=" + p.getLength()
+                    + " type=" + String.format("0x%02x", p.getTypeCode())
+                    + " hex=" + ByteBufUtil.hexDump(p.getPayload())
+                    + " text=" + bytesToString(p.getPayload()));
+        }
+    }
+
+    private static void logGetAllKeyHints(byte[] payload) {
+        String text = new String(payload, StandardCharsets.UTF_8);
+        System.out.println("GET ALL KEY HINT TEXT: " + text);
+
+        String[] hints = {
+                "proto::getall-1",
+                "proto::getall-2",
+                "proto::getall-missing"
+        };
+
+        for (String hint : hints) {
+            if (text.contains(hint)) {
+                System.out.println("GET ALL KEY FOUND IN PAYLOAD: " + hint);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> deserializeGetAllKeys(byte[] payload) {
+        try {
+            ByteArrayInputStream bais = new ByteArrayInputStream(payload);
+            DataInputStream dis = new DataInputStream(bais);
+            Object obj = DataSerializer.readObject(dis);
+
+            List<String> keys = new ArrayList<>();
+
+            if (obj instanceof Object[] arr) {
+                for (Object o : arr) {
+                    keys.add(String.valueOf(o));
+                }
+                return keys;
+            }
+
+            if (obj instanceof Iterable<?> iterable) {
+                for (Object o : iterable) {
+                    keys.add(String.valueOf(o));
+                }
+                return keys;
+            }
+
+            if (obj != null) {
+                keys.add(String.valueOf(obj));
+            }
+
+            return keys;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize getAll keys", e);
+        }
     }
 
     private static String docId(String region, String key) {
@@ -522,6 +699,16 @@ public class RawShimServer {
         return new String(bytes, StandardCharsets.UTF_8)
                 .replace("\u0000", "")
                 .trim();
+    }
+
+    private static int bytesToInt(byte[] bytes) {
+        if (bytes == null || bytes.length < 4) {
+            return 0;
+        }
+        return ((bytes[0] & 0xFF) << 24)
+                | ((bytes[1] & 0xFF) << 16)
+                | ((bytes[2] & 0xFF) << 8)
+                | (bytes[3] & 0xFF);
     }
 
     private static byte[] geodeSerializeString(String value) {
@@ -545,6 +732,18 @@ public class RawShimServer {
             return baos.toByteArray();
         } catch (Exception e) {
             throw new RuntimeException("Failed to Geode-serialize boolean: " + value, e);
+        }
+    }
+
+    private static byte[] geodeSerializeObject(Object value) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputStream dos = new DataOutputStream(baos);
+            DataSerializer.writeObject(value, dos);
+            dos.flush();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to Geode-serialize object: " + value, e);
         }
     }
 
