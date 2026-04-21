@@ -1,4 +1,4 @@
-package com.protogemcouch.shim;
+package com.protogemcouch.server;
 
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
