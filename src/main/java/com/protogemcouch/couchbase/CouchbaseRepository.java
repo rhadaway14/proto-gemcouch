@@ -7,9 +7,12 @@ import com.couchbase.client.java.Scope;
 import com.couchbase.client.java.env.ClusterEnvironment;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.query.QueryOptions;
+import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -129,7 +132,70 @@ public class CouchbaseRepository {
         }
     }
 
+    public int size(String region) {
+        try {
+            String prefix = region + "::%";
+            String statement = "SELECT RAW COUNT(1) FROM "
+                    + q(config.getCouchbaseBucket()) + "."
+                    + q(config.getCouchbaseScope()) + "."
+                    + q(config.getCouchbaseCollection())
+                    + " WHERE META().id LIKE $prefix";
+
+            QueryResult result = cluster.query(
+                    statement,
+                    QueryOptions.queryOptions()
+                            .parameters(JsonObject.create().put("prefix", prefix))
+            );
+
+            List<Long> rows = result.rowsAs(Long.class);
+            int count = rows.isEmpty() ? 0 : rows.get(0).intValue();
+            System.out.println("CB SIZE OK region=" + region + " count=" + count);
+            return count;
+        } catch (Exception e) {
+            System.out.println("CB SIZE ERROR region=" + region + " msg=" + e.getMessage());
+            return 0;
+        }
+    }
+
+    public List<String> keySet(String region) {
+        try {
+            String regionPrefix = region + "::";
+            String likePrefix = regionPrefix + "%";
+
+            String statement = "SELECT RAW META().id FROM "
+                    + q(config.getCouchbaseBucket()) + "."
+                    + q(config.getCouchbaseScope()) + "."
+                    + q(config.getCouchbaseCollection())
+                    + " WHERE META().id LIKE $prefix";
+
+            QueryResult result = cluster.query(
+                    statement,
+                    QueryOptions.queryOptions()
+                            .parameters(JsonObject.create().put("prefix", likePrefix))
+            );
+
+            List<String> ids = result.rowsAs(String.class);
+            List<String> keys = new ArrayList<>();
+
+            for (String id : ids) {
+                if (id != null && id.startsWith(regionPrefix)) {
+                    keys.add(id.substring(regionPrefix.length()));
+                }
+            }
+
+            System.out.println("CB KEY SET OK region=" + region + " keys=" + keys);
+            return keys;
+        } catch (Exception e) {
+            System.out.println("CB KEY SET ERROR region=" + region + " msg=" + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
     public static String docId(String region, String key) {
         return region + "::" + key;
+    }
+
+    private static String q(String identifier) {
+        return "`" + identifier.replace("`", "``") + "`";
     }
 }

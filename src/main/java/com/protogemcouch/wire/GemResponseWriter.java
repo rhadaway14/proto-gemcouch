@@ -101,21 +101,16 @@ public final class GemResponseWriter {
     public static byte[] buildRemoveResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
-        // DestroyOp expects:
-        // part 0 = flags int
-        // part 1 = OK byte / metadata skip part
         buf.writeInt(MessageTypes.REPLY);
         buf.writeInt(15);
         buf.writeInt(2);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
-        // part 0: flags = 0
         buf.writeInt(4);
         buf.writeByte(0x00);
         buf.writeInt(0);
 
-        // part 1: OK byte
         buf.writeInt(1);
         buf.writeByte(0x00);
         buf.writeByte(0x00);
@@ -138,6 +133,28 @@ public final class GemResponseWriter {
         buf.writeInt(serializedBool.length);
         buf.writeByte(0x01);
         buf.writeBytes(serializedBool);
+
+        int payloadLength = buf.writerIndex() - payloadStart;
+        buf.setInt(4, payloadLength);
+
+        return ByteBufUtil.getBytes(buf);
+    }
+
+    public static byte[] buildSizeResponse(int transactionId, int size) {
+        byte[] serializedSize = GeodeSerialization.serializeObject(Integer.valueOf(size));
+
+        ByteBuf buf = Unpooled.buffer();
+        buf.writeInt(MessageTypes.RESPONSE);
+        buf.writeInt(0);
+        buf.writeInt(1);
+        buf.writeInt(transactionId);
+        buf.writeByte(0);
+
+        int payloadStart = buf.writerIndex();
+
+        buf.writeInt(serializedSize.length);
+        buf.writeByte(0x01);
+        buf.writeBytes(serializedSize);
 
         int payloadLength = buf.writerIndex() - payloadStart;
         buf.setInt(4, payloadLength);
@@ -212,6 +229,26 @@ public final class GemResponseWriter {
         buf.writeInt(volBytes.length);
         buf.writeByte(0x01);
         buf.writeBytes(volBytes);
+
+        return ByteBufUtil.getBytes(buf);
+    }
+
+    public static byte[] buildKeySetChunkedResponse(int transactionId, List<String> keys) {
+        byte[] listBytes = GeodeSerialization.serializeObject(keys);
+
+        ByteBuf buf = Unpooled.buffer();
+
+        buf.writeInt(MessageTypes.RESPONSE);
+        buf.writeInt(1);
+        buf.writeInt(transactionId);
+
+        int chunkLength = 4 + 1 + listBytes.length;
+        buf.writeInt(chunkLength);
+        buf.writeByte(0x01);
+
+        buf.writeInt(listBytes.length);
+        buf.writeByte(0x01);
+        buf.writeBytes(listBytes);
 
         return ByteBufUtil.getBytes(buf);
     }

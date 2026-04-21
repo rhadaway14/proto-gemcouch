@@ -12,8 +12,12 @@ public final class MessageTypes {
     public static final int REMOVE = 9;
     public static final int CONTROL = 18;
     public static final int CONTAINS_KEY = 38;
+    public static final int KEY_SET = 40;
+    public static final int KEY_SET_DATA_ERROR = 41;
     public static final int PUT_ALL = 56;
     public static final int GET_CLIENT_PARTITION_ATTRIBUTES = 73;
+    public static final int SIZE = 81;
+    public static final int SIZE_ERROR = 82;
     public static final int GET_ALL_70 = 100;
 
     // Response opcodes
