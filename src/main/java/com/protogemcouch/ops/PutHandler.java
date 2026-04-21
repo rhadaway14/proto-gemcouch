@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.CouchbaseRepository;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -25,39 +26,49 @@ public class PutHandler implements OperationHandler {
         String key = null;
         String value = null;
 
-        for (GemPart part : frame.getParts()) {
+        for (int i = 0; i < frame.getParts().size(); i++) {
+            GemPart part = frame.getParts().get(i);
             byte[] payload = part.getPayload();
 
-            System.out.println("PUT PART HEX: " + ByteBufUtil.hexDump(payload));
+            System.out.println("PUT PART[" + i + "] HEX: " + ByteBufUtil.hexDump(payload));
+            System.out.println("PUT PART[" + i + "] TEXT: " +
+                    new String(payload, StandardCharsets.UTF_8).replace("\u0000", "").trim());
+        }
 
+        // Observed put layout:
+        // part[0] = region
+        // part[1] = op flags / marker
+        // part[2] = callback arg / int 0
+        // part[3] = key
+        // part[4] = serialized metadata / 3500
+        // part[5] = value object
+        // part[6] = event id bytes
+
+        if (frame.getParts().size() > 0) {
+            region = ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
+        }
+
+        if (frame.getParts().size() > 3) {
+            key = ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
+        }
+
+        if (frame.getParts().size() > 5) {
+            byte[] valuePayload = frame.getParts().get(5).getPayload();
             try {
-                String candidate = GeodeSerialization.deserializeString(payload);
-
-                if (candidate != null && !candidate.isBlank()) {
-                    System.out.println("DESERIALIZED STRING: " + candidate);
-
-                    if (candidate.startsWith("proto::")) {
-                        key = candidate;
-                    } else if (!candidate.startsWith("/") && !candidate.startsWith("proto::")) {
-                        value = candidate;
-                    }
+                Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+                if (rawValue != null) {
+                    value = String.valueOf(rawValue);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                System.out.println("PUT VALUE DESERIALIZE ERROR: " + e.getMessage());
             }
 
-            String text = new String(payload, StandardCharsets.UTF_8)
-                    .replace("\u0000", "")
-                    .trim();
-
-            if (!text.isBlank()) {
-                System.out.println("RAW STRING: " + text);
-
-                if (region == null && text.startsWith("/")) {
-                    region = text;
-                } else if (key == null && text.startsWith("proto::")) {
-                    key = text;
-                } else if (value == null && text.contains("value")) {
-                    value = text;
+            if (value == null) {
+                String fallback = new String(valuePayload, StandardCharsets.UTF_8)
+                        .replace("\u0000", "")
+                        .trim();
+                if (!fallback.isBlank()) {
+                    value = fallback;
                 }
             }
         }
@@ -67,7 +78,9 @@ public class PutHandler implements OperationHandler {
         System.out.println("  key=" + key);
         System.out.println("  value=" + value);
 
-        if (region != null && key != null && value != null) {
+        if (region != null && !region.isBlank()
+                && key != null && !key.isBlank()
+                && value != null) {
             String docId = CouchbaseRepository.docId(region, key);
             repository.put(docId, value);
             System.out.println("PUT STORED docId=" + docId);
@@ -75,6 +88,8 @@ public class PutHandler implements OperationHandler {
             System.out.println("FAILED TO PARSE PUT");
         }
 
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutResponse(frame.getTransactionId())));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                GemResponseWriter.buildPutResponse(frame.getTransactionId())
+        ));
     }
 }

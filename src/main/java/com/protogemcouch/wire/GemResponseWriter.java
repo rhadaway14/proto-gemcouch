@@ -101,15 +101,24 @@ public final class GemResponseWriter {
     public static byte[] buildRemoveResponse(int transactionId) {
         ByteBuf buf = Unpooled.buffer();
 
+        // DestroyOp expects:
+        // part 0 = flags int
+        // part 1 = OK byte / metadata skip part
         buf.writeInt(MessageTypes.REPLY);
-        buf.writeInt(9);
-        buf.writeInt(1);
+        buf.writeInt(15);
+        buf.writeInt(2);
         buf.writeInt(transactionId);
         buf.writeByte(0);
 
+        // part 0: flags = 0
         buf.writeInt(4);
         buf.writeByte(0x00);
         buf.writeInt(0);
+
+        // part 1: OK byte
+        buf.writeInt(1);
+        buf.writeByte(0x00);
+        buf.writeByte(0x00);
 
         return ByteBufUtil.getBytes(buf);
     }
