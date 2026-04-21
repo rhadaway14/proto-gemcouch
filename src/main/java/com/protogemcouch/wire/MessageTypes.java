@@ -1,4 +1,26 @@
 package com.protogemcouch.wire;
 
-public class MessageTypes {
+public final class MessageTypes {
+
+    private MessageTypes() {
+    }
+
+    // Request opcodes
+    public static final int GET = 0;
+    public static final int PUT = 7;
+    public static final int REMOVE = 9;
+    public static final int PING = 5;
+    public static final int CONTAINS_KEY = 38;
+    public static final int GET_CLIENT_PARTITION_ATTRIBUTES = 73;
+    public static final int GET_ALL_70 = 100;
+    public static final int CONTROL = 18;
+
+    // Response opcodes
+    public static final int RESPONSE = 1;
+    public static final int REPLY = 6;
+
+    // Contains modes
+    public static final int CONTAINS_MODE_KEY = 0;
+    public static final int CONTAINS_MODE_VALUE_FOR_KEY = 1;
+    public static final int CONTAINS_MODE_VALUE = 2;
 }
