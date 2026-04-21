@@ -8,6 +8,7 @@ import com.protogemcouch.ops.GetClientPartitionAttributesHandler;
 import com.protogemcouch.ops.GetHandler;
 import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
+import com.protogemcouch.ops.PutAllHandler;
 import com.protogemcouch.ops.PutHandler;
 import com.protogemcouch.ops.RemoveHandler;
 import com.protogemcouch.ops.SimpleAckHandler;
@@ -84,6 +85,7 @@ public class RawShimServer {
         opcodeRegistry.register(MessageTypes.PUT, new PutHandler(repository));
         opcodeRegistry.register(MessageTypes.REMOVE, new RemoveHandler(repository));
         opcodeRegistry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository));
+        opcodeRegistry.register(MessageTypes.PUT_ALL, new PutAllHandler(repository));
         opcodeRegistry.register(MessageTypes.GET_CLIENT_PARTITION_ATTRIBUTES, new GetClientPartitionAttributesHandler());
         opcodeRegistry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository));
         opcodeRegistry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));

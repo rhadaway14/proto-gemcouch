@@ -60,6 +60,16 @@ public final class GeodeSerialization {
         }
     }
 
+    public static Object deserializeObject(byte[] bytes) {
+        try {
+            ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+            DataInputStream dis = new DataInputStream(bais);
+            return DataSerializer.readObject(dis);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to Geode-deserialize object", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public static List<String> deserializeGetAllKeys(byte[] payload) {
         try {

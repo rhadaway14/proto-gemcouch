@@ -184,4 +184,26 @@ public final class GemResponseWriter {
 
         return ByteBufUtil.getBytes(buf);
     }
+
+    public static byte[] buildPutAllChunkedResponse(int transactionId) {
+        VersionedObjectList vol = new VersionedObjectList();
+
+        byte[] volBytes = GeodeSerialization.serializeObject(vol);
+
+        ByteBuf buf = Unpooled.buffer();
+
+        buf.writeInt(MessageTypes.RESPONSE);
+        buf.writeInt(1);
+        buf.writeInt(transactionId);
+
+        int chunkLength = 4 + 1 + volBytes.length;
+        buf.writeInt(chunkLength);
+        buf.writeByte(0x01);
+
+        buf.writeInt(volBytes.length);
+        buf.writeByte(0x01);
+        buf.writeBytes(volBytes);
+
+        return ByteBufUtil.getBytes(buf);
+    }
 }
