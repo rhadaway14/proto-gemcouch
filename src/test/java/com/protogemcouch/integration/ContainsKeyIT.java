@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class ContainsKeyTest extends IntegrationTestSupport {
+public class ContainsKeyIT extends IntegrationTestSupport {
 
     @Test
     void containsKeyOnServer_false_then_true_then_false() {

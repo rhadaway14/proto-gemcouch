@@ -7,7 +7,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class KeySetOnServerTest extends IntegrationTestSupport {
+public class KeySetOnServerIT extends IntegrationTestSupport {
 
     @Test
     void keySetOnServer_returns_region_keys() {

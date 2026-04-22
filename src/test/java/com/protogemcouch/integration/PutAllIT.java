@@ -7,7 +7,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class PutAllTest extends IntegrationTestSupport {
+public class PutAllIT extends IntegrationTestSupport {
 
     @Test
     void putAll_writes_all_entries() {

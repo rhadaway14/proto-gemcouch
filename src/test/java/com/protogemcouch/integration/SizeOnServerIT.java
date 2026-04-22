@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class SizeOnServerTest extends IntegrationTestSupport {
+public class SizeOnServerIT extends IntegrationTestSupport {
 
     @Test
     void sizeOnServer_returns_region_count() {

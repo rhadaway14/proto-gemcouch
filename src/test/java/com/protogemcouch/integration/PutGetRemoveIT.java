@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class PutGetRemoveTest extends IntegrationTestSupport {
+public class PutGetRemoveIT extends IntegrationTestSupport {
 
     @Test
     void putGetRemove_roundTrip_works() {

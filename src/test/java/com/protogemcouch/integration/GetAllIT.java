@@ -7,7 +7,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class GetAllTest extends IntegrationTestSupport {
+public class GetAllIT extends IntegrationTestSupport {
 
     @Test
     void getAll_returns_present_and_missing_keys() {
