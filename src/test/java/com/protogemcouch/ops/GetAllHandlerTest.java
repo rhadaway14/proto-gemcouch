@@ -1,9 +1,7 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
-import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.wire.GemFrame;
-import com.protogemcouch.wire.GemPart;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.protogemcouch.testsupport.FrameTestUtil.intPart;
+import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
+import static com.protogemcouch.testsupport.FrameTestUtil.objectPart;
+import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -18,7 +20,7 @@ class GetAllHandlerTest {
 
     @Test
     void handle_calls_repository_getAll_and_writes_response() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         Map<String, String> repoResult = new LinkedHashMap<>();
@@ -33,7 +35,7 @@ class GetAllHandlerTest {
         GetAllHandler handler = new GetAllHandler(repository);
         GemFrame frame = mockFrame(
                 100,
-                part("/helloWorld".getBytes()),
+                stringPart("/helloWorld"),
                 objectPart(List.of("key-1", "key-2", "missing")),
                 intPart(0)
         );
@@ -42,33 +44,5 @@ class GetAllHandlerTest {
 
         verify(repository).getAll("/helloWorld", List.of("key-1", "key-2", "missing"));
         verify(ctx).writeAndFlush(any());
-    }
-
-    private static GemFrame mockFrame(int messageType, GemPart... parts) {
-        GemFrame frame = mock(GemFrame.class);
-        when(frame.getMessageType()).thenReturn(messageType);
-        when(frame.getNumberOfParts()).thenReturn(parts.length);
-        when(frame.getTransactionId()).thenReturn(-1);
-        when(frame.getParts()).thenReturn(List.of(parts));
-        return frame;
-    }
-
-    private static GemPart part(byte[] payload) {
-        return new GemPart(payload.length, (byte) 0x00, payload);
-    }
-
-    private static GemPart intPart(int value) {
-        byte[] bytes = new byte[] {
-                (byte) ((value >> 24) & 0xFF),
-                (byte) ((value >> 16) & 0xFF),
-                (byte) ((value >> 8) & 0xFF),
-                (byte) (value & 0xFF)
-        };
-        return new GemPart(bytes.length, (byte) 0x00, bytes);
-    }
-
-    private static GemPart objectPart(Object value) {
-        byte[] bytes = GeodeSerialization.serializeObject(value);
-        return new GemPart(bytes.length, (byte) 0x01, bytes);
     }
 }

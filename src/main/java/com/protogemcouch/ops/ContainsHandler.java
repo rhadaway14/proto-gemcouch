@@ -1,8 +1,8 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemResponseWriter;
 import com.protogemcouch.wire.MessageTypes;
@@ -29,7 +29,7 @@ public class ContainsHandler implements OperationHandler {
                 ? ByteUtils.bytesToInt(frame.getParts().get(2).getPayload())
                 : MessageTypes.CONTAINS_MODE_KEY;
 
-        String docId = CouchbaseRepository.docId(region, key);
+        String docId = DocumentKeyUtil.docId(region, key);
         boolean result;
 
         if (mode == MessageTypes.CONTAINS_MODE_KEY) {

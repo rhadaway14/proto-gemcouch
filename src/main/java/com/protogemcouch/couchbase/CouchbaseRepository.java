@@ -10,6 +10,7 @@ import com.couchbase.client.java.kv.GetResult;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
+import com.protogemcouch.util.DocumentKeyUtil;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -88,7 +89,7 @@ public class CouchbaseRepository implements Repository {
     public Map<String, String> getAll(String region, List<String> keys) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String key : keys) {
-            String docId = docId(region, key);
+            String docId = DocumentKeyUtil.docId(region, key);
             String value = get(docId);
             out.put(key, value);
         }
@@ -197,10 +198,6 @@ public class CouchbaseRepository implements Repository {
             System.out.println("CB KEY SET ERROR region=" + region + " msg=" + e.getMessage());
             return new ArrayList<>();
         }
-    }
-
-    public static String docId(String region, String key) {
-        return region + "::" + key;
     }
 
     private static String q(String identifier) {

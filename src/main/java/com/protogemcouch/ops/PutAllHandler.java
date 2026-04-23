@@ -1,9 +1,9 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -78,7 +78,7 @@ public class PutAllHandler implements OperationHandler {
 
         for (Map.Entry<String, String> entry : entries.entrySet()) {
             if (entry.getValue() != null) {
-                String docId = CouchbaseRepository.docId(region, entry.getKey());
+                String docId = DocumentKeyUtil.docId(region, entry.getKey());
                 repository.put(docId, entry.getValue());
                 System.out.println("PUT ALL STORED docId=" + docId);
             } else {

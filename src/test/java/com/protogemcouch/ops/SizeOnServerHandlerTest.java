@@ -1,13 +1,12 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.wire.GemFrame;
-import com.protogemcouch.wire.GemPart;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
+import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
+import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -15,7 +14,7 @@ class SizeOnServerHandlerTest {
 
     @Test
     void handle_calls_repository_size_and_writes_response() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.size("/helloWorld")).thenReturn(7);
@@ -24,25 +23,12 @@ class SizeOnServerHandlerTest {
         SizeOnServerHandler handler = new SizeOnServerHandler(repository);
         GemFrame frame = mockFrame(
                 81,
-                part("/helloWorld".getBytes())
+                stringPart("/helloWorld")
         );
 
         handler.handle(ctx, frame);
 
         verify(repository).size("/helloWorld");
         verify(ctx).writeAndFlush(any());
-    }
-
-    private static GemFrame mockFrame(int messageType, GemPart... parts) {
-        GemFrame frame = mock(GemFrame.class);
-        when(frame.getMessageType()).thenReturn(messageType);
-        when(frame.getNumberOfParts()).thenReturn(parts.length);
-        when(frame.getTransactionId()).thenReturn(-1);
-        when(frame.getParts()).thenReturn(List.of(parts));
-        return frame;
-    }
-
-    private static GemPart part(byte[] payload) {
-        return new GemPart(payload.length, (byte) 0x00, payload);
     }
 }

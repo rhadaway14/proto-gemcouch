@@ -1,8 +1,9 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -36,11 +37,11 @@ public class PutHandler implements OperationHandler {
         }
 
         if (frame.getParts().size() > 0) {
-            region = com.protogemcouch.util.ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
+            region = ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
         }
 
         if (frame.getParts().size() > 3) {
-            key = com.protogemcouch.util.ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
+            key = ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
         }
 
         if (frame.getParts().size() > 5) {
@@ -72,7 +73,7 @@ public class PutHandler implements OperationHandler {
         if (region != null && !region.isBlank()
                 && key != null && !key.isBlank()
                 && value != null) {
-            String docId = CouchbaseRepository.docId(region, key);
+            String docId = DocumentKeyUtil.docId(region, key);
             repository.put(docId, value);
             System.out.println("PUT STORED docId=" + docId);
         } else {

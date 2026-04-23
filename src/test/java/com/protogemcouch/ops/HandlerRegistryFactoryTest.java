@@ -1,19 +1,16 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.testsupport.FakeRepository;
 import com.protogemcouch.wire.MessageTypes;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class HandlerRegistryFactoryTest {
 
     @Test
     void create_registers_expected_handlers() {
-        Repository repository = new FakeRepository();
+        FakeRepository repository = new FakeRepository();
 
         OpcodeRegistry registry = HandlerRegistryFactory.create(repository);
 
@@ -28,45 +25,5 @@ class HandlerRegistryFactoryTest {
         assertNotNull(registry.get(MessageTypes.GET_ALL_70));
         assertNotNull(registry.get(MessageTypes.CONTROL));
         assertNotNull(registry.get(MessageTypes.PING));
-    }
-
-    private static class FakeRepository implements Repository {
-        @Override
-        public String get(String docId) {
-            return null;
-        }
-
-        @Override
-        public Map<String, String> getAll(String region, List<String> keys) {
-            return Map.of();
-        }
-
-        @Override
-        public void put(String docId, String value) {
-        }
-
-        @Override
-        public void remove(String docId) {
-        }
-
-        @Override
-        public boolean containsKey(String docId) {
-            return false;
-        }
-
-        @Override
-        public boolean containsValueForKey(String docId) {
-            return false;
-        }
-
-        @Override
-        public int size(String region) {
-            return 0;
-        }
-
-        @Override
-        public List<String> keySet(String region) {
-            return List.of();
-        }
     }
 }

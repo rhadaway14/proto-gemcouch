@@ -1,8 +1,8 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemResponseWriter;
 import io.netty.buffer.Unpooled;
@@ -25,7 +25,7 @@ public class RemoveHandler implements OperationHandler {
                 ? ByteUtils.bytesToString(frame.getParts().get(1).getPayload())
                 : "";
 
-        String docId = CouchbaseRepository.docId(region, key);
+        String docId = DocumentKeyUtil.docId(region, key);
         System.out.println("REMOVE REQUEST RECEIVED region=" + region + " key=" + key + " docId=" + docId);
 
         repository.remove(docId);
