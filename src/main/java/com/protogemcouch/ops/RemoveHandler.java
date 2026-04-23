@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -9,9 +10,9 @@ import io.netty.channel.ChannelHandlerContext;
 
 public class RemoveHandler implements OperationHandler {
 
-    private final CouchbaseRepository repository;
+    private final Repository repository;
 
-    public RemoveHandler(CouchbaseRepository repository) {
+    public RemoveHandler(Repository repository) {
         this.repository = repository;
     }
 

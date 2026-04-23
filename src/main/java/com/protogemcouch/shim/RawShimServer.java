@@ -1,25 +1,16 @@
 package com.protogemcouch.shim;
 
 import com.protogemcouch.config.ServerConfig;
-import com.protogemcouch.couchbase.CouchbaseRepository;
-import com.protogemcouch.ops.ContainsHandler;
-import com.protogemcouch.ops.GetAllHandler;
-import com.protogemcouch.ops.GetClientPartitionAttributesHandler;
-import com.protogemcouch.ops.GetHandler;
-import com.protogemcouch.ops.KeySetOnServerHandler;
+import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.couchbase.RepositoryFactory;
+import com.protogemcouch.ops.HandlerRegistryFactory;
 import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
-import com.protogemcouch.ops.PutAllHandler;
-import com.protogemcouch.ops.PutHandler;
-import com.protogemcouch.ops.RemoveHandler;
-import com.protogemcouch.ops.SimpleAckHandler;
-import com.protogemcouch.ops.SizeOnServerHandler;
 import com.protogemcouch.ops.UnknownOpcodeHandler;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemFrameDecoder;
 import com.protogemcouch.wire.GemPart;
-import com.protogemcouch.wire.MessageTypes;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -44,19 +35,16 @@ public class RawShimServer {
     );
 
     private static ServerConfig config;
-    private static CouchbaseRepository repository;
+    private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
 
     public static void main(String[] args) throws Exception {
         config = ServerConfig.fromEnv();
-        repository = new CouchbaseRepository(config);
-        repository.connect();
+        repository = createRepository(config);
 
-        opcodeRegistry = new OpcodeRegistry();
+        opcodeRegistry = createOpcodeRegistry(repository);
         unknownOpcodeHandler = new UnknownOpcodeHandler();
-
-        registerHandlers();
 
         EventLoopGroup boss = new NioEventLoopGroup(1);
         EventLoopGroup workers = new NioEventLoopGroup();
@@ -78,22 +66,20 @@ public class RawShimServer {
         } finally {
             workers.shutdownGracefully();
             boss.shutdownGracefully();
-            repository.disconnect();
+            closeRepository(repository);
         }
     }
 
-    private static void registerHandlers() {
-        opcodeRegistry.register(MessageTypes.GET, new GetHandler(repository));
-        opcodeRegistry.register(MessageTypes.PUT, new PutHandler(repository));
-        opcodeRegistry.register(MessageTypes.REMOVE, new RemoveHandler(repository));
-        opcodeRegistry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository));
-        opcodeRegistry.register(MessageTypes.KEY_SET, new KeySetOnServerHandler(repository));
-        opcodeRegistry.register(MessageTypes.PUT_ALL, new PutAllHandler(repository));
-        opcodeRegistry.register(MessageTypes.GET_CLIENT_PARTITION_ATTRIBUTES, new GetClientPartitionAttributesHandler());
-        opcodeRegistry.register(MessageTypes.SIZE, new SizeOnServerHandler(repository));
-        opcodeRegistry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository));
-        opcodeRegistry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));
-        opcodeRegistry.register(MessageTypes.PING, new SimpleAckHandler("PING FRAME"));
+    static Repository createRepository(ServerConfig config) {
+        return RepositoryFactory.create(config);
+    }
+
+    static void closeRepository(Repository repository) {
+        RepositoryFactory.close(repository);
+    }
+
+    static OpcodeRegistry createOpcodeRegistry(Repository repository) {
+        return HandlerRegistryFactory.create(repository);
     }
 
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {

@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -10,9 +11,9 @@ import io.netty.channel.ChannelHandlerContext;
 
 public class ContainsHandler implements OperationHandler {
 
-    private final CouchbaseRepository repository;
+    private final Repository repository;
 
-    public ContainsHandler(CouchbaseRepository repository) {
+    public ContainsHandler(Repository repository) {
         this.repository = repository;
     }
 

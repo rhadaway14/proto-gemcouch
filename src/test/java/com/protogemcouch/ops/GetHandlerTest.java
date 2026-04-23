@@ -1,6 +1,6 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import io.netty.channel.ChannelHandlerContext;
@@ -15,7 +15,7 @@ class GetHandlerTest {
 
     @Test
     void handle_existing_value_writes_response() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.get("/helloWorld::my-key")).thenReturn("my-value");
@@ -36,7 +36,7 @@ class GetHandlerTest {
 
     @Test
     void handle_missing_value_writes_response() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.get("/helloWorld::missing")).thenReturn(null);

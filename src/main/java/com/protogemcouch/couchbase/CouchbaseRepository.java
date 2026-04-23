@@ -17,7 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class CouchbaseRepository {
+public class CouchbaseRepository implements Repository {
 
     private final ServerConfig config;
 
@@ -68,6 +68,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public String get(String docId) {
         try {
             GetResult result = collection.get(docId);
@@ -83,6 +84,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public Map<String, String> getAll(String region, List<String> keys) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String key : keys) {
@@ -93,12 +95,14 @@ public class CouchbaseRepository {
         return out;
     }
 
+    @Override
     public void put(String docId, String value) {
         JsonObject body = JsonObject.create().put("value", value);
         collection.upsert(docId, body);
         System.out.println("CB UPSERT OK docId=" + docId + " body=" + body);
     }
 
+    @Override
     public void remove(String docId) {
         try {
             collection.remove(docId);
@@ -108,6 +112,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public boolean containsKey(String docId) {
         try {
             boolean exists = collection.exists(docId).exists();
@@ -119,6 +124,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public boolean containsValueForKey(String docId) {
         try {
             GetResult result = collection.get(docId);
@@ -132,6 +138,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public int size(String region) {
         try {
             String prefix = region + "::%";
@@ -157,6 +164,7 @@ public class CouchbaseRepository {
         }
     }
 
+    @Override
     public List<String> keySet(String region) {
         try {
             String regionPrefix = region + "::";

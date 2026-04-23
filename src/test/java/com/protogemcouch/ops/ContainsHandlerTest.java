@@ -1,6 +1,6 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.MessageTypes;
@@ -16,7 +16,7 @@ class ContainsHandlerTest {
 
     @Test
     void handle_contains_key_mode_calls_containsKey() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.containsKey("/helloWorld::abc")).thenReturn(true);
@@ -39,7 +39,7 @@ class ContainsHandlerTest {
 
     @Test
     void handle_contains_value_for_key_mode_calls_containsValueForKey() {
-        CouchbaseRepository repository = mock(CouchbaseRepository.class);
+        Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.containsValueForKey("/helloWorld::abc")).thenReturn(true);

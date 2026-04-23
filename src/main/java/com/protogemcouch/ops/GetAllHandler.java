@@ -1,6 +1,6 @@
 package com.protogemcouch.ops;
 
-import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
@@ -16,9 +16,9 @@ import java.util.Map;
 
 public class GetAllHandler implements OperationHandler {
 
-    private final CouchbaseRepository repository;
+    private final Repository repository;
 
-    public GetAllHandler(CouchbaseRepository repository) {
+    public GetAllHandler(Repository repository) {
         this.repository = repository;
     }
 

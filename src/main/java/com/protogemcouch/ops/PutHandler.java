@@ -1,8 +1,8 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.CouchbaseRepository;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.serialization.GeodeSerialization;
-import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -14,9 +14,9 @@ import java.nio.charset.StandardCharsets;
 
 public class PutHandler implements OperationHandler {
 
-    private final CouchbaseRepository repository;
+    private final Repository repository;
 
-    public PutHandler(CouchbaseRepository repository) {
+    public PutHandler(Repository repository) {
         this.repository = repository;
     }
 
@@ -35,21 +35,12 @@ public class PutHandler implements OperationHandler {
                     new String(payload, StandardCharsets.UTF_8).replace("\u0000", "").trim());
         }
 
-        // Observed put layout:
-        // part[0] = region
-        // part[1] = op flags / marker
-        // part[2] = callback arg / int 0
-        // part[3] = key
-        // part[4] = serialized metadata / 3500
-        // part[5] = value object
-        // part[6] = event id bytes
-
         if (frame.getParts().size() > 0) {
-            region = ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
+            region = com.protogemcouch.util.ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
         }
 
         if (frame.getParts().size() > 3) {
-            key = ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
+            key = com.protogemcouch.util.ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
         }
 
         if (frame.getParts().size() > 5) {
