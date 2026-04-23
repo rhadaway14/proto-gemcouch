@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -10,11 +11,15 @@ import com.protogemcouch.wire.GemResponseWriter;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class PutAllHandler implements OperationHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(PutAllHandler.class);
 
     private final Repository repository;
 
@@ -28,10 +33,18 @@ public class PutAllHandler implements OperationHandler {
                 ? ByteUtils.bytesToString(frame.getParts().get(0).getPayload())
                 : "";
 
-        System.out.println("PUT ALL REQUEST RECEIVED region=" + region + " txId=" + frame.getTransactionId());
+        log.info(StructuredLog.event(
+                "handler_put_all_start",
+                "region", region,
+                "txId", frame.getTransactionId()
+        ));
 
         if (frame.getParts().size() < 5) {
-            System.out.println("PUT ALL FRAME TOO SMALL");
+            log.warn(StructuredLog.event(
+                    "handler_put_all_frame_too_small",
+                    "parts", frame.getParts().size(),
+                    "txId", frame.getTransactionId()
+            ));
             ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())));
             return;
         }
@@ -41,17 +54,26 @@ public class PutAllHandler implements OperationHandler {
         int flags = ByteUtils.bytesToInt(frame.getParts().get(3).getPayload());
         int size = ByteUtils.bytesToInt(frame.getParts().get(4).getPayload());
 
-        System.out.println("PUT ALL EVENT ID HEX: " + ByteBufUtil.hexDump(eventIdPayload));
-        System.out.println("PUT ALL SKIP CALLBACKS: " + skipCallbacks);
-        System.out.println("PUT ALL FLAGS: " + flags);
-        System.out.println("PUT ALL MAP SIZE: " + size);
+        log.info(StructuredLog.event(
+                "handler_put_all_metadata",
+                "region", region,
+                "eventIdHex", ByteBufUtil.hexDump(eventIdPayload),
+                "skipCallbacks", skipCallbacks,
+                "flags", flags,
+                "size", size,
+                "txId", frame.getTransactionId()
+        ));
 
         Map<String, String> entries = new LinkedHashMap<>();
 
         int partIndex = 5;
         for (int i = 0; i < size; i++) {
             if (partIndex + 1 >= frame.getParts().size()) {
-                System.out.println("PUT ALL ENTRY PARTS TRUNCATED at entry index " + i);
+                log.warn(StructuredLog.event(
+                        "handler_put_all_truncated",
+                        "entryIndex", i,
+                        "txId", frame.getTransactionId()
+                ));
                 break;
             }
 
@@ -64,14 +86,24 @@ public class PutAllHandler implements OperationHandler {
             try {
                 rawValue = GeodeSerialization.deserializeObject(valuePart.getPayload());
             } catch (Exception e) {
-                System.out.println("PUT ALL VALUE DESERIALIZE ERROR for key=" + key + ": " + e.getMessage());
+                log.warn(StructuredLog.event(
+                        "handler_put_all_value_deserialize_error",
+                        "key", key,
+                        "error", e.getMessage(),
+                        "txId", frame.getTransactionId()
+                ));
                 rawValue = null;
             }
 
             String value = rawValue == null ? null : String.valueOf(rawValue);
 
-            System.out.println("PUT ALL ENTRY key=" + key + " value=" + value
-                    + " valueHex=" + ByteBufUtil.hexDump(valuePart.getPayload()));
+            log.debug(StructuredLog.event(
+                    "handler_put_all_entry",
+                    "key", key,
+                    "hasValue", value != null,
+                    "valueHex", ByteBufUtil.hexDump(valuePart.getPayload()),
+                    "txId", frame.getTransactionId()
+            ));
 
             entries.put(key, value);
         }
@@ -80,9 +112,21 @@ public class PutAllHandler implements OperationHandler {
             if (entry.getValue() != null) {
                 String docId = DocumentKeyUtil.docId(region, entry.getKey());
                 repository.put(docId, entry.getValue());
-                System.out.println("PUT ALL STORED docId=" + docId);
+
+                log.info(StructuredLog.event(
+                        "handler_put_all_store_ok",
+                        "region", region,
+                        "key", entry.getKey(),
+                        "docId", docId,
+                        "txId", frame.getTransactionId()
+                ));
             } else {
-                System.out.println("PUT ALL SKIPPED NULL VALUE key=" + entry.getKey());
+                log.warn(StructuredLog.event(
+                        "handler_put_all_skip_null",
+                        "region", region,
+                        "key", entry.getKey(),
+                        "txId", frame.getTransactionId()
+                ));
             }
         }
 

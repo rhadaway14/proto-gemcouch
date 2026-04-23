@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -10,10 +11,14 @@ import com.protogemcouch.wire.GemResponseWriter;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 
 public class PutHandler implements OperationHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(PutHandler.class);
 
     private final Repository repository;
 
@@ -31,9 +36,12 @@ public class PutHandler implements OperationHandler {
             GemPart part = frame.getParts().get(i);
             byte[] payload = part.getPayload();
 
-            System.out.println("PUT PART[" + i + "] HEX: " + ByteBufUtil.hexDump(payload));
-            System.out.println("PUT PART[" + i + "] TEXT: " +
-                    new String(payload, StandardCharsets.UTF_8).replace("\u0000", "").trim());
+            log.debug(StructuredLog.event(
+                    "handler_put_part",
+                    "index", i,
+                    "hex", ByteBufUtil.hexDump(payload),
+                    "text", new String(payload, StandardCharsets.UTF_8).replace("\u0000", "").trim()
+            ));
         }
 
         if (frame.getParts().size() > 0) {
@@ -52,7 +60,11 @@ public class PutHandler implements OperationHandler {
                     value = String.valueOf(rawValue);
                 }
             } catch (Exception e) {
-                System.out.println("PUT VALUE DESERIALIZE ERROR: " + e.getMessage());
+                log.warn(StructuredLog.event(
+                        "handler_put_value_deserialize_error",
+                        "error", e.getMessage(),
+                        "txId", frame.getTransactionId()
+                ));
             }
 
             if (value == null) {
@@ -65,19 +77,27 @@ public class PutHandler implements OperationHandler {
             }
         }
 
-        System.out.println("PUT PARSED:");
-        System.out.println("  region=" + region);
-        System.out.println("  key=" + key);
-        System.out.println("  value=" + value);
-
         if (region != null && !region.isBlank()
                 && key != null && !key.isBlank()
                 && value != null) {
             String docId = DocumentKeyUtil.docId(region, key);
             repository.put(docId, value);
-            System.out.println("PUT STORED docId=" + docId);
+
+            log.info(StructuredLog.event(
+                    "handler_put_ok",
+                    "region", region,
+                    "key", key,
+                    "docId", docId,
+                    "txId", frame.getTransactionId()
+            ));
         } else {
-            System.out.println("FAILED TO PARSE PUT");
+            log.warn(StructuredLog.event(
+                    "handler_put_parse_failed",
+                    "region", region,
+                    "key", key,
+                    "has_value", value != null,
+                    "txId", frame.getTransactionId()
+            ));
         }
 
         ctx.writeAndFlush(Unpooled.wrappedBuffer(

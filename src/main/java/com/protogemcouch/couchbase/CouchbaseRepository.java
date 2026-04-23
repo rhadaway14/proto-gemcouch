@@ -10,7 +10,10 @@ import com.couchbase.client.java.kv.GetResult;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
+import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.util.DocumentKeyUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 
 public class CouchbaseRepository implements Repository {
+
+    private static final Logger log = LoggerFactory.getLogger(CouchbaseRepository.class);
 
     private final ServerConfig config;
 
@@ -32,11 +37,13 @@ public class CouchbaseRepository implements Repository {
     }
 
     public void connect() {
-        System.out.println("Connecting to Couchbase...");
-        System.out.println("  connstr    = " + config.getCouchbaseConnectionString());
-        System.out.println("  bucket     = " + config.getCouchbaseBucket());
-        System.out.println("  scope      = " + config.getCouchbaseScope());
-        System.out.println("  collection = " + config.getCouchbaseCollection());
+        log.info(StructuredLog.event(
+                "repository_connecting",
+                "connstr", config.getCouchbaseConnectionString(),
+                "bucket", config.getCouchbaseBucket(),
+                "scope", config.getCouchbaseScope(),
+                "collection", config.getCouchbaseCollection()
+        ));
 
         ClusterEnvironment env = ClusterEnvironment.builder()
                 .timeoutConfig(tc -> tc
@@ -57,15 +64,20 @@ public class CouchbaseRepository implements Repository {
         scope = bucket.scope(config.getCouchbaseScope());
         collection = scope.collection(config.getCouchbaseCollection());
 
-        System.out.println("Couchbase connected.");
+        log.info(StructuredLog.event("repository_connected"));
     }
 
     public void disconnect() {
         try {
             if (cluster != null) {
                 cluster.disconnect();
+                log.info(StructuredLog.event("repository_disconnected"));
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_disconnect_failed",
+                    "error", e.getMessage()
+            ), e);
         }
     }
 
@@ -74,13 +86,22 @@ public class CouchbaseRepository implements Repository {
         try {
             GetResult result = collection.get(docId);
             JsonObject content = result.contentAsObject();
-            System.out.println("CB GET OK docId=" + docId + " content=" + content);
+
+            log.info(StructuredLog.event(
+                    "repository_get_ok",
+                    "docId", docId
+            ));
+
             if (content.containsKey("value")) {
                 return content.getString("value");
             }
             return null;
         } catch (Exception e) {
-            System.out.println("CB GET MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_get_miss_or_error",
+                    "docId", docId,
+                    "error", e.getMessage()
+            ));
             return null;
         }
     }
@@ -93,6 +114,13 @@ public class CouchbaseRepository implements Repository {
             String value = get(docId);
             out.put(key, value);
         }
+
+        log.info(StructuredLog.event(
+                "repository_get_all_ok",
+                "region", region,
+                "key_count", keys.size()
+        ));
+
         return out;
     }
 
@@ -100,16 +128,27 @@ public class CouchbaseRepository implements Repository {
     public void put(String docId, String value) {
         JsonObject body = JsonObject.create().put("value", value);
         collection.upsert(docId, body);
-        System.out.println("CB UPSERT OK docId=" + docId + " body=" + body);
+
+        log.info(StructuredLog.event(
+                "repository_put_ok",
+                "docId", docId
+        ));
     }
 
     @Override
     public void remove(String docId) {
         try {
             collection.remove(docId);
-            System.out.println("CB REMOVE OK docId=" + docId);
+            log.info(StructuredLog.event(
+                    "repository_remove_ok",
+                    "docId", docId
+            ));
         } catch (Exception e) {
-            System.out.println("CB REMOVE MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_remove_miss_or_error",
+                    "docId", docId,
+                    "error", e.getMessage()
+            ));
         }
     }
 
@@ -117,10 +156,20 @@ public class CouchbaseRepository implements Repository {
     public boolean containsKey(String docId) {
         try {
             boolean exists = collection.exists(docId).exists();
-            System.out.println("CB EXISTS OK docId=" + docId + " exists=" + exists);
+
+            log.info(StructuredLog.event(
+                    "repository_contains_key_ok",
+                    "docId", docId,
+                    "exists", exists
+            ));
+
             return exists;
         } catch (Exception e) {
-            System.out.println("CB EXISTS ERROR docId=" + docId + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_contains_key_error",
+                    "docId", docId,
+                    "error", e.getMessage()
+            ));
             return false;
         }
     }
@@ -131,10 +180,20 @@ public class CouchbaseRepository implements Repository {
             GetResult result = collection.get(docId);
             JsonObject content = result.contentAsObject();
             boolean hasValue = content != null && content.containsKey("value") && content.get("value") != null;
-            System.out.println("CB CONTAINS VALUE FOR KEY OK docId=" + docId + " hasValue=" + hasValue + " content=" + content);
+
+            log.info(StructuredLog.event(
+                    "repository_contains_value_for_key_ok",
+                    "docId", docId,
+                    "has_value", hasValue
+            ));
+
             return hasValue;
         } catch (Exception e) {
-            System.out.println("CB CONTAINS VALUE FOR KEY MISS/ERROR docId=" + docId + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_contains_value_for_key_error",
+                    "docId", docId,
+                    "error", e.getMessage()
+            ));
             return false;
         }
     }
@@ -157,10 +216,20 @@ public class CouchbaseRepository implements Repository {
 
             List<Long> rows = result.rowsAs(Long.class);
             int count = rows.isEmpty() ? 0 : rows.get(0).intValue();
-            System.out.println("CB SIZE OK region=" + region + " count=" + count);
+
+            log.info(StructuredLog.event(
+                    "repository_size_ok",
+                    "region", region,
+                    "count", count
+            ));
+
             return count;
         } catch (Exception e) {
-            System.out.println("CB SIZE ERROR region=" + region + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_size_error",
+                    "region", region,
+                    "error", e.getMessage()
+            ));
             return 0;
         }
     }
@@ -192,10 +261,19 @@ public class CouchbaseRepository implements Repository {
                 }
             }
 
-            System.out.println("CB KEY SET OK region=" + region + " keys=" + keys);
+            log.info(StructuredLog.event(
+                    "repository_key_set_ok",
+                    "region", region,
+                    "count", keys.size()
+            ));
+
             return keys;
         } catch (Exception e) {
-            System.out.println("CB KEY SET ERROR region=" + region + " msg=" + e.getMessage());
+            log.warn(StructuredLog.event(
+                    "repository_key_set_error",
+                    "region", region,
+                    "error", e.getMessage()
+            ));
             return new ArrayList<>();
         }
     }

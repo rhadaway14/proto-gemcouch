@@ -1,8 +1,13 @@
 package com.protogemcouch.shim;
 
+import com.protogemcouch.config.ConfigException;
 import com.protogemcouch.config.ServerConfig;
+import com.protogemcouch.config.StartupValidator;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.couchbase.RepositoryFactory;
+import com.protogemcouch.observability.MetricsRegistry;
+import com.protogemcouch.observability.OperationNames;
+import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.ops.HandlerRegistryFactory;
 import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
@@ -24,8 +29,16 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class RawShimServer {
+
+    private static final Logger log = LoggerFactory.getLogger(RawShimServer.class);
 
     private static final byte[] HANDSHAKE_REPLY = ByteUtils.hex(
             "3b0000000000" +
@@ -38,18 +51,33 @@ public class RawShimServer {
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
+    private static MetricsRegistry metrics;
+    private static ScheduledExecutorService metricsReporter;
 
     public static void main(String[] args) throws Exception {
-        config = ServerConfig.fromEnv();
-        repository = createRepository(config);
-
-        opcodeRegistry = createOpcodeRegistry(repository);
-        unknownOpcodeHandler = new UnknownOpcodeHandler();
-
-        EventLoopGroup boss = new NioEventLoopGroup(1);
-        EventLoopGroup workers = new NioEventLoopGroup();
+        EventLoopGroup boss = null;
+        EventLoopGroup workers = null;
 
         try {
+            config = ServerConfig.fromEnv();
+
+            log.info(StructuredLog.event(
+                    "server_starting",
+                    "config", config.toSafeLogString()
+            ));
+
+            StartupValidator.validate(config);
+
+            repository = createRepository(config);
+            opcodeRegistry = createOpcodeRegistry(repository);
+            unknownOpcodeHandler = new UnknownOpcodeHandler();
+            metrics = new MetricsRegistry();
+
+            startMetricsReporter();
+
+            boss = new NioEventLoopGroup(1);
+            workers = new NioEventLoopGroup();
+
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(boss, workers)
                     .channel(NioServerSocketChannel.class)
@@ -61,12 +89,35 @@ public class RawShimServer {
                     });
 
             Channel ch = bootstrap.bind(config.getShimPort()).sync().channel();
-            System.out.println("RawShimServer listening on " + config.getShimPort());
+            log.info(StructuredLog.event(
+                    "server_started",
+                    "port", config.getShimPort()
+            ));
             ch.closeFuture().sync();
+        } catch (ConfigException e) {
+            log.error(StructuredLog.event(
+                    "server_startup_config_failure",
+                    "error", e.getMessage()
+            ), e);
+            throw e;
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "server_startup_failure",
+                    "error", e.getMessage()
+            ), e);
+            throw e;
         } finally {
-            workers.shutdownGracefully();
-            boss.shutdownGracefully();
+            stopMetricsReporter();
+
+            if (workers != null) {
+                workers.shutdownGracefully();
+            }
+            if (boss != null) {
+                boss.shutdownGracefully();
+            }
+
             closeRepository(repository);
+            log.info(StructuredLog.event("server_stopped"));
         }
     }
 
@@ -82,12 +133,53 @@ public class RawShimServer {
         return HandlerRegistryFactory.create(repository);
     }
 
+    private static void startMetricsReporter() {
+        metricsReporter = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "metrics-reporter");
+            t.setDaemon(true);
+            return t;
+        });
+
+        metricsReporter.scheduleAtFixedRate(() -> {
+            try {
+                for (String line : metrics.snapshotLines()) {
+                    log.info(line);
+                }
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "metrics_report_failed",
+                        "error", e.getMessage()
+                ), e);
+            }
+        }, 60, 60, TimeUnit.SECONDS);
+    }
+
+    private static void stopMetricsReporter() {
+        if (metricsReporter != null) {
+            metricsReporter.shutdownNow();
+        }
+    }
+
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {
         private boolean handshakeDone = false;
 
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
-            System.out.println("CLIENT CONNECTED: " + ctx.channel().remoteAddress());
+            metrics.recordConnectionOpened();
+            log.info(StructuredLog.event(
+                    "client_connected",
+                    "remote", ctx.channel().remoteAddress()
+            ));
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            metrics.recordConnectionClosed();
+            log.info(StructuredLog.event(
+                    "client_disconnected",
+                    "remote", ctx.channel().remoteAddress()
+            ));
+            super.channelInactive(ctx);
         }
 
         @Override
@@ -99,8 +191,14 @@ public class RawShimServer {
 
             if (!handshakeDone) {
                 byte[] inbound = ByteBufUtil.getBytes(buf);
-                System.out.println("HANDSHAKE REQ HEX: " + ByteBufUtil.hexDump(inbound));
                 buf.release();
+
+                metrics.recordHandshakeRequest();
+                log.info(StructuredLog.event(
+                        "handshake_request",
+                        "remote", ctx.channel().remoteAddress(),
+                        "hex", ByteBufUtil.hexDump(inbound)
+                ));
 
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(HANDSHAKE_REPLY));
                 handshakeDone = true;
@@ -116,7 +214,11 @@ public class RawShimServer {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            cause.printStackTrace();
+            log.error(StructuredLog.event(
+                    "handshake_handler_error",
+                    "remote", ctx.channel().remoteAddress(),
+                    "error", cause.getMessage()
+            ), cause);
             ctx.close();
         }
     }
@@ -125,23 +227,77 @@ public class RawShimServer {
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, GemFrame frame) {
-            System.out.println("FRAME type=" + frame.getMessageType()
-                    + " parts=" + frame.getNumberOfParts()
-                    + " txId=" + frame.getTransactionId());
+            int opcode = frame.getMessageType();
+            String operation = OperationNames.nameOf(opcode);
+
+            metrics.recordRequestStart(opcode);
+
+            long start = System.nanoTime();
+
+            log.info(StructuredLog.event(
+                    "request_received",
+                    "opcode", opcode,
+                    "operation", operation,
+                    "parts", frame.getNumberOfParts(),
+                    "txId", frame.getTransactionId(),
+                    "remote", ctx.channel().remoteAddress()
+            ));
 
             dumpParts("part", frame);
 
-            OperationHandler handler = opcodeRegistry.get(frame.getMessageType());
-            if (handler != null) {
-                handler.handle(ctx, frame);
-            } else {
-                unknownOpcodeHandler.handle(ctx, frame);
+            OperationHandler handler = opcodeRegistry.get(opcode);
+
+            try {
+                if (handler != null) {
+                    handler.handle(ctx, frame);
+                    long elapsed = System.nanoTime() - start;
+                    metrics.recordRequestSuccess(opcode, elapsed);
+
+                    log.info(StructuredLog.event(
+                            "request_completed",
+                            "opcode", opcode,
+                            "operation", operation,
+                            "txId", frame.getTransactionId(),
+                            "elapsed_ns", elapsed
+                    ));
+                } else {
+                    metrics.recordUnknownOpcode(opcode);
+                    long elapsed = System.nanoTime() - start;
+
+                    log.warn(StructuredLog.event(
+                            "unknown_opcode",
+                            "opcode", opcode,
+                            "operation", operation,
+                            "txId", frame.getTransactionId(),
+                            "elapsed_ns", elapsed
+                    ));
+
+                    unknownOpcodeHandler.handle(ctx, frame);
+                }
+            } catch (Exception e) {
+                long elapsed = System.nanoTime() - start;
+                metrics.recordRequestError(opcode, elapsed);
+
+                log.error(StructuredLog.event(
+                        "request_failed",
+                        "opcode", opcode,
+                        "operation", operation,
+                        "txId", frame.getTransactionId(),
+                        "elapsed_ns", elapsed,
+                        "error", e.getMessage()
+                ), e);
+
+                throw e;
             }
         }
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            cause.printStackTrace();
+            log.error(StructuredLog.event(
+                    "request_handler_error",
+                    "remote", ctx.channel().remoteAddress(),
+                    "error", cause.getMessage()
+            ), cause);
             ctx.close();
         }
     }
@@ -149,10 +305,15 @@ public class RawShimServer {
     private static void dumpParts(String prefix, GemFrame frame) {
         for (int i = 0; i < frame.getParts().size(); i++) {
             GemPart p = frame.getParts().get(i);
-            System.out.println(prefix + " part[" + i + "] len=" + p.getLength()
-                    + " type=" + String.format("0x%02x", p.getTypeCode())
-                    + " hex=" + ByteBufUtil.hexDump(p.getPayload())
-                    + " text=" + ByteUtils.bytesToString(p.getPayload()));
+            log.debug(StructuredLog.event(
+                    "frame_part",
+                    "prefix", prefix,
+                    "index", i,
+                    "length", p.getLength(),
+                    "type", String.format("0x%02x", p.getTypeCode()),
+                    "hex", ByteBufUtil.hexDump(p.getPayload()),
+                    "text", ByteUtils.bytesToString(p.getPayload())
+            ));
         }
     }
 }

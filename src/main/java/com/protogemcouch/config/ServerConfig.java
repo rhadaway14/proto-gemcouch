@@ -2,44 +2,40 @@ package com.protogemcouch.config;
 
 public class ServerConfig {
 
-    private final int shimPort;
     private final String couchbaseConnectionString;
     private final String couchbaseUsername;
     private final String couchbasePassword;
     private final String couchbaseBucket;
     private final String couchbaseScope;
     private final String couchbaseCollection;
+    private final int shimPort;
 
-    public ServerConfig(int shimPort,
-                        String couchbaseConnectionString,
+    public ServerConfig(String couchbaseConnectionString,
                         String couchbaseUsername,
                         String couchbasePassword,
                         String couchbaseBucket,
                         String couchbaseScope,
-                        String couchbaseCollection) {
-        this.shimPort = shimPort;
-        this.couchbaseConnectionString = couchbaseConnectionString;
-        this.couchbaseUsername = couchbaseUsername;
-        this.couchbasePassword = couchbasePassword;
-        this.couchbaseBucket = couchbaseBucket;
-        this.couchbaseScope = couchbaseScope;
-        this.couchbaseCollection = couchbaseCollection;
+                        String couchbaseCollection,
+                        int shimPort) {
+        this.couchbaseConnectionString = requireNonBlank("CB_CONNSTR", couchbaseConnectionString);
+        this.couchbaseUsername = requireNonBlank("CB_USERNAME", couchbaseUsername);
+        this.couchbasePassword = requireNonBlank("CB_PASSWORD", couchbasePassword);
+        this.couchbaseBucket = requireNonBlank("CB_BUCKET", couchbaseBucket);
+        this.couchbaseScope = requireNonBlank("CB_SCOPE", couchbaseScope);
+        this.couchbaseCollection = requireNonBlank("CB_COLLECTION", couchbaseCollection);
+        this.shimPort = validatePort(shimPort);
     }
 
     public static ServerConfig fromEnv() {
         return new ServerConfig(
-                envIntOrDefault("SHIM_PORT", 40405),
-                envOrDefault("CB_CONNSTR", "couchbase://127.0.0.1"),
-                envOrDefault("CB_USERNAME", "Administrator"),
-                envOrDefault("CB_PASSWORD", "password"),
-                envOrDefault("CB_BUCKET", "test"),
-                envOrDefault("CB_SCOPE", "_default"),
-                envOrDefault("CB_COLLECTION", "_default")
+                env("CB_CONNSTR"),
+                env("CB_USERNAME"),
+                env("CB_PASSWORD"),
+                env("CB_BUCKET"),
+                env("CB_SCOPE"),
+                env("CB_COLLECTION"),
+                parsePort(envOrDefault("SHIM_PORT", "40405"))
         );
-    }
-
-    public int getShimPort() {
-        return shimPort;
     }
 
     public String getCouchbaseConnectionString() {
@@ -66,22 +62,65 @@ public class ServerConfig {
         return couchbaseCollection;
     }
 
-    private static String envOrDefault(String name, String fallback) {
-        String value = System.getenv(name);
-        return value == null || value.isBlank() ? fallback : value;
+    public int getShimPort() {
+        return shimPort;
     }
 
-    private static int envIntOrDefault(String name, int fallback) {
-        String value = System.getenv(name);
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
+    public String toSafeLogString() {
+        return "connstr=" + couchbaseConnectionString
+                + " bucket=" + couchbaseBucket
+                + " scope=" + couchbaseScope
+                + " collection=" + couchbaseCollection
+                + " username=" + redact(couchbaseUsername)
+                + " password=" + redactSecret(couchbasePassword)
+                + " shimPort=" + shimPort;
+    }
 
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException e) {
-            System.out.println("Invalid integer for env var " + name + ": " + value + ". Using default " + fallback);
-            return fallback;
+    private static String env(String name) {
+        return System.getenv(name);
+    }
+
+    private static String envOrDefault(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null ? defaultValue : value;
+    }
+
+    private static String requireNonBlank(String name, String value) {
+        if (value == null || value.isBlank()) {
+            throw new ConfigException("Missing required configuration: " + name);
         }
+        return value.trim();
+    }
+
+    private static int parsePort(String rawValue) {
+        try {
+            return Integer.parseInt(rawValue.trim());
+        } catch (Exception e) {
+            throw new ConfigException("Invalid SHIM_PORT value: " + rawValue, e);
+        }
+    }
+
+    private static int validatePort(int port) {
+        if (port < 1 || port > 65535) {
+            throw new ConfigException("SHIM_PORT must be between 1 and 65535, but was: " + port);
+        }
+        return port;
+    }
+
+    private static String redact(String value) {
+        if (value == null || value.isBlank()) {
+            return "<empty>";
+        }
+        if (value.length() <= 2) {
+            return "**";
+        }
+        return value.charAt(0) + "***" + value.charAt(value.length() - 1);
+    }
+
+    private static String redactSecret(String value) {
+        if (value == null || value.isBlank()) {
+            return "<empty>";
+        }
+        return "***";
     }
 }

@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -8,8 +9,12 @@ import com.protogemcouch.wire.GemResponseWriter;
 import com.protogemcouch.wire.MessageTypes;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ContainsHandler implements OperationHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ContainsHandler.class);
 
     private final Repository repository;
 
@@ -34,31 +39,23 @@ public class ContainsHandler implements OperationHandler {
 
         if (mode == MessageTypes.CONTAINS_MODE_KEY) {
             result = repository.containsKey(docId);
-            System.out.println("CONTAINS KEY REQUEST RECEIVED region=" + region
-                    + " key=" + key
-                    + " docId=" + docId
-                    + " result=" + result);
         } else if (mode == MessageTypes.CONTAINS_MODE_VALUE_FOR_KEY) {
             result = repository.containsValueForKey(docId);
-            System.out.println("CONTAINS VALUE FOR KEY REQUEST RECEIVED region=" + region
-                    + " key=" + key
-                    + " docId=" + docId
-                    + " result=" + result);
         } else if (mode == MessageTypes.CONTAINS_MODE_VALUE) {
             result = false;
-            System.out.println("CONTAINS VALUE REQUEST RECEIVED region=" + region
-                    + " key=" + key
-                    + " docId=" + docId
-                    + " result=" + result
-                    + " (not implemented)");
         } else {
             result = false;
-            System.out.println("UNKNOWN CONTAINS MODE region=" + region
-                    + " key=" + key
-                    + " docId=" + docId
-                    + " mode=" + mode
-                    + " result=" + result);
         }
+
+        log.info(StructuredLog.event(
+                "handler_contains",
+                "region", region,
+                "key", key,
+                "docId", docId,
+                "mode", mode,
+                "result", result,
+                "txId", frame.getTransactionId()
+        ));
 
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildContainsResponse(frame.getTransactionId(), result)));
     }
