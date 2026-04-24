@@ -5,6 +5,8 @@ import com.protogemcouch.config.ServerConfig;
 import com.protogemcouch.config.StartupValidator;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.couchbase.RepositoryFactory;
+import com.protogemcouch.health.HealthHttpServer;
+import com.protogemcouch.health.HealthState;
 import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.observability.OperationNames;
 import com.protogemcouch.observability.StructuredLog;
@@ -24,8 +26,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -53,10 +55,15 @@ public class RawShimServer {
     private static UnknownOpcodeHandler unknownOpcodeHandler;
     private static MetricsRegistry metrics;
     private static ScheduledExecutorService metricsReporter;
+    private static HealthState healthState;
+    private static HealthHttpServer healthHttpServer;
 
     public static void main(String[] args) throws Exception {
         EventLoopGroup boss = null;
         EventLoopGroup workers = null;
+
+        healthState = new HealthState();
+        healthState.markStarting();
 
         try {
             config = ServerConfig.fromEnv();
@@ -67,8 +74,14 @@ public class RawShimServer {
             ));
 
             StartupValidator.validate(config);
+            healthState.markConfigValidated();
+
+            healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState);
+            healthHttpServer.start();
 
             repository = createRepository(config);
+            healthState.markRepositoryConnected();
+
             opcodeRegistry = createOpcodeRegistry(repository);
             unknownOpcodeHandler = new UnknownOpcodeHandler();
             metrics = new MetricsRegistry();
@@ -89,24 +102,32 @@ public class RawShimServer {
                     });
 
             Channel ch = bootstrap.bind(config.getShimPort()).sync().channel();
+            healthState.markServerBound();
+
             log.info(StructuredLog.event(
                     "server_started",
-                    "port", config.getShimPort()
+                    "port", config.getShimPort(),
+                    "healthPort", config.getHealthPort()
             ));
+
             ch.closeFuture().sync();
         } catch (ConfigException e) {
+            healthState.markStartupFailed(e.getMessage());
             log.error(StructuredLog.event(
                     "server_startup_config_failure",
                     "error", e.getMessage()
             ), e);
             throw e;
         } catch (Exception e) {
+            healthState.markStartupFailed(e.getMessage());
             log.error(StructuredLog.event(
                     "server_startup_failure",
                     "error", e.getMessage()
             ), e);
             throw e;
         } finally {
+            healthState.markStopping();
+
             stopMetricsReporter();
 
             if (workers != null) {
@@ -117,6 +138,12 @@ public class RawShimServer {
             }
 
             closeRepository(repository);
+
+            if (healthHttpServer != null) {
+                healthHttpServer.stop();
+            }
+
+            healthState.markStopped();
             log.info(StructuredLog.event("server_stopped"));
         }
     }

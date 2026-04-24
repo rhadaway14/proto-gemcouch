@@ -15,26 +15,28 @@ public final class StartupValidator {
     }
 
     public static void validate(ServerConfig config) {
-        validatePortAvailable(config.getShimPort());
+        validatePortAvailable("SHIM_PORT", config.getShimPort());
+        validatePortAvailable("HEALTH_PORT", config.getHealthPort());
         validateIdentifier("CB_BUCKET", config.getCouchbaseBucket());
         validateIdentifier("CB_SCOPE", config.getCouchbaseScope());
         validateIdentifier("CB_COLLECTION", config.getCouchbaseCollection());
 
         log.info(StructuredLog.event(
                 "startup_validation_ok",
-                "port", config.getShimPort(),
+                "shimPort", config.getShimPort(),
+                "healthPort", config.getHealthPort(),
                 "bucket", config.getCouchbaseBucket(),
                 "scope", config.getCouchbaseScope(),
                 "collection", config.getCouchbaseCollection()
         ));
     }
 
-    private static void validatePortAvailable(int port) {
+    private static void validatePortAvailable(String name, int port) {
         try (ServerSocket socket = new ServerSocket()) {
             socket.setReuseAddress(false);
             socket.bind(new InetSocketAddress("0.0.0.0", port));
         } catch (Exception e) {
-            throw new ConfigException("SHIM_PORT is not available for binding: " + port, e);
+            throw new ConfigException(name + " is not available for binding: " + port, e);
         }
     }
 

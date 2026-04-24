@@ -24,5 +24,6 @@ class UnknownOpcodeHandlerTest {
         handler.handle(ctx, frame);
 
         verify(ctx, never()).writeAndFlush(any());
+        verifyNoMoreInteractions(ctx);
     }
 }

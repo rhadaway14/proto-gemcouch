@@ -20,7 +20,9 @@ COPY --from=build /app/target/protogemcouch.jar /app/protogemcouch.jar
 USER protogemcouch
 
 EXPOSE 40405
+EXPOSE 8081
 
 ENV SHIM_PORT=40405
+ENV HEALTH_PORT=8081
 
 ENTRYPOINT ["java", "-jar", "/app/protogemcouch.jar"]

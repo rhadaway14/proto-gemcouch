@@ -31,4 +31,24 @@ class SizeOnServerHandlerTest {
         verify(repository).size("/helloWorld");
         verify(ctx).writeAndFlush(any());
     }
+
+    @Test
+    void handle_empty_region_still_calls_repository_and_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.size("")).thenReturn(0);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        SizeOnServerHandler handler = new SizeOnServerHandler(repository);
+        GemFrame frame = mockFrame(
+                81,
+                stringPart("")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).size("");
+        verify(ctx).writeAndFlush(any());
+    }
 }

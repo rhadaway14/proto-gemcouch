@@ -15,41 +15,48 @@ ProtoGemCouch currently relies on:
 - startup config validation
 - redacted safe config logging
 - Couchbase authentication using provided credentials
+- separate health port for operational health checks
 
 ---
 
 ## Secrets handling
 
-### Required secrets
-The following values are sensitive and must not be hardcoded:
-
+Sensitive values must not be hardcoded:
 - `CB_PASSWORD`
-- potentially `CB_USERNAME`, depending on environment sensitivity
+- potentially `CB_USERNAME`
 
-### Rules
+Rules:
 - do not commit secrets to source control
-- do not place real credentials in docs
+- do not put real credentials in docs
 - do not hardcode credentials in Java source
-- prefer environment variables or secret injection by the runtime platform
-
-### Recommended secret sources
-For real deployments, prefer:
-- Docker runtime environment injection
-- Kubernetes Secrets
-- CI/CD secret stores
-- cloud secret managers
+- prefer runtime secret injection
 
 ---
 
 ## Logging safety
 
-Current implementation should:
-- redact password values in startup logging
-- avoid printing secrets directly
+Current implementation:
+- redacts password values in startup logs
+- avoids printing raw secrets directly
 
 Operational rule:
-- never log raw secrets
-- never paste real credentials into issue trackers, docs, or chat transcripts intended for wider sharing
+- never log secrets
+- never paste real credentials into tickets or shared docs
+
+---
+
+## Health endpoint security
+
+ProtoGemCouch exposes:
+- `/live`
+- `/ready`
+
+These endpoints are intentionally simple and do not expose credentials or detailed system internals.
+
+Recommendations:
+- do not expose `HEALTH_PORT` broadly on untrusted networks
+- restrict access to operators, orchestrators, or trusted monitoring systems
+- treat health endpoints as operational surfaces, not public APIs
 
 ---
 
@@ -57,9 +64,9 @@ Operational rule:
 
 Use least-privilege credentials where practical.
 
-The ideal runtime account should have only the permissions needed for:
+The runtime account should have only the permissions needed for:
 - KV reads/writes
-- query access only if required by supported operations like `SIZE` and `KEY_SET`
+- query access only if required for `SIZE` and `KEY_SET`
 
 Do not use a broad admin account in production unless strictly necessary.
 
@@ -68,20 +75,21 @@ Do not use a broad admin account in production unless strictly necessary.
 ## Transport security
 
 ### Current state
-This project currently supports standard Couchbase connectivity using the configured connection string.
+ProtoGemCouch supports standard Couchbase connectivity using the configured connection string.
 
 ### Recommended next step
-For higher-trust deployments:
+For broader deployment:
 - use secure Couchbase transport where applicable
 - document certificate/trust requirements
-- validate how the client should connect for TLS-enabled Couchbase clusters
+- validate TLS-enabled Couchbase connections
 
 ### Shim-side transport
-The current shim container exposes the plain protocol listener on `SHIM_PORT`.
+The GemFire protocol listener and health server are plain listeners today.
 
-If network trust boundaries require it, future work should include:
+For higher-trust environments, future work should include:
 - TLS termination in front of the shim
-- or native TLS support in the shim itself
+- or native TLS support
+- access controls around the health port
 
 ---
 
@@ -89,76 +97,77 @@ If network trust boundaries require it, future work should include:
 
 Recommended:
 - expose the shim only to the clients that need it
-- restrict inbound network access to the shim port
-- avoid publishing the shim broadly on untrusted networks
+- restrict inbound access to `SHIM_PORT`
+- restrict inbound access to `HEALTH_PORT`
 - isolate the shim and Couchbase on private networks whenever possible
 
 ---
 
 ## Container hardening
 
-Current Docker image hardening includes:
+Current hardening includes:
 - multi-stage build
-- runtime on JRE only
+- JRE-only runtime image
 - non-root application user
 
 Recommended future improvements:
-- pin exact base image digests
-- run vulnerability scans on the built image
+- pin base image digests
+- run image vulnerability scans
 - track dependency CVEs
-- add image signing if required by your deployment process
+- sign images if needed
 
 ---
 
 ## Dependency security
 
-ProtoGemCouch depends on:
+Key dependencies include:
 - Couchbase Java SDK
 - Apache Geode client libraries
 - Netty
 - SLF4J
 
 Recommended practice:
-- periodically review dependency versions
+- periodically review versions
 - run dependency scanning in CI
-- update vulnerable libraries intentionally and with regression testing
+- update vulnerable libraries with regression testing
 
 ---
 
 ## Operational security checklist
 
-Before non-lab deployment, confirm:
+Before non-lab deployment:
 
 - [ ] secrets are externalized
 - [ ] no real secrets are committed
-- [ ] logs are reviewed for secret leakage
+- [ ] logs reviewed for secret leakage
+- [ ] health port exposure restricted
 - [ ] Couchbase credentials are least-privilege
-- [ ] shim port exposure is restricted
-- [ ] deployment image is built from a known source state
-- [ ] dependency scan is completed
-- [ ] rollback path exists
+- [ ] shim port exposure restricted
+- [ ] deployment image built from known source state
+- [ ] dependency scan completed
 
 ---
 
 ## Current limitations
 
-This project is not yet a fully hardened security-reviewed product.
+This is not yet a fully hardened security-reviewed product.
 
-Known areas for future security work:
-- stronger TLS story for all traffic paths
+Future security work:
+- stronger TLS story for all traffic
 - secret-manager integration
 - automated dependency scanning
-- deployment policy guidance
-- optional authentication/authorization model for shim clients
+- shim-side auth model if needed
+- more restrictive health endpoint exposure guidance per environment
 
 ---
 
 ## Current conclusion
 
-ProtoGemCouch is now packaged in a way that supports basic secure operational hygiene:
+ProtoGemCouch supports basic secure operational hygiene:
 - no secrets in source
 - no hardcoded passwords
 - redacted startup logging
 - non-root container runtime
+- simple health endpoints without sensitive payloads
 
 Additional hardening is still recommended before broader production deployment.

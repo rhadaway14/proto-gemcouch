@@ -1,39 +1,39 @@
+
 # ProtoGemCouch Runbook
 
 ## Purpose
 
 This runbook explains how to start, stop, validate, troubleshoot, and operate ProtoGemCouch.
 
-ProtoGemCouch is a GemFire/Geode protocol shim that accepts a subset of client operations and translates them into Couchbase operations.
-
 ---
 
-## 1. Preconditions
+## Preconditions
 
 Before starting ProtoGemCouch, confirm:
 
-- Java is installed
-- Maven is installed if running from source
-- Couchbase is reachable
-- the target bucket, scope, and collection exist
 - required environment variables are set
-- the shim port is open and available
+- Couchbase is reachable
+- bucket, scope, and collection exist
+- `SHIM_PORT` is available
+- `HEALTH_PORT` is available
 
 ---
 
-## 2. Required configuration
+## Required configuration
 
-Expected configuration values:
-
+Required:
 - `CB_CONNSTR`
 - `CB_USERNAME`
 - `CB_PASSWORD`
 - `CB_BUCKET`
 - `CB_SCOPE`
 - `CB_COLLECTION`
-- `SHIM_PORT`
 
-Example values:
+Optional:
+- `SHIM_PORT` default `40405`
+- `HEALTH_PORT` default `8081`
+
+Example:
 
 ```bash
 export CB_CONNSTR=couchbase://127.0.0.1
@@ -43,3 +43,4 @@ export CB_BUCKET=test
 export CB_SCOPE=_default
 export CB_COLLECTION=_default
 export SHIM_PORT=40405
+export HEALTH_PORT=8081

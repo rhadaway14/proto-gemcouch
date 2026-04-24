@@ -9,6 +9,7 @@ public class ServerConfig {
     private final String couchbaseScope;
     private final String couchbaseCollection;
     private final int shimPort;
+    private final int healthPort;
 
     public ServerConfig(String couchbaseConnectionString,
                         String couchbaseUsername,
@@ -16,14 +17,20 @@ public class ServerConfig {
                         String couchbaseBucket,
                         String couchbaseScope,
                         String couchbaseCollection,
-                        int shimPort) {
+                        int shimPort,
+                        int healthPort) {
         this.couchbaseConnectionString = requireNonBlank("CB_CONNSTR", couchbaseConnectionString);
         this.couchbaseUsername = requireNonBlank("CB_USERNAME", couchbaseUsername);
         this.couchbasePassword = requireNonBlank("CB_PASSWORD", couchbasePassword);
         this.couchbaseBucket = requireNonBlank("CB_BUCKET", couchbaseBucket);
         this.couchbaseScope = requireNonBlank("CB_SCOPE", couchbaseScope);
         this.couchbaseCollection = requireNonBlank("CB_COLLECTION", couchbaseCollection);
-        this.shimPort = validatePort(shimPort);
+        this.shimPort = validatePort("SHIM_PORT", shimPort);
+        this.healthPort = validatePort("HEALTH_PORT", healthPort);
+
+        if (this.shimPort == this.healthPort) {
+            throw new ConfigException("HEALTH_PORT must be different from SHIM_PORT");
+        }
     }
 
     public static ServerConfig fromEnv() {
@@ -34,7 +41,8 @@ public class ServerConfig {
                 env("CB_BUCKET"),
                 env("CB_SCOPE"),
                 env("CB_COLLECTION"),
-                parsePort(envOrDefault("SHIM_PORT", "40405"))
+                parsePort("SHIM_PORT", envOrDefault("SHIM_PORT", "40405")),
+                parsePort("HEALTH_PORT", envOrDefault("HEALTH_PORT", "8081"))
         );
     }
 
@@ -66,6 +74,10 @@ public class ServerConfig {
         return shimPort;
     }
 
+    public int getHealthPort() {
+        return healthPort;
+    }
+
     public String toSafeLogString() {
         return "connstr=" + couchbaseConnectionString
                 + " bucket=" + couchbaseBucket
@@ -73,7 +85,8 @@ public class ServerConfig {
                 + " collection=" + couchbaseCollection
                 + " username=" + redact(couchbaseUsername)
                 + " password=" + redactSecret(couchbasePassword)
-                + " shimPort=" + shimPort;
+                + " shimPort=" + shimPort
+                + " healthPort=" + healthPort;
     }
 
     private static String env(String name) {
@@ -92,17 +105,17 @@ public class ServerConfig {
         return value.trim();
     }
 
-    private static int parsePort(String rawValue) {
+    private static int parsePort(String name, String rawValue) {
         try {
             return Integer.parseInt(rawValue.trim());
         } catch (Exception e) {
-            throw new ConfigException("Invalid SHIM_PORT value: " + rawValue, e);
+            throw new ConfigException("Invalid " + name + " value: " + rawValue, e);
         }
     }
 
-    private static int validatePort(int port) {
+    private static int validatePort(String name, int port) {
         if (port < 1 || port > 65535) {
-            throw new ConfigException("SHIM_PORT must be between 1 and 65535, but was: " + port);
+            throw new ConfigException(name + " must be between 1 and 65535, but was: " + port);
         }
         return port;
     }

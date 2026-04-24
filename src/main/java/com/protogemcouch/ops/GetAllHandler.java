@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -70,7 +71,23 @@ public class GetAllHandler implements OperationHandler {
             ));
         }
 
-        Map<String, String> results = repository.getAll(region, keys);
+        Map<String, String> results;
+
+        if (keys.isEmpty()) {
+            log.warn(StructuredLog.event(
+                    "handler_get_all_empty_keys",
+                    "region", region,
+                    "txId", frame.getTransactionId()
+            ));
+
+            // Geode's ObjectPartList/VersionedObjectList path rejects size=0.
+            // Return a safe "missing key" style payload instead of throwing.
+            keys = List.of("__protogemcouch_empty_getall_placeholder__");
+            results = new LinkedHashMap<>();
+            results.put("__protogemcouch_empty_getall_placeholder__", null);
+        } else {
+            results = repository.getAll(region, keys);
+        }
 
         log.info(StructuredLog.event(
                 "handler_get_all",

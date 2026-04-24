@@ -15,7 +15,8 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                40405
+                40405,
+                8081
         );
 
         assertEquals("couchbase://127.0.0.1", config.getCouchbaseConnectionString());
@@ -25,6 +26,7 @@ class ServerConfigTest {
         assertEquals("_default", config.getCouchbaseScope());
         assertEquals("_default", config.getCouchbaseCollection());
         assertEquals(40405, config.getShimPort());
+        assertEquals(8081, config.getHealthPort());
     }
 
     @Test
@@ -36,7 +38,8 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                40405
+                40405,
+                8081
         ));
 
         assertTrue(ex.getMessage().contains("CB_CONNSTR"));
@@ -51,7 +54,8 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                40405
+                40405,
+                8081
         ));
 
         assertTrue(ex.getMessage().contains("CB_USERNAME"));
@@ -66,7 +70,8 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                40405
+                40405,
+                8081
         ));
 
         assertTrue(ex.getMessage().contains("CB_PASSWORD"));
@@ -81,7 +86,8 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                0
+                0,
+                8081
         ));
 
         assertTrue(ex.getMessage().contains("SHIM_PORT"));
@@ -96,10 +102,27 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                70000
+                70000,
+                8081
         ));
 
         assertTrue(ex.getMessage().contains("SHIM_PORT"));
+    }
+
+    @Test
+    void constructor_rejects_same_shim_and_health_port() {
+        ConfigException ex = assertThrows(ConfigException.class, () -> new ServerConfig(
+                "couchbase://127.0.0.1",
+                "Administrator",
+                "password",
+                "test",
+                "_default",
+                "_default",
+                40405,
+                40405
+        ));
+
+        assertTrue(ex.getMessage().contains("HEALTH_PORT"));
     }
 
     @Test
@@ -111,13 +134,15 @@ class ServerConfigTest {
                 "test",
                 "_default",
                 "_default",
-                40405
+                40405,
+                8081
         );
 
         String safe = config.toSafeLogString();
 
         assertTrue(safe.contains("connstr=couchbase://127.0.0.1"));
         assertTrue(safe.contains("bucket=test"));
+        assertTrue(safe.contains("healthPort=8081"));
         assertTrue(safe.contains("password=***"));
         assertFalse(safe.contains("password=password"));
     }

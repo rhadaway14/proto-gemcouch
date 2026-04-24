@@ -59,4 +59,70 @@ class ContainsHandlerTest {
         verify(repository, never()).containsKey(any());
         verify(ctx).writeAndFlush(any());
     }
+
+    @Test
+    void handle_missing_mode_defaults_to_contains_key() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.containsKey("/helloWorld::abc")).thenReturn(false);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        ContainsHandler handler = new ContainsHandler(repository);
+        GemFrame frame = mockFrame(
+                MessageTypes.CONTAINS_KEY,
+                stringPart("/helloWorld"),
+                stringPart("abc")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).containsKey("/helloWorld::abc");
+        verify(repository, never()).containsValueForKey(any());
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_unknown_mode_returns_false_without_repository_calls() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        ContainsHandler handler = new ContainsHandler(repository);
+        GemFrame frame = mockFrame(
+                MessageTypes.CONTAINS_KEY,
+                stringPart("/helloWorld"),
+                stringPart("abc"),
+                intPart(999)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository, never()).containsKey(any());
+        verify(repository, never()).containsValueForKey(any());
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_contains_value_mode_returns_false_without_repository_calls() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        ContainsHandler handler = new ContainsHandler(repository);
+        GemFrame frame = mockFrame(
+                MessageTypes.CONTAINS_KEY,
+                stringPart("/helloWorld"),
+                stringPart("abc"),
+                intPart(MessageTypes.CONTAINS_MODE_VALUE)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository, never()).containsKey(any());
+        verify(repository, never()).containsValueForKey(any());
+        verify(ctx).writeAndFlush(any());
+    }
 }

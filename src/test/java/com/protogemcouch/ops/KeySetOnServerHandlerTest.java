@@ -33,4 +33,24 @@ class KeySetOnServerHandlerTest {
         verify(repository).keySet("/helloWorld");
         verify(ctx).writeAndFlush(any());
     }
+
+    @Test
+    void handle_empty_key_list_still_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.keySet("/helloWorld")).thenReturn(List.of());
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        KeySetOnServerHandler handler = new KeySetOnServerHandler(repository);
+        GemFrame frame = mockFrame(
+                40,
+                stringPart("/helloWorld")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).keySet("/helloWorld");
+        verify(ctx).writeAndFlush(any());
+    }
 }
