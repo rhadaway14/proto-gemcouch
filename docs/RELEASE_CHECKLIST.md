@@ -14,6 +14,8 @@ This checklist is used before cutting a release tag, sharing a build, or declari
 - [ ] `mvn verify` passes
 - [ ] `mvn clean package` produces the runnable jar
 - [ ] Docker image builds successfully
+- [ ] GitHub Actions build/test workflow passes
+- [ ] GitHub Actions Docker build workflow passes
 
 Commands:
 

@@ -1,4 +1,3 @@
-
 # ProtoGemCouch Security
 
 ## Purpose
@@ -16,6 +15,7 @@ ProtoGemCouch currently relies on:
 - redacted safe config logging
 - Couchbase authentication using provided credentials
 - separate health port for operational health checks
+- GitHub Actions for automated build and security scanning
 
 ---
 
@@ -30,6 +30,12 @@ Rules:
 - do not put real credentials in docs
 - do not hardcode credentials in Java source
 - prefer runtime secret injection
+
+Recommended secret sources:
+- Docker runtime environment injection
+- Kubernetes Secrets
+- CI/CD secret stores
+- cloud secret managers
 
 ---
 
@@ -113,23 +119,30 @@ Current hardening includes:
 Recommended future improvements:
 - pin base image digests
 - run image vulnerability scans
-- track dependency CVEs
 - sign images if needed
 
 ---
 
-## Dependency security
+## Dependency and code security scanning
 
-Key dependencies include:
-- Couchbase Java SDK
-- Apache Geode client libraries
-- Netty
-- SLF4J
+GitHub Actions now provides automated scanning coverage through:
+- build and test workflow
+- Docker image build workflow
+- dependency graph submission
+- CodeQL analysis
 
-Recommended practice:
-- periodically review versions
-- run dependency scanning in CI
-- update vulnerable libraries with regression testing
+### Current CI security posture
+- Maven build runs automatically in CI
+- dependency graph submission is automated
+- CodeQL static analysis is automated
+- scans run on push and pull request for mainline branches
+- dependency/code scanning can also run on schedule
+
+### Recommended operator practice
+- review GitHub Security / Code Scanning alerts regularly
+- do not ignore repeated dependency findings without triage
+- update vulnerable dependencies intentionally and retest
+- treat CI scan failures or alerts as release blockers when severity justifies it
 
 ---
 
@@ -144,7 +157,8 @@ Before non-lab deployment:
 - [ ] Couchbase credentials are least-privilege
 - [ ] shim port exposure restricted
 - [ ] deployment image built from known source state
-- [ ] dependency scan completed
+- [x] dependency/code scanning configured in CI
+- [ ] CI security findings reviewed before release
 
 ---
 
@@ -155,7 +169,7 @@ This is not yet a fully hardened security-reviewed product.
 Future security work:
 - stronger TLS story for all traffic
 - secret-manager integration
-- automated dependency scanning
+- image vulnerability scanning/policy enforcement
 - shim-side auth model if needed
 - more restrictive health endpoint exposure guidance per environment
 
@@ -169,5 +183,6 @@ ProtoGemCouch supports basic secure operational hygiene:
 - redacted startup logging
 - non-root container runtime
 - simple health endpoints without sensitive payloads
+- automated CI-based dependency and static code scanning
 
 Additional hardening is still recommended before broader production deployment.
