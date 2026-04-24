@@ -1,20 +1,58 @@
-version: "3.8"
+version: "3.9"
 
 services:
-  geode:
-    image: apachegeode/geode:latest
-    container_name: geode-server
-    hostname: geode-server
+  couchbase:
+    image: couchbase:enterprise-7.6.2
+    container_name: protogemcouch-couchbase
+    hostname: couchbase
     ports:
-      - "10334:10334"
-      - "40404:40404"
-    command:
-      - /bin/bash
-      - -lc
-      - |
-        gfsh -e "start locator --name=locator --port=10334 --hostname-for-clients=127.0.0.1" \
-             -e "start server --name=server1 --server-port=40404 --hostname-for-clients=127.0.0.1 --locators=127.0.0.1[10334]" \
-             -e "create region --name=helloWorld --type=PARTITION" \
-             -e "list members" \
-             -e "describe region --name=helloWorld"
-        tail -f /dev/null
+      - "8091:8091"
+      - "8092:8092"
+      - "8093:8093"
+      - "8094:8094"
+      - "11210:11210"
+    volumes:
+      - couchbase_data:/opt/couchbase/var
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8091/ui/index.html >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  couchbase-init:
+    image: couchbase:enterprise-7.6.2
+    container_name: protogemcouch-couchbase-init
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    environment:
+      CB_HOST: couchbase
+      CB_ADMIN_USER: Administrator
+      CB_ADMIN_PASS: password
+      CB_BUCKET: test
+      CB_RAMSIZE_MB: 1024
+      CB_BUCKET_RAM_MB: 256
+    volumes:
+      - ./scripts/init-couchbase.sh:/init-couchbase.sh:ro
+    entrypoint: ["/bin/sh", "/init-couchbase.sh"]
+    restart: "no"
+
+  protogemcouch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-shim
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40405:40405"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  couchbase_data:

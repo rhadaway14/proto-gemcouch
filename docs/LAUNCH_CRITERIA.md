@@ -1,236 +1,267 @@
-
-## `LAUNCH_CRITERIA.md`
-
-```md id="ah72ls"
 # ProtoGemCouch Launch Criteria
 
 ## Purpose
 
-This document defines the minimum criteria required before ProtoGemCouch can be considered production-ready for a given target application scope.
+This document defines the minimum criteria required before ProtoGemCouch can be considered ready for use in a given scope.
+
+Launch readiness must always be tied to a specific scope. ProtoGemCouch should not be described as a full general-purpose GemFire/Geode replacement without explicit evidence for that broader claim.
 
 ---
 
-## 1. Scope definition required
-
-Launch approval must always be tied to a defined scope.
-
-Examples:
-- approved for a limited internal test environment
-- approved for one application using a specific subset of operations
-- approved for general production use
-
-ProtoGemCouch must not be labeled "production-ready" without a clear scope.
-
----
-
-## 2. Functional criteria
-
-### Required
-- all required opcodes for the target application are identified
-- all required opcodes are documented in `COMPATIBILITY_MATRIX.md`
-- all required opcodes are either:
-  - Supported
-  - or explicitly accepted as Partially Supported by stakeholders
-
-### Must pass
-- client handshake works reliably
-- core CRUD behavior works for the scoped app flows
-- bulk operations required by the target app work
-- server-side operations required by the target app work
-
-### Blocking issues
-Launch is blocked if:
-- a required opcode is unsupported
-- a required opcode has unstable response behavior
-- data correctness is uncertain
-- semantic gaps are unknown rather than documented
-
----
-
-## 3. Test criteria
-
-### Unit tests
-- `mvn test` passes
-- handler tests cover supported operations
-- response-writer tests cover supported response types
-- utility and factory tests pass
-
-### Integration tests
-- `mvn verify` passes in the intended deployment-like environment
-- integration tests exist for all supported critical operations
-- regression tests exist for previously broken protocol flows
-
-### Regression criteria
-- any bug fixed in a supported opcode must add a test
-- no release should ship with known regressions in supported operations
-
----
-
-## 4. Compatibility documentation criteria
-
-The following must exist and be current:
-- `COMPATIBILITY_MATRIX.md`
-- semantic gaps documented per operation
-- unsupported operations clearly listed
-- notes on callback/version/event fidelity where relevant
-
-Launch is blocked if compatibility is assumed but not documented.
-
----
-
-## 5. Observability criteria
-
-Before production launch, the system must provide:
-
-- structured logs
-- request/operation visibility by opcode
-- success/failure counts
-- latency visibility
-- unknown opcode visibility
-- startup and shutdown logging
-
-Minimum acceptable observability:
-- operators can determine what operation failed
-- operators can identify if the failure is protocol, configuration, or Couchbase related
-
----
-
-## 6. Configuration and startup criteria
-
-Before launch:
-- required configuration is documented
-- invalid configuration causes fast failure
-- startup validates repository connectivity
-- port conflicts fail clearly
-- secrets are not hardcoded in code or docs
-
-Launch is blocked if startup can partially succeed in a broken state.
-
----
-
-## 7. Performance criteria
-
-Before launch:
-- concurrency testing has been performed
-- soak testing has been performed
-- acceptable throughput and latency targets are defined for the scoped app
-- no known memory leak or unbounded resource growth exists in soak testing
-
-Minimum evidence required:
-- benchmark summary
-- soak summary
-- known capacity envelope
-
-Launch is blocked if no performance envelope is known.
-
----
-
-## 8. Security criteria
-
-Before launch:
-- secrets are provided externally
-- logs do not leak credentials
-- dependency review is completed
-- required transport security decisions are documented
-- Couchbase access uses least privilege practical for the deployment
-
-Launch is blocked if credential handling is unsafe.
-
----
-
-## 9. Deployment criteria
-
-Before launch:
-- deployment steps are documented
-- rollback steps are documented
-- artifact version is identifiable
-- startup and shutdown procedures are documented
-- at least one repeatable deployment path exists
-
-Examples:
-- local packaged run
-- Docker container
-- Kubernetes deployment
-
-Launch is blocked if deployment is ad hoc or non-repeatable.
-
----
-
-## 10. Runbook criteria
-
-The following must exist:
-- `RUNBOOK.md`
-- startup procedure
-- shutdown procedure
-- smoke tests
-- common failure modes
-- recovery steps
-- escalation guidance
-
-Launch is blocked if operations knowledge exists only in conversation history or in one engineer’s head.
-
----
-
-## 11. Production launch gates
-
-All of the following must be true:
-
-- [ ] scoped application use case defined
-- [ ] compatibility matrix complete for scoped operations
-- [ ] required opcodes supported or explicitly accepted
-- [ ] unit tests passing
-- [ ] integration tests passing
-- [ ] structured logging added
-- [ ] basic metrics added
-- [ ] startup validation hardened
-- [ ] concurrency testing completed
-- [ ] soak testing completed
-- [ ] deployment method documented
-- [ ] rollback procedure documented
-- [ ] runbook complete
-- [ ] known semantic gaps reviewed and accepted
-- [ ] no unresolved correctness issues for scoped operations
-
----
-
-## 12. Launch readiness levels
+## Scope levels
 
 ### Level 1 — Prototype
+- protocol exploration
+- partial opcode support
 - developer-run only
-- incomplete compatibility
-- basic tests only
 - no production claims
 
 ### Level 2 — Internal test ready
 - repeatable startup
-- core supported operations documented
-- unit and integration tests in place
-- acceptable for lab or internal evaluation
+- supported operations documented
+- unit/integration testing exists
+- compatible with scoped internal validation flows
 
 ### Level 3 — Scoped production candidate
-- defined target app
+- target application/use case defined
 - required operations validated
-- semantic gaps documented and accepted
-- observability, config validation, and soak testing completed
+- compatibility gaps documented and accepted
+- logging, metrics, packaging, and soak testing completed
 
 ### Level 4 — Production ready
 - deployment hardened
-- security addressed
-- monitoring and runbooks complete
+- security posture reviewed
+- health/readiness strategy complete
 - rollback tested
-- operator handoff possible
+- runbooks complete
+- support handoff possible
 
 ---
 
-## 13. Current recommended status
+## Current assessed status
 
-Based on the current project state, ProtoGemCouch should be described as:
+**Current recommendation: Level 3 — Scoped production candidate**
 
-**Internal test ready / scoped production candidate in progress**
+ProtoGemCouch has now demonstrated:
 
-It should not yet be described as a general production-ready GemFire/Geode replacement until:
-- observability is added
-- config hardening is completed
-- performance and soak testing are completed
-- deployment packaging is finalized
-- runbooks are complete
+- stable CRUD-style and bulk-style behavior for the currently supported operation set
+- strong short-run benchmark results
+- successful soak results for read-heavy and write-heavy workloads
+- repeatable Docker and Docker Compose deployment
+- automated local Couchbase initialization
+- structured logging and startup validation
+- compatibility, performance, soak, deployment, and security documentation
+
+ProtoGemCouch should still be described as scoped rather than general-purpose because:
+- only a subset of Geode/GemFire operations is supported
+- metadata operations (`SIZE`, `KEY_SET`) are much slower than CRUD paths
+- the unit suite is improved but not yet fully complete for every edge case
+- transport security and client-auth hardening are not yet fully built out
+
+---
+
+## Functional criteria
+
+### Required for scoped launch
+- all required opcodes for the target application are identified
+- all required opcodes are documented in `COMPATIBILITY_MATRIX.md`
+- all required opcodes are either:
+    - supported
+    - or explicitly accepted as partially supported by stakeholders
+
+### Current status
+- [x] Supported opcode subset documented
+- [x] Core current operations implemented
+- [x] Semantic gaps documented
+- [ ] Full broader protocol coverage
+- [ ] General-purpose compatibility claim
+
+### Current supported operation class
+Supported and validated for current scope:
+- `GET`
+- `PUT`
+- `REMOVE`
+- `CONTAINS_KEY`
+- `GET_ALL`
+- `PUT_ALL`
+- `SIZE`
+- `KEY_SET`
+- `PING`
+- `CONTROL`
+
+### Blocking condition
+Launch is blocked if the target application requires unsupported opcodes or semantics that are not yet implemented.
+
+---
+
+## Test criteria
+
+### Unit tests
+Required:
+- `mvn test` passes
+- core handlers covered
+- factories/utilities covered
+- response builder coverage exists
+
+Current status:
+- [x] Unit test framework established
+- [x] Multiple handler tests added
+- [x] Factory and utility tests added
+- [ ] Unit coverage fully complete for all handler edge cases
+- [ ] Broader malformed-frame/negative-path coverage finalized
+
+### Integration tests
+Required:
+- `mvn verify` passes
+- current supported end-to-end flows validated
+
+Current status:
+- [x] Integration tests exist for core supported flows
+- [x] Current scoped flows validated end-to-end
+
+### Performance tests
+Required:
+- benchmark evidence exists
+- soak evidence exists
+- known operating envelope exists
+
+Current status:
+- [x] Benchmark harness built
+- [x] Workload profiles added
+- [x] Short-run performance results documented
+- [x] Soak runs completed and documented
+- [x] CRUD vs metadata performance classes identified
+
+---
+
+## Compatibility documentation criteria
+
+Required:
+- `COMPATIBILITY_MATRIX.md` exists
+- supported operations are documented
+- semantic gaps are documented
+- unsupported operations are not implied to be supported
+
+Current status:
+- [x] Complete for current scope
+
+---
+
+## Observability criteria
+
+Required:
+- structured logs
+- request visibility by opcode
+- startup/shutdown logs
+- error visibility
+- metrics visibility sufficient for diagnosis
+
+Current status:
+- [x] Structured logging added
+- [x] Metrics registry added
+- [x] Periodic metrics snapshots available
+- [ ] External metrics endpoint not yet added
+- [ ] More advanced alerting/dashboarding not yet added
+
+---
+
+## Configuration and startup criteria
+
+Required:
+- config is externalized
+- invalid config fails fast
+- startup validates required runtime inputs
+- startup behavior is documented
+
+Current status:
+- [x] Env-var-based startup config
+- [x] Fast failure on missing required config
+- [x] Startup validation present
+- [x] Deployment docs updated
+
+---
+
+## Deployment criteria
+
+Required:
+- repeatable packaging exists
+- repeatable deployment exists
+- rollback path documented
+
+Current status:
+- [x] Dockerfile added
+- [x] Docker Compose added
+- [x] Automated Couchbase init added for local deployment
+- [x] Deployment docs written
+- [x] Rollback guidance documented
+
+---
+
+## Security criteria
+
+Required for scoped candidate:
+- no secrets in source
+- secrets externalized
+- sensitive values redacted in logs
+- basic deployment security guidance written
+
+Current status:
+- [x] Secrets externalized
+- [x] Passwords redacted in safe startup logging
+- [x] `SECURITY.md` added
+- [ ] TLS strategy fully implemented
+- [ ] Dependency scanning in CI added
+- [ ] Shim-side client authentication model defined
+
+---
+
+## Operational readiness criteria
+
+Required:
+- startup/shutdown runbook exists
+- recovery guidance exists
+- smoke validation exists
+
+Current status:
+- [x] `RUNBOOK.md` exists
+- [x] `DEPLOYMENT.md` exists
+- [x] smoke/run guidance exists
+- [ ] Formal support handoff not yet performed
+- [ ] Shim health/readiness endpoint not yet added
+
+---
+
+## Launch gate checklist
+
+### Achieved
+- [x] Scoped use case supported
+- [x] Compatibility matrix complete for current supported ops
+- [x] Current supported flows tested
+- [x] Integration tests pass for current supported flows
+- [x] Structured logging added
+- [x] Basic metrics added
+- [x] Startup validation hardened
+- [x] Benchmarking completed
+- [x] Soak testing completed
+- [x] Docker packaging completed
+- [x] Docker Compose deployment completed
+- [x] Deployment docs completed
+- [x] Security doc completed
+- [x] Runbook completed
+
+### Still open
+- [ ] Finish remaining unit-test expansion and negative-path coverage
+- [ ] Add shim health/readiness strategy
+- [ ] Add TLS / transport hardening for broader deployment
+- [ ] Add CI dependency/security scanning
+- [ ] Confirm final release scope against target application opcode usage
+
+---
+
+## Current launch conclusion
+
+ProtoGemCouch is ready to be described as:
+
+> **A scoped production candidate for applications whose required behavior is covered by the currently supported CRUD, bulk, and server-side operation subset.**
+
+ProtoGemCouch is **not yet ready to be described as a full production-grade GemFire/Geode replacement for arbitrary workloads**.
