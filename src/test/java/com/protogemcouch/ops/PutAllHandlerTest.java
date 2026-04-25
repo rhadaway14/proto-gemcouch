@@ -11,6 +11,7 @@ import static com.protogemcouch.testsupport.FrameTestUtil.objectPart;
 import static com.protogemcouch.testsupport.FrameTestUtil.part;
 import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class PutAllHandlerTest {
@@ -92,7 +93,7 @@ class PutAllHandlerTest {
     }
 
     @Test
-    void handle_null_deserialized_value_is_skipped() {
+    void handle_null_deserialized_value_uses_fallback_when_string_like() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
@@ -115,7 +116,7 @@ class PutAllHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).put("/helloWorld::key-1", "value-1");
-        verify(repository, never()).put(eq("/helloWorld::key-2"), any());
+        verify(repository).put(eq("/helloWorld::key-2"), any());
         verify(ctx).writeAndFlush(any());
     }
 

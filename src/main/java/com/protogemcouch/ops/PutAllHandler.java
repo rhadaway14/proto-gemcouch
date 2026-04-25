@@ -3,6 +3,7 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -45,7 +46,9 @@ public class PutAllHandler implements OperationHandler {
                     "parts", frame.getParts().size(),
                     "txId", frame.getTransactionId()
             ));
-            ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())
+            ));
             return;
         }
 
@@ -85,17 +88,28 @@ public class PutAllHandler implements OperationHandler {
             Object rawValue;
             try {
                 rawValue = GeodeSerialization.deserializeObject(valuePart.getPayload());
-            } catch (Exception e) {
+            } catch (Throwable t) {
                 log.warn(StructuredLog.event(
                         "handler_put_all_value_deserialize_error",
                         "key", key,
-                        "error", e.getMessage(),
+                        "error", t.getMessage(),
                         "txId", frame.getTransactionId()
                 ));
                 rawValue = null;
             }
 
             String value = rawValue == null ? null : String.valueOf(rawValue);
+
+            if (value == null) {
+                value = ValueDecoding.decodeStringLikeValue(valuePart.getPayload());
+                if (value != null) {
+                    log.info(StructuredLog.event(
+                            "handler_put_all_value_fallback_decode_ok",
+                            "key", key,
+                            "txId", frame.getTransactionId()
+                    ));
+                }
+            }
 
             log.debug(StructuredLog.event(
                     "handler_put_all_entry",
@@ -130,6 +144,8 @@ public class PutAllHandler implements OperationHandler {
             }
         }
 
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())
+        ));
     }
 }

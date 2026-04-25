@@ -3,6 +3,7 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -54,25 +55,31 @@ public class PutHandler implements OperationHandler {
 
         if (frame.getParts().size() > 5) {
             byte[] valuePayload = frame.getParts().get(5).getPayload();
+
             try {
                 Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
                 if (rawValue != null) {
                     value = String.valueOf(rawValue);
                 }
-            } catch (Exception e) {
+            } catch (Throwable t) {
                 log.warn(StructuredLog.event(
                         "handler_put_value_deserialize_error",
-                        "error", e.getMessage(),
+                        "error", t.getMessage(),
                         "txId", frame.getTransactionId()
                 ));
-            }
 
-            if (value == null) {
-                String fallback = new String(valuePayload, StandardCharsets.UTF_8)
-                        .replace("\u0000", "")
-                        .trim();
-                if (!fallback.isBlank()) {
-                    value = fallback;
+                value = ValueDecoding.decodeStringLikeValue(valuePayload);
+
+                if (value != null) {
+                    log.info(StructuredLog.event(
+                            "handler_put_value_fallback_decode_ok",
+                            "txId", frame.getTransactionId()
+                    ));
+                } else {
+                    log.warn(StructuredLog.event(
+                            "handler_put_value_fallback_decode_failed",
+                            "txId", frame.getTransactionId()
+                    ));
                 }
             }
         }

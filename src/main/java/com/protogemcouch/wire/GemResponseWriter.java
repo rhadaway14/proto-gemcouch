@@ -1,255 +1,165 @@
 package com.protogemcouch.wire;
 
-import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
-import org.apache.geode.internal.cache.tier.sockets.VersionedObjectList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public final class GemResponseWriter {
 
-    private static final byte[] RESPONSE_META = ByteUtils.hex(
-            "01018800040000ff000300000003e1dba9ded533"
-    );
+    private static final byte[] PUT_REPLY_PART1 = new byte[] {
+            0x00
+    };
+
+    private static final byte[] PUT_REPLY_PART2 = new byte[] {
+            0x00, 0x00, 0x00, 0x04
+    };
+
+    private static final byte[] PUT_REPLY_PART3 = new byte[] {
+            0x01, (byte) 0x88, 0x00, 0x04, 0x00, 0x00, (byte) 0xff, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x01, (byte) 0xc0, (byte) 0xf1, (byte) 0x95,
+            (byte) 0x92, (byte) 0xdc, 0x33
+    };
 
     private GemResponseWriter() {
     }
 
-    public static byte[] buildGetResponse(int transactionId, String value) {
-        byte[] serializedValue = GeodeSerialization.serializeString(value);
-
-        ByteBuf buf = Unpooled.buffer();
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(0);
-        buf.writeInt(3);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        int payloadStart = buf.writerIndex();
-
-        buf.writeInt(serializedValue.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(serializedValue);
-
-        buf.writeInt(4);
-        buf.writeByte(0x00);
-        buf.writeInt(0);
-
-        buf.writeInt(RESPONSE_META.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(RESPONSE_META);
-
-        int payloadLength = buf.writerIndex() - payloadStart;
-        buf.setInt(4, payloadLength);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildGetResponse(int txId, String value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(ValueEncoding.encodeStringLikeValue(value), (byte) 0))
+        );
     }
 
-    public static byte[] buildNullGetResponse(int transactionId) {
-        ByteBuf buf = Unpooled.buffer();
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(0);
-        buf.writeInt(3);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        int payloadStart = buf.writerIndex();
-
-        buf.writeInt(1);
-        buf.writeByte(0x01);
-        buf.writeByte(0x29);
-
-        buf.writeInt(4);
-        buf.writeByte(0x00);
-        buf.writeInt(0);
-
-        buf.writeInt(RESPONSE_META.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(RESPONSE_META);
-
-        int payloadLength = buf.writerIndex() - payloadStart;
-        buf.setInt(4, payloadLength);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildNullGetResponse(int txId) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(new byte[0], (byte) 0))
+        );
     }
 
-    public static byte[] buildPutResponse(int transactionId) {
-        ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(MessageTypes.REPLY);
-        buf.writeInt(16);
-        buf.writeInt(2);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        buf.writeInt(2);
-        buf.writeByte(0x00);
-        buf.writeByte(0x00);
-        buf.writeByte(0x00);
-
-        buf.writeInt(4);
-        buf.writeByte(0x00);
-        buf.writeInt(0);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildPutResponse(int txId) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(
+                        new Part(PUT_REPLY_PART1, (byte) 0),
+                        new Part(PUT_REPLY_PART2, (byte) 0),
+                        new Part(PUT_REPLY_PART3, (byte) 1)
+                )
+        );
     }
 
-    public static byte[] buildRemoveResponse(int transactionId) {
-        ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(MessageTypes.REPLY);
-        buf.writeInt(15);
-        buf.writeInt(2);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        buf.writeInt(4);
-        buf.writeByte(0x00);
-        buf.writeInt(0);
-
-        buf.writeInt(1);
-        buf.writeByte(0x00);
-        buf.writeByte(0x00);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildRemoveResponse(int txId) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(new Part(ByteUtils.intToBytes(0), (byte) 0))
+        );
     }
 
-    public static byte[] buildContainsResponse(int transactionId, boolean exists) {
-        byte[] serializedBool = GeodeSerialization.serializeBoolean(exists);
-
-        ByteBuf buf = Unpooled.buffer();
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(0);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        int payloadStart = buf.writerIndex();
-
-        buf.writeInt(serializedBool.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(serializedBool);
-
-        int payloadLength = buf.writerIndex() - payloadStart;
-        buf.setInt(4, payloadLength);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildSimpleAck(int txId) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(new Part(new byte[] {0x00}, (byte) 0))
+        );
     }
 
-    public static byte[] buildSizeResponse(int transactionId, int size) {
-        byte[] serializedSize = GeodeSerialization.serializeObject(Integer.valueOf(size));
-
-        ByteBuf buf = Unpooled.buffer();
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(0);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        int payloadStart = buf.writerIndex();
-
-        buf.writeInt(serializedSize.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(serializedSize);
-
-        int payloadLength = buf.writerIndex() - payloadStart;
-        buf.setInt(4, payloadLength);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildContainsResponse(int txId, boolean contains) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(ByteUtils.intToBytes(contains ? 1 : 0), (byte) 0))
+        );
     }
 
-    public static byte[] buildSimpleAck(int transactionId) {
-        ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(MessageTypes.REPLY);
-        buf.writeInt(6);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
-        buf.writeByte(0);
-
-        buf.writeInt(1);
-        buf.writeByte(0x00);
-        buf.writeByte(0x00);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildSizeResponse(int txId, int size) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(ByteUtils.intToBytes(size), (byte) 0))
+        );
     }
 
-    public static byte[] buildGetAllChunkedResponse(int transactionId,
-                                                    List<String> keys,
-                                                    Map<String, String> results) {
-        VersionedObjectList vol = new VersionedObjectList(keys.size(), false, false, false);
+    public static byte[] buildGetAllChunkedResponse(int txId, List<String> keys, Map<String, String> values) {
+        List<Part> parts = new ArrayList<>();
 
         for (String key : keys) {
-            String value = results.get(key);
-            if (value == null) {
-                vol.addObjectPartForAbsentKey(null, null, null);
-            } else {
-                vol.addObjectPart(null, value, true, null);
-            }
+            String value = values.get(key);
+            parts.add(new Part(ValueEncoding.encodeStringLikeValue(value), (byte) 0));
         }
 
-        byte[] volBytes = GeodeSerialization.serializeObject(vol);
-
-        ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
-
-        int chunkLength = 4 + 1 + volBytes.length;
-        buf.writeInt(chunkLength);
-        buf.writeByte(0x01);
-
-        buf.writeInt(volBytes.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(volBytes);
-
-        return ByteBufUtil.getBytes(buf);
+        return buildMessage(MessageTypes.RESPONSE, txId, parts);
     }
 
-    public static byte[] buildPutAllChunkedResponse(int transactionId) {
-        VersionedObjectList vol = new VersionedObjectList();
-
-        byte[] volBytes = GeodeSerialization.serializeObject(vol);
-
-        ByteBuf buf = Unpooled.buffer();
-
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
-
-        int chunkLength = 4 + 1 + volBytes.length;
-        buf.writeInt(chunkLength);
-        buf.writeByte(0x01);
-
-        buf.writeInt(volBytes.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(volBytes);
-
-        return ByteBufUtil.getBytes(buf);
+    public static byte[] buildPutAllChunkedResponse(int txId) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(new byte[] {0x00}, (byte) 0))
+        );
     }
 
-    public static byte[] buildKeySetChunkedResponse(int transactionId, List<String> keys) {
-        byte[] listBytes = GeodeSerialization.serializeObject(keys);
+    public static byte[] buildKeySetChunkedResponse(int txId, List<String> keys) {
+        List<Part> parts = new ArrayList<>();
+
+        for (String key : keys) {
+            parts.add(new Part(ValueEncoding.encodeStringLikeValue(key), (byte) 0));
+        }
+
+        return buildMessage(MessageTypes.RESPONSE, txId, parts);
+    }
+
+    private static byte[] buildMessage(int messageType, int txId, List<Part> parts) {
+        int messageLength = computeMessageLength(parts);
 
         ByteBuf buf = Unpooled.buffer();
+        buf.writeInt(messageType);
+        buf.writeInt(messageLength);
+        buf.writeInt(parts.size());
+        buf.writeInt(txId);
+        buf.writeByte((byte) 0);
 
-        buf.writeInt(MessageTypes.RESPONSE);
-        buf.writeInt(1);
-        buf.writeInt(transactionId);
+        for (Part part : parts) {
+            writePart(buf, part.payload(), part.typeCode());
+        }
 
-        int chunkLength = 4 + 1 + listBytes.length;
-        buf.writeInt(chunkLength);
-        buf.writeByte(0x01);
+        return toByteArrayAndRelease(buf);
+    }
 
-        buf.writeInt(listBytes.length);
-        buf.writeByte(0x01);
-        buf.writeBytes(listBytes);
+    private static int computeMessageLength(List<Part> parts) {
+        int total = 0;
+        for (Part part : parts) {
+            total += 4;
+            total += 1;
+            total += part.payload().length;
+        }
+        return total;
+    }
 
-        return ByteBufUtil.getBytes(buf);
+    private static void writePart(ByteBuf buf, byte[] payload, byte typeCode) {
+        buf.writeInt(payload.length);
+        buf.writeByte(typeCode);
+        buf.writeBytes(payload);
+    }
+
+    private static byte[] toByteArrayAndRelease(ByteBuf buf) {
+        try {
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private record Part(byte[] payload, byte typeCode) {
     }
 }
