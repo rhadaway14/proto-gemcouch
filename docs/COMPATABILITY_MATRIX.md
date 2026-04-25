@@ -1,71 +1,135 @@
-# ProtoGemCouch Compatibility Matrix
+# COMPATIBILITY_MATRIX
 
-## Status legend
+## Summary
 
-- **Supported** — implemented and validated end-to-end
-- **Partially Supported** — implemented enough for current flows, but with semantic gaps
-- **Discovered / Not Implemented** — opcode/request shape known, but no handler yet
-- **Unsupported** — not implemented and not yet analyzed
+This document tracks the current compatibility status of `ProtoGemCouch` relative to the Geode client behaviors validated so far.
 
----
+Status values:
 
-## Current summary
-
-ProtoGemCouch currently supports a core set of GemFire/Geode client operations well enough for basic application flows:
-
-- `GET`
-- `PUT`
-- `REMOVE`
-- `CONTAINS_KEY`
-- `GET_ALL`
-- `PUT_ALL`
-- `SIZE`
-- `KEY_SET`
-- `PING`
-- `CONTROL`
-
-The current integration suite is green for:
-
-- `containsKeyOnServer`
-- `getAll`
-- `keySetOnServer`
-- `putAll`
-- `put/get/remove`
-- `sizeOnServer` :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+- **Working** = validated in current sample/demo flow
+- **Partial** = backend or protocol path exists, but behavior is incomplete or only validated in a narrow path
+- **Planned** = not yet validated / not yet implemented as a supported claim
+- **Unknown** = not yet evaluated enough to classify safely
 
 ---
 
-## Compatibility matrix
+## Client Connection and Basic Session
 
-| Operation | Opcode | Request Shape Known | Response Shape Implemented | Probe Completed | Unit Tested | Integration Tested | Status | Semantic Gaps / Risks | Notes |
-|---|---:|---|---|---|---|---|---|---|---|
-| GET | 0 | Yes | Yes | Yes | In progress | Yes | Supported | Response fidelity should continue to be regression tested | Basic get path works |
-| PUT | 7 | Yes | Yes | Yes | In progress | Yes | Supported | Parsing is positional and based on observed layout; should keep regression coverage | Current put path works with integration tests |
-| REMOVE | 9 | Yes | Yes | Yes | In progress | Yes | Partially Supported | Current behavior is delete-only; `region.remove(key)` returns `null` instead of the removed value | This is a known semantic gap |
-| CONTAINS_KEY | 38 | Yes | Yes | Yes | In progress | Yes | Supported | Only implemented modes should be treated as reliable | `containsKeyOnServer` works |
-| CONTAINS_VALUE_FOR_KEY | 38 + mode 1 | Yes | Yes | Yes | In progress | Not yet | Partially Supported | Handler path exists, but no dedicated integration test yet | Same opcode as contains, mode-based behavior |
-| CONTAINS_VALUE | 38 + mode 2 | Partially | No meaningful support | Partially | No | No | Unsupported | Currently returns false / not implemented | Must not be treated as real support |
-| GET_ALL | 100 | Yes | Yes | Yes | In progress | Yes | Supported | Chunked response should stay under regression coverage | Working in integration tests |
-| PUT_ALL | 56 | Yes | Yes | Yes | In progress | Yes | Supported | Bulk semantics may still differ from full Geode versioning/callback behavior | Current client flow works |
-| SIZE / sizeOnServer | 81 | Yes | Yes | Yes | In progress | Yes | Supported | Count is backed by query over document ID prefix; behavior depends on current key model | Works for current region-to-doc mapping |
-| KEY_SET / keySetOnServer | 40 | Yes | Yes | Yes | In progress | Yes | Supported | Returned from current Couchbase prefix query model; large result sets may need later tuning | Working in tests |
-| CONTROL | 18 | Yes | Yes | Observed | Minimal | Not directly | Supported | Simple ack only | Seen in live traffic and acknowledged successfully |
-| PING | 5 | Yes | Yes | Observed | Minimal | Not directly | Supported | Simple ack only | Infrastructure-level support |
-| GET_CLIENT_PARTITION_ATTRIBUTES | 73 | Yes | No real response behavior | Yes | No | No | Discovered / Not Implemented | Observed and logged only; not real support yet | Must not be relied on |
-| Unknown opcodes | Various | N/A | Fallback logging only | Ongoing | Yes | N/A | Partially Supported | Safe fallback is log-and-ignore, not feature support | Good for discovery, not compatibility |
+| Area | Status | Notes |
+|---|---|---|
+| Client handshake | Working | Geode client can connect and establish a session with the shim. |
+| Basic request/response loop | Working | Validated through CRUD sample flow. |
+| Health endpoints | Working | `/live` and `/ready` are working. |
+| Control frames | Working | Control frames are observed and handled in the current flow. |
 
 ---
 
-## Supported operations detail
+## CRUD Operations
 
-### GET
-- Region and key are parsed from the first two parts.
-- Value is read from Couchbase using the constructed document ID.
-- Null and found-value response paths are implemented.
+| Operation | Status | Notes |
+|---|---|---|
+| PUT / create | Working | Validated end-to-end against Couchbase for string-like values. |
+| GET / read | Working | Validated end-to-end; sample app currently receives `byte[]` and decodes locally. |
+| PUT / update | Working | Validated end-to-end for the same document path. |
+| REMOVE / destroy | Working | Validated for the tested sample flow; remove returns normally and backend state is correct. |
+| Delete verification | Working | Verified by follow-up absence check after remove. |
 
-### PUT
-- Request shape is known from probe traffic and integration testing.
-- Region, key, and value are extracted from observed part positions.
-- Value is stored in Couchbase as:
-  ```json
-  { "value": "<payload>" }
+---
+
+## Lookup and Existence Semantics
+
+| Operation | Status | Notes |
+|---|---|---|
+| Existence check in sample flow | Working | Validated using GET-based existence verification. |
+| Native contains semantics | Partial | Backend contains path exists, but broader native client type fidelity still needs expansion and validation. |
+| Null / missing GET response | Working | Missing document path is observed and handled in current sample verification. |
+
+---
+
+## Collection / Bulk Operations
+
+| Operation | Status | Notes |
+|---|---|---|
+| GET_ALL | Partial | Basic support exists, but not broadly validated against real Geode behavior. |
+| PUT_ALL | Partial | Basic support exists, but not broadly validated against real Geode behavior. |
+| KEY_SET | Partial | Response path exists, but broader real-client validation is still needed. |
+| SIZE | Partial | Response path exists, but broader real-client validation is still needed. |
+
+---
+
+## Data Type Fidelity
+
+| Area | Status | Notes |
+|---|---|---|
+| String-like values | Working | Validated in the current sample path. |
+| Native Java String return type | Partial | Values currently come back to the sample app as `byte[]`, with local decoding. |
+| Arbitrary Java objects | Planned | Not yet supported as a validated claim. |
+| PDX objects | Planned | Not yet validated. |
+| Custom serialized objects | Planned | Not yet validated. |
+| Complex nested payloads | Planned | Not yet validated. |
+
+---
+
+## Serialization / Deserialization
+
+| Area | Status | Notes |
+|---|---|---|
+| Request fallback decode for string-like values | Working | Current demo path depends on this. |
+| Native Geode DataSerializer use in shim runtime | Partial | Initialization issues still exist in the shim runtime. |
+| Response-side wire framing for validated CRUD flow | Working | Validated for current create/read/update/delete sample path. |
+| Full object serialization fidelity | Planned | Not yet supported as a validated claim. |
+
+---
+
+## Error Handling and Recovery
+
+| Area | Status | Notes |
+|---|---|---|
+| Missing document on GET | Working | Validated in delete verification flow. |
+| Client reconnect in sample flow | Working | Basic reconnect behavior has been exercised successfully. |
+| Retry behavior under broader failure conditions | Unknown | Needs more validation. |
+| Robust handling of unsupported object types | Partial | Expected to be limited today. |
+
+---
+
+## Observability and Operations
+
+| Area | Status | Notes |
+|---|---|---|
+| Structured logging | Working | Present and useful in current validation. |
+| Metrics summaries | Working | Present and reporting request counts / latencies. |
+| Startup validation | Working | Present and validated in current startup flow. |
+| Docker packaging | Working | Current demo runs in Docker Compose. |
+| Runbooks / launch docs | Working | Present, but should continue evolving as compatibility expands. |
+
+---
+
+## Current Supported Claim
+
+The current safe supported claim is:
+
+**ProtoGemCouch supports a validated Geode client CRUD sample flow for string-like values against Couchbase, including working create, read, update, and destroy/remove behavior for the tested path.**
+
+---
+
+## Current Unsupported or Not-Yet-Validated Claim
+
+The following claims should **not** yet be made:
+
+- full Geode server replacement
+- broad native compatibility across arbitrary Java object types
+- full PDX compatibility
+- complete parity for all Geode operations
+- production-grade compatibility guarantees across all client behaviors
+
+---
+
+## Next Expansion Targets
+
+Recommended next validation targets:
+
+1. native contains semantics without sample-side normalization workarounds
+2. GET_ALL and PUT_ALL against a real Geode client comparison
+3. KEY_SET and SIZE validation
+4. broader object types
+5. regression tests based on captured real Geode wire responses

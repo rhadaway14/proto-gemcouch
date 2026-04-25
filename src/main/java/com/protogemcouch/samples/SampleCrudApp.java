@@ -33,17 +33,11 @@ public class SampleCrudApp {
             runCreate(region, createKey, createValue);
             runRead(region, createKey, createValue);
             runUpdate(region, createKey, updateValue);
-            runContainsEquivalent(region, createKey, true);
+            runExistsCheck(region, createKey, true);
 
             runCreate(region, deleteKey, deleteValue);
             runDelete(region, deleteKey);
-
-            cache.close();
-
-            cache = createCache(host, port);
-            region = createRegion(cache, regionName);
-
-            runContainsEquivalent(region, deleteKey, false);
+            runExistsCheck(region, deleteKey, false);
 
             System.out.println();
             System.out.println("=== Sample app completed successfully ===");
@@ -115,17 +109,11 @@ public class SampleCrudApp {
 
     private static void runDelete(Region<String, Object> region, String key) {
         System.out.println("[DELETE] key=" + key);
-
-        try {
-            region.remove(key);
-            System.out.println("  Remove call returned normally");
-        } catch (Exception e) {
-            System.out.println("  Remove call threw expected protocol-gap exception: " + e.getClass().getName());
-            System.out.println("  Continuing to verify backend state...");
-        }
+        region.remove(key);
+        System.out.println("  OK");
     }
 
-    private static void runContainsEquivalent(Region<String, Object> region, String key, boolean expected) {
+    private static void runExistsCheck(Region<String, Object> region, String key, boolean expected) {
         System.out.println("[EXISTS_CHECK] key=" + key);
 
         Object actualRaw = region.get(key);

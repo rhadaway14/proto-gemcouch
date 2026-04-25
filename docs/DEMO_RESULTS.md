@@ -12,7 +12,7 @@ The demo proved that a Geode client application can:
 - update data through the shim
 - verify existence through a GET-based check
 - delete data from Couchbase through the shim
-- reconnect and verify the deleted document is no longer present
+- verify the deleted document is no longer present
 
 This is a successful end-to-end demo milestone for the current project phase.
 
@@ -46,7 +46,7 @@ The sample app successfully created:
 - `/helloWorld::sample-user-1`
 - `/helloWorld::sample-user-delete`
 
-The shim logs showed `repository_put_ok` for both documents.
+The shim logs showed successful repository writes for both documents.
 
 ### 2. Read
 The sample app successfully read `sample-user-1` after creation.
@@ -68,13 +68,11 @@ A follow-up read verified the updated value.
 The sample app successfully verified that `sample-user-1` existed using a GET-based existence check.
 
 ### 5. Delete
-The sample app issued a delete for:
+The sample app successfully issued a delete for:
 
 - `/helloWorld::sample-user-delete`
 
-The Geode client still threw a known protocol-gap exception during the destroy response parsing, but the shim logs showed that the backend delete completed successfully.
-
-After reconnecting, the sample app verified that `sample-user-delete` no longer existed.
+The remove call now returns normally in the validated sample flow, and a follow-up existence check confirms the document is absent.
 
 ---
 
@@ -84,6 +82,7 @@ After reconnecting, the sample app verified that `sample-user-delete` no longer 
 The app completed with:
 
 - `=== Sample app completed successfully ===`
+- `Process finished with exit code 0`
 
 ### Shim Evidence
 The shim logs showed:
@@ -112,27 +111,26 @@ This proves the backend state in Couchbase matched the expected result.
 
 ## What This Demo Proves
 
-This demo proves that the current shim implementation is already capable of supporting a meaningful subset of Geode client behavior against Couchbase for string-like values, including:
+This demo proves that the current shim implementation is capable of supporting a meaningful subset of Geode client behavior against Couchbase for string-like values, including:
 
 - create
 - read
 - update
 - delete
 
-It also proves that the shim can act as a protocol translation layer that stores and retrieves data in Couchbase while preserving the client application's basic workflow.
+It also proves that the shim can act as a protocol translation layer that stores and retrieves data in Couchbase while preserving the client application's basic workflow for the validated path.
 
 ---
 
-## What This Demo Does Not Yet Prove
+## Notes on Current Behavior
 
-This demo does **not** yet prove full native Geode wire compatibility.
+The validated sample flow still has some non-final behavior:
 
-In particular:
+- read values are still surfaced to the sample app as `byte[]`
+- the sample app decodes those bytes into strings for verification
+- the current success claim applies to the validated string-value sample path
 
-- destroy/remove reply handling is not yet fully wire-compatible
-- some response types are still demo-safe approximations
-- some client-visible values are returned as `byte[]` instead of native Geode-decoded Java types
-- the sample app currently works around the known destroy/remove response gap by reconnecting and verifying backend state
+These are acceptable for the current milestone, but they are not yet the final native behavior target.
 
 ---
 
@@ -144,8 +142,7 @@ The project now has verified:
 
 - end-to-end CRUD behavior through the shim
 - persistence in Couchbase
-- successful sample-app completion for the current demo workflow
+- successful sample-app completion for the validated path
+- working native destroy/remove reply handling for the tested sample flow
 
-The next major phase is:
-
-**Full native Geode wire compatibility for destroy/remove replies**
+The next major phase is broader native compatibility hardening and expansion of the supported operation matrix.
