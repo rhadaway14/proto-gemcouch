@@ -19,40 +19,12 @@ public final class GemResponseWriter {
             0x00, 0x00, 0x00, 0x04
     };
 
-    /*
-     * IMPORTANT:
-     * The part type byte is written separately by writePart(...).
-     * Do NOT include the part type byte inside the payload.
-     *
-     * Real PUT capture:
-     *   part length = 0x13
-     *   part type   = 0x01
-     *   payload     = 01 88 00 04 00 00 ff 00 01 00 00 00 01 c0 f1 95 92 dc 33
-     */
     private static final byte[] PUT_REPLY_PART3 = new byte[] {
             (byte) 0x01, (byte) 0x88, 0x00, 0x04, 0x00, 0x00, (byte) 0xff, 0x00,
             0x01, 0x00, 0x00, 0x00, 0x01, (byte) 0xc0, (byte) 0xf1, (byte) 0x95,
             (byte) 0x92, (byte) 0xdc, 0x33
     };
 
-    /*
-     * DestroyOp.processResponse expects:
-     *   part 0: flags int
-     *   part 1: VersionTag object if HAS_VERSION_TAG
-     *   part 2: OK byte (when not prSingleHop)
-     *   part 3: entryNotFound int if HAS_ENTRY_NOT_FOUND_PART
-     *
-     * From the real Geode DESTROY reply capture:
-     *   flags = 3
-     *   version tag part type = 1
-     *   version tag payload   = 01 88 00 04 00 00 ff 00 02 00 00 00 02 ec c6 ac 94 dc 33
-     *   ok byte = 00
-     *   entryNotFound = 0
-     *
-     * IMPORTANT:
-     * The part type byte (0x01) is NOT part of the payload array here.
-     * It is written separately by writePart(...).
-     */
     private static final byte[] REMOVE_REPLY_PART1 = new byte[] {
             0x00, 0x00, 0x00, 0x03
     };
@@ -78,7 +50,7 @@ public final class GemResponseWriter {
         return buildMessage(
                 MessageTypes.RESPONSE,
                 txId,
-                List.of(new Part(ValueEncoding.encodeStringLikeValue(value), (byte) 0))
+                List.of(new Part(ValueEncoding.encodeGeodeStringValue(value), (byte) 1))
         );
     }
 
@@ -127,7 +99,7 @@ public final class GemResponseWriter {
         return buildMessage(
                 MessageTypes.RESPONSE,
                 txId,
-                List.of(new Part(ByteUtils.intToBytes(contains ? 1 : 0), (byte) 0))
+                List.of(new Part(geodeSerializedBoolean(contains), (byte) 1))
         );
     }
 
@@ -144,7 +116,11 @@ public final class GemResponseWriter {
 
         for (String key : keys) {
             String value = values.get(key);
-            parts.add(new Part(ValueEncoding.encodeStringLikeValue(value), (byte) 0));
+            if (value == null) {
+                parts.add(new Part(new byte[0], (byte) 0));
+            } else {
+                parts.add(new Part(ValueEncoding.encodeGeodeStringValue(value), (byte) 1));
+            }
         }
 
         return buildMessage(MessageTypes.RESPONSE, txId, parts);
@@ -162,10 +138,29 @@ public final class GemResponseWriter {
         List<Part> parts = new ArrayList<>();
 
         for (String key : keys) {
-            parts.add(new Part(ValueEncoding.encodeStringLikeValue(key), (byte) 0));
+            parts.add(new Part(ValueEncoding.encodeGeodeStringValue(key), (byte) 1));
         }
 
         return buildMessage(MessageTypes.RESPONSE, txId, parts);
+    }
+
+    private static byte[] geodeSerializedBoolean(boolean value) {
+        /*
+         * Geode native serialization for Boolean:
+         *
+         *   0x35 0x01 = Boolean.TRUE
+         *   0x35 0x00 = Boolean.FALSE
+         *
+         * This must be sent as an object part, not as raw int bytes.
+         * Returning ByteUtils.intToBytes(1) as a non-object part causes
+         * the Geode client to receive byte[] and then fail with:
+         *
+         *   ClassCastException: class [B cannot be cast to class java.lang.Boolean
+         */
+        return new byte[] {
+                0x35,
+                (byte) (value ? 0x01 : 0x00)
+        };
     }
 
     private static byte[] buildMessage(int messageType, int txId, List<Part> parts) {
@@ -188,8 +183,8 @@ public final class GemResponseWriter {
     private static int computeMessageLength(List<Part> parts) {
         int total = 0;
         for (Part part : parts) {
-            total += 4; // part length
-            total += 1; // part type
+            total += 4;
+            total += 1;
             total += part.payload().length;
         }
         return total;

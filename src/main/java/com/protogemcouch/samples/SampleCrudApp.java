@@ -5,8 +5,6 @@ import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 
-import java.nio.charset.StandardCharsets;
-
 public class SampleCrudApp {
 
     public static void main(String[] args) {
@@ -33,11 +31,18 @@ public class SampleCrudApp {
             runCreate(region, createKey, createValue);
             runRead(region, createKey, createValue);
             runUpdate(region, createKey, updateValue);
-            runExistsCheck(region, createKey, true);
+
+            runContainsKeyOnServer(region, createKey, true);
+            runContainsValueForKeyOnServer(region, createKey, true);
 
             runCreate(region, deleteKey, deleteValue);
+            runContainsKeyOnServer(region, deleteKey, true);
+            runContainsValueForKeyOnServer(region, deleteKey, true);
+
             runDelete(region, deleteKey);
-            runExistsCheck(region, deleteKey, false);
+
+            runContainsKeyOnServer(region, deleteKey, false);
+            runContainsValueForKeyOnServer(region, deleteKey, false);
 
             System.out.println();
             System.out.println("=== Sample app completed successfully ===");
@@ -113,20 +118,67 @@ public class SampleCrudApp {
         System.out.println("  OK");
     }
 
-    private static void runExistsCheck(Region<String, Object> region, String key, boolean expected) {
-        System.out.println("[EXISTS_CHECK] key=" + key);
+    private static void runContainsKeyOnServer(Region<String, Object> region, String key, boolean expected) {
+        System.out.println("[CONTAINS_KEY_ON_SERVER] key=" + key);
 
-        Object actualRaw = region.get(key);
-        String actual = normalizeValue(actualRaw);
-        boolean exists = actualRaw != null && actual != null;
+        boolean exists = region.containsKeyOnServer(key);
 
-        System.out.println("  Exists=" + exists + " (" + describeType(actualRaw) + ")");
+        System.out.println("  Exists=" + exists);
 
         if (exists != expected) {
-            throw new IllegalStateException("EXISTS_CHECK failed. Expected [" + expected + "] but got [" + exists + "]");
+            throw new IllegalStateException(
+                    "CONTAINS_KEY_ON_SERVER failed. Expected [" + expected + "] but got [" + exists + "]"
+            );
         }
 
         System.out.println("  OK");
+    }
+
+    private static void runContainsValueForKeyOnServer(Region<String, Object> region, String key, boolean expected) {
+        System.out.println("[CONTAINS_VALUE_FOR_KEY_ON_SERVER] key=" + key);
+
+        boolean exists = containsValueForKeyOnServer(region, key);
+
+        System.out.println("  Has value for key=" + exists);
+
+        if (exists != expected) {
+            throw new IllegalStateException(
+                    "CONTAINS_VALUE_FOR_KEY_ON_SERVER failed. Expected [" + expected + "] but got [" + exists + "]"
+            );
+        }
+
+        System.out.println("  OK");
+    }
+
+    private static boolean containsValueForKeyOnServer(Region<String, Object> region, String key) {
+        try {
+            Object serverProxy = region.getClass()
+                    .getMethod("getServerProxy")
+                    .invoke(region);
+
+            if (serverProxy == null) {
+                throw new IllegalStateException("Region does not have a server proxy");
+            }
+
+            Object result = serverProxy.getClass()
+                    .getMethod("containsValueForKey", Object.class)
+                    .invoke(serverProxy, key);
+
+            if (!(result instanceof Boolean boolResult)) {
+                throw new IllegalStateException(
+                        "containsValueForKey returned unexpected type: "
+                                + (result == null ? "null" : result.getClass().getName())
+                );
+            }
+
+            return boolResult;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(
+                    "Failed to invoke server-side containsValueForKey through Geode server proxy. "
+                            + "Region type was: " + region.getClass().getName(),
+                    e
+            );
+        }
     }
 
     private static String normalizeValue(Object value) {
@@ -134,34 +186,12 @@ public class SampleCrudApp {
             return null;
         }
         if (value instanceof String s) {
+            if (s.length() >= 2 && s.charAt(0) == 'W') {
+                return s.substring(2);
+            }
             return s;
         }
-        if (value instanceof byte[] bytes) {
-            return decodeGeodeStringLike(bytes);
-        }
         return String.valueOf(value);
-    }
-
-    private static String decodeGeodeStringLike(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) {
-            return null;
-        }
-
-        String direct = new String(bytes, StandardCharsets.UTF_8);
-
-        if (bytes.length >= 3 && bytes[0] == 0x57) {
-            int declaredLen = bytes[1] & 0xFF;
-
-            if (declaredLen == bytes.length - 2) {
-                return new String(bytes, 2, declaredLen, StandardCharsets.UTF_8);
-            }
-
-            if (bytes.length > 2) {
-                return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_8);
-            }
-        }
-
-        return direct;
     }
 
     private static String describeType(Object value) {

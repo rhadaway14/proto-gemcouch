@@ -4,6 +4,7 @@ import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.ValueDecoding;
+import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -55,33 +56,7 @@ public class PutHandler implements OperationHandler {
 
         if (frame.getParts().size() > 5) {
             byte[] valuePayload = frame.getParts().get(5).getPayload();
-
-            try {
-                Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
-                if (rawValue != null) {
-                    value = String.valueOf(rawValue);
-                }
-            } catch (Throwable t) {
-                log.warn(StructuredLog.event(
-                        "handler_put_value_deserialize_error",
-                        "error", t.getMessage(),
-                        "txId", frame.getTransactionId()
-                ));
-
-                value = ValueDecoding.decodeStringLikeValue(valuePayload);
-
-                if (value != null) {
-                    log.info(StructuredLog.event(
-                            "handler_put_value_fallback_decode_ok",
-                            "txId", frame.getTransactionId()
-                    ));
-                } else {
-                    log.warn(StructuredLog.event(
-                            "handler_put_value_fallback_decode_failed",
-                            "txId", frame.getTransactionId()
-                    ));
-                }
-            }
+            value = decodePutValue(valuePayload, frame.getTransactionId());
         }
 
         if (region != null && !region.isBlank()
@@ -110,5 +85,55 @@ public class PutHandler implements OperationHandler {
         ctx.writeAndFlush(Unpooled.wrappedBuffer(
                 GemResponseWriter.buildPutResponse(frame.getTransactionId())
         ));
+    }
+
+    private String decodePutValue(byte[] valuePayload, int txId) {
+        String geodeStringValue = ValueEncoding.decodeGeodeStringValue(valuePayload);
+
+        if (geodeStringValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-string",
+                    "txId", txId
+            ));
+            return geodeStringValue;
+        }
+
+        String stringLikeValue = ValueDecoding.decodeStringLikeValue(valuePayload);
+
+        if (stringLikeValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "string-like",
+                    "txId", txId
+            ));
+            return stringLikeValue;
+        }
+
+        try {
+            Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+            if (rawValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "txId", txId
+                ));
+                return String.valueOf(rawValue);
+            }
+        } catch (Throwable t) {
+            log.debug(StructuredLog.event(
+                    "handler_put_value_dataserializer_decode_skipped",
+                    "error", t.getMessage(),
+                    "txId", txId
+            ));
+        }
+
+        log.warn(StructuredLog.event(
+                "handler_put_value_decode_failed",
+                "txId", txId
+        ));
+
+        return null;
     }
 }

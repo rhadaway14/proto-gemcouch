@@ -1,5 +1,6 @@
 package com.protogemcouch.couchbase;
 
+import com.couchbase.client.core.error.DocumentNotFoundException;
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.Collection;
@@ -188,6 +189,14 @@ public class CouchbaseRepository implements Repository {
             ));
 
             return hasValue;
+        } catch (DocumentNotFoundException e) {
+            log.info(StructuredLog.event(
+                    "repository_contains_value_for_key_miss",
+                    "docId", docId,
+                    "has_value", false
+            ));
+
+            return false;
         } catch (Exception e) {
             log.warn(StructuredLog.event(
                     "repository_contains_value_for_key_error",
