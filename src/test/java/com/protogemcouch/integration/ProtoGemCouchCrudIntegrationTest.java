@@ -17,6 +17,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -106,6 +108,95 @@ class ProtoGemCouchCrudIntegrationTest {
         assertNull(deletedRaw);
 
         assertShimLogsClean();
+    }
+
+    @Test
+    void getAllForExistingStringKeysShouldReturnExpectedValues() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-1-" + suffix;
+        String key2 = "it-getall-2-" + suffix;
+        String key3 = "it-getall-3-" + suffix;
+
+        String value1 = "value-1-" + suffix;
+        String value2 = "value-2-" + suffix;
+        String value3 = "value-3-" + suffix;
+
+        region.put(key1, value1);
+        region.put(key2, value2);
+        region.put(key3, value3);
+
+        Map<String, Object> result = getAllOrDumpShimLogs(region, Set.of(key1, key2, key3));
+
+        assertNotNull(result);
+        assertEquals(3, result.size());
+
+        assertInstanceOf(String.class, result.get(key1));
+        assertInstanceOf(String.class, result.get(key2));
+        assertInstanceOf(String.class, result.get(key3));
+
+        assertEquals(value1, result.get(key1));
+        assertEquals(value2, result.get(key2));
+        assertEquals(value3, result.get(key3));
+    }
+
+    @Test
+    void getAllWithMissingKeyShouldReturnOnlyExistingValuesOrNullForMissingKey() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-existing-1-" + suffix;
+        String key2 = "it-getall-existing-2-" + suffix;
+        String missingKey = "it-getall-missing-" + suffix;
+
+        String value1 = "value-1-" + suffix;
+        String value2 = "value-2-" + suffix;
+
+        region.put(key1, value1);
+        region.put(key2, value2);
+
+        Map<String, Object> result = getAllOrDumpShimLogs(region, Set.of(key1, key2, missingKey));
+
+        assertNotNull(result);
+
+        assertEquals(value1, result.get(key1));
+        assertEquals(value2, result.get(key2));
+
+        /*
+         * This assertion may need to be adjusted based on real Geode client behavior
+         * against the shim. Some response shapes may omit missing keys, while others
+         * may include the key with a null value.
+         *
+         * For this first compatibility test, allow either:
+         *   - missing key omitted from result map
+         *   - missing key present with null value
+         */
+        if (result.containsKey(missingKey)) {
+            assertNull(result.get(missingKey));
+        }
+    }
+
+    private static Map<String, Object> getAllOrDumpShimLogs(
+            Region<String, Object> region,
+            Set<String> keys
+    ) {
+        try {
+            return region.getAll(keys);
+        } catch (RuntimeException e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after GET_ALL failure ==========");
+
+            try {
+                String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
+                System.err.println(dockerLogs(containerName));
+            } catch (RuntimeException logError) {
+                System.err.println("Failed to read shim logs: " + logError.getMessage());
+            }
+
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
     }
 
     private static void assertShimLogsClean() {

@@ -5,7 +5,6 @@ import com.protogemcouch.util.ByteUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -111,52 +110,150 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * GET_ALL is returned as a chunked response whose single object part
+     * contains a Geode VersionedObjectList-compatible payload.
+     *
+     * We intentionally do not instantiate VersionedObjectList or BlobHelper here.
+     * In the shaded container runtime, those Geode internals trigger logging/static
+     * initialization failures. Instead, this manually writes the validated small
+     * string-key/string-value VersionedObjectList shape.
+     *
+     * Validated example:
+     *
+     *   keys:   key-1, key-2, missing
+     *   values: value-1, value-2, absent
+     *
+     *   01070303
+     *   5700056b65792d31
+     *   5700056b65792d32
+     *   5700076d697373696e67
+     *   03
+     *   01 57000776616c75652d31
+     *   01 57000776616c75652d32
+     *   03 29
+     */
     public static byte[] buildGetAllChunkedResponse(int txId, List<String> keys, Map<String, String> values) {
-        List<Part> parts = new ArrayList<>();
+        byte[] versionedObjectListPayload = buildManualVersionedObjectListPayload(keys, values);
 
-        for (String key : keys) {
-            String value = values.get(key);
-            if (value == null) {
-                parts.add(new Part(new byte[0], (byte) 0));
-            } else {
-                parts.add(new Part(ValueEncoding.encodeGeodeStringValue(value), (byte) 1));
-            }
-        }
-
-        return buildMessage(MessageTypes.RESPONSE, txId, parts);
+        return buildSingleChunkedMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                new Part(versionedObjectListPayload, (byte) 1)
+        );
     }
 
     public static byte[] buildPutAllChunkedResponse(int txId) {
-        return buildMessage(
+        return buildSingleChunkedMessage(
                 MessageTypes.RESPONSE,
                 txId,
-                List.of(new Part(new byte[] {0x00}, (byte) 0))
+                new Part(new byte[] {0x00}, (byte) 0)
         );
     }
 
     public static byte[] buildKeySetChunkedResponse(int txId, List<String> keys) {
-        List<Part> parts = new ArrayList<>();
+        /*
+         * Keep this as a simple chunked string-list-like response for now.
+         * The currently validated production-readiness focus is GET_ALL.
+         */
+        ByteBuf payload = Unpooled.buffer();
 
-        for (String key : keys) {
-            parts.add(new Part(ValueEncoding.encodeGeodeStringValue(key), (byte) 1));
+        try {
+            writeSmallCount(payload, keys.size());
+
+            for (String key : keys) {
+                payload.writeBytes(ValueEncoding.encodeGeodeStringValue(key));
+            }
+
+            byte[] bytes = new byte[payload.readableBytes()];
+            payload.getBytes(0, bytes);
+
+            return buildSingleChunkedMessage(
+                    MessageTypes.RESPONSE,
+                    txId,
+                    new Part(bytes, (byte) 1)
+            );
+        } finally {
+            payload.release();
+        }
+    }
+
+    private static byte[] buildManualVersionedObjectListPayload(List<String> keys, Map<String, String> values) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            int size = keys == null ? 0 : keys.size();
+
+            /*
+             * Observed VersionedObjectList serialized header for size=3:
+             *
+             *   01 07 03 03
+             *
+             * The third byte is the small list size.
+             * The fourth byte is the observed object-part-list mode/flags byte.
+             */
+            buf.writeByte(0x01);
+            buf.writeByte(0x07);
+            writeSmallCount(buf, size);
+            buf.writeByte(0x03);
+
+            if (keys != null) {
+                for (String key : keys) {
+                    buf.writeBytes(ValueEncoding.encodeGeodeStringValue(key));
+                }
+            }
+
+            /*
+             * Observed second count before object values:
+             *
+             *   03
+             */
+            writeSmallCount(buf, size);
+
+            if (keys != null) {
+                for (String key : keys) {
+                    String value = values == null ? null : values.get(key);
+
+                    if (value == null) {
+                        /*
+                         * Observed absent-key marker:
+                         *
+                         *   03 29
+                         */
+                        buf.writeByte(0x03);
+                        buf.writeByte(0x29);
+                    } else {
+                        /*
+                         * Observed present-value marker:
+                         *
+                         *   01
+                         *   followed by Geode String object bytes
+                         */
+                        buf.writeByte(0x01);
+                        buf.writeBytes(ValueEncoding.encodeGeodeStringValue(value));
+                    }
+                }
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static void writeSmallCount(ByteBuf buf, int count) {
+        if (count < 0 || count > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated manual VersionedObjectList writer only supports counts from 0 to 127. Actual: " + count
+            );
         }
 
-        return buildMessage(MessageTypes.RESPONSE, txId, parts);
+        buf.writeByte((byte) count);
     }
 
     private static byte[] geodeSerializedBoolean(boolean value) {
-        /*
-         * Geode native serialization for Boolean:
-         *
-         *   0x35 0x01 = Boolean.TRUE
-         *   0x35 0x00 = Boolean.FALSE
-         *
-         * This must be sent as an object part, not as raw int bytes.
-         * Returning ByteUtils.intToBytes(1) as a non-object part causes
-         * the Geode client to receive byte[] and then fail with:
-         *
-         *   ClassCastException: class [B cannot be cast to class java.lang.Boolean
-         */
         return new byte[] {
                 0x35,
                 (byte) (value ? 0x01 : 0x00)
@@ -176,6 +273,36 @@ public final class GemResponseWriter {
         for (Part part : parts) {
             writePart(buf, part.payload(), part.typeCode());
         }
+
+        return toByteArrayAndRelease(buf);
+    }
+
+    private static byte[] buildSingleChunkedMessage(int messageType, int txId, Part part) {
+        int numberOfParts = 1;
+        int chunkLength = 4 + 1 + part.payload().length;
+        byte lastChunkFlag = 0x01;
+
+        ByteBuf buf = Unpooled.buffer();
+
+        /*
+         * ChunkedMessage main header:
+         *   int messageType
+         *   int numberOfParts
+         *   int transactionId
+         */
+        buf.writeInt(messageType);
+        buf.writeInt(numberOfParts);
+        buf.writeInt(txId);
+
+        /*
+         * Single final chunk:
+         *   int chunkLength
+         *   byte lastChunkFlag
+         *   part
+         */
+        buf.writeInt(chunkLength);
+        buf.writeByte(lastChunkFlag);
+        writePart(buf, part.payload(), part.typeCode());
 
         return toByteArrayAndRelease(buf);
     }

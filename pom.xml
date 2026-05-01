@@ -187,6 +187,7 @@
                 <argument>-f</argument>
                 <argument>${docker.compose.file}</argument>
                 <argument>down</argument>
+                <argument>-v</argument>
               </arguments>
             </configuration>
           </execution>
