@@ -76,6 +76,14 @@ public final class GemResponseWriter {
         );
     }
 
+    public static byte[] buildIntegerGetResponse(int txId, int value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedInteger(value), (byte) 1))
+        );
+    }
+
     public static byte[] buildNullGetResponse(int txId) {
         return buildMessage(
                 MessageTypes.RESPONSE,

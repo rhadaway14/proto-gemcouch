@@ -3,6 +3,7 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
@@ -32,7 +33,7 @@ public class PutHandler implements OperationHandler {
     public void handle(ChannelHandlerContext ctx, GemFrame frame) {
         String region = null;
         String key = null;
-        String value = null;
+        StoredValue value = null;
 
         for (int i = 0; i < frame.getParts().size(); i++) {
             GemPart part = frame.getParts().get(i);
@@ -63,13 +64,20 @@ public class PutHandler implements OperationHandler {
                 && key != null && !key.isBlank()
                 && value != null) {
             String docId = DocumentKeyUtil.docId(region, key);
-            repository.put(docId, value);
+
+            /*
+             * Store the existing raw string shape for strings, and a lightweight
+             * typed envelope for integers. This keeps existing string/bulk behavior
+             * stable while enabling integer round-trips for PUT/GET.
+             */
+            repository.put(docId, value.toRepositoryValue());
 
             log.info(StructuredLog.event(
                     "handler_put_ok",
                     "region", region,
                     "key", key,
                     "docId", docId,
+                    "valueType", value.type(),
                     "txId", frame.getTransactionId()
             ));
         } else {
@@ -87,16 +95,39 @@ public class PutHandler implements OperationHandler {
         ));
     }
 
-    private String decodePutValue(byte[] valuePayload, int txId) {
+    private StoredValue decodePutValue(byte[] valuePayload, int txId) {
         String geodeStringValue = ValueEncoding.decodeGeodeStringValue(valuePayload);
 
         if (geodeStringValue != null) {
             log.info(StructuredLog.event(
                     "handler_put_value_decode_ok",
                     "encoding", "geode-string",
+                    "valueType", "STRING",
                     "txId", txId
             ));
-            return geodeStringValue;
+            return StoredValue.stringValue(geodeStringValue);
+        }
+
+        /*
+         * Important:
+         * Decode integer before the generic string-like fallback.
+         *
+         * Otherwise payloads like:
+         *
+         *   39 00 00 00 64
+         *
+         * can be incorrectly treated as text and show up as values like "9d".
+         */
+        Integer integerValue = ValueDecoding.decodeIntegerValue(valuePayload);
+
+        if (integerValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-integer",
+                    "valueType", "INTEGER",
+                    "txId", txId
+            ));
+            return StoredValue.integerValue(integerValue);
         }
 
         String stringLikeValue = ValueDecoding.decodeStringLikeValue(valuePayload);
@@ -105,21 +136,34 @@ public class PutHandler implements OperationHandler {
             log.info(StructuredLog.event(
                     "handler_put_value_decode_ok",
                     "encoding", "string-like",
+                    "valueType", "STRING",
                     "txId", txId
             ));
-            return stringLikeValue;
+            return StoredValue.stringValue(stringLikeValue);
         }
 
         try {
             Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+            if (rawValue instanceof Integer integer) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "INTEGER",
+                        "txId", txId
+                ));
+                return StoredValue.integerValue(integer);
+            }
+
             if (rawValue != null) {
                 log.info(StructuredLog.event(
                         "handler_put_value_decode_ok",
                         "encoding", "geode-dataserializer",
                         "type", rawValue.getClass().getName(),
+                        "valueType", "STRING",
                         "txId", txId
                 ));
-                return String.valueOf(rawValue);
+                return StoredValue.stringValue(String.valueOf(rawValue));
             }
         } catch (Throwable t) {
             log.debug(StructuredLog.event(

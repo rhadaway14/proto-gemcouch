@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -40,11 +41,24 @@ public class GetHandler implements OperationHandler {
                 "txId", frame.getTransactionId()
         ));
 
-        String value = repository.get(docId);
+        String rawValue = repository.get(docId);
+        StoredValue value = StoredValue.fromRepositoryValue(rawValue);
 
-        byte[] response = (value != null)
-                ? GemResponseWriter.buildGetResponse(frame.getTransactionId(), value)
-                : GemResponseWriter.buildNullGetResponse(frame.getTransactionId());
+        byte[] response;
+
+        if (value == null) {
+            response = GemResponseWriter.buildNullGetResponse(frame.getTransactionId());
+        } else if (value.type() == StoredValue.Type.INTEGER) {
+            response = GemResponseWriter.buildIntegerGetResponse(
+                    frame.getTransactionId(),
+                    value.asInteger()
+            );
+        } else {
+            response = GemResponseWriter.buildGetResponse(
+                    frame.getTransactionId(),
+                    value.value()
+            );
+        }
 
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
     }

@@ -7,7 +7,29 @@ public final class ValueDecoding {
     private static final int GEODE_STRING_CODE = 0x57;
     private static final int GEODE_NULL_CODE = 0x29;
 
+    /*
+     * Geode DataSerializer integer marker observed from IntegerShapeTest:
+     *
+     *   Integer.valueOf(7) -> 39 00 00 00 07
+     */
+    private static final int GEODE_INTEGER_CODE = 0x39;
+
     private ValueDecoding() {
+    }
+
+    public static Integer decodeIntegerValue(byte[] payload) {
+        if (payload == null || payload.length != 5) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_INTEGER_CODE) {
+            return null;
+        }
+
+        return ((payload[1] & 0xff) << 24)
+                | ((payload[2] & 0xff) << 16)
+                | ((payload[3] & 0xff) << 8)
+                | (payload[4] & 0xff);
     }
 
     public static String decodeStringLikeValue(byte[] payload) {
