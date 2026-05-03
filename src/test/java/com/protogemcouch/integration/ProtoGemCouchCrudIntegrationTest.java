@@ -16,6 +16,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -162,16 +163,103 @@ class ProtoGemCouchCrudIntegrationTest {
         assertEquals(value2, result.get(key2));
 
         /*
-         * This assertion may need to be adjusted based on real Geode client behavior
-         * against the shim. Some response shapes may omit missing keys, while others
-         * may include the key with a null value.
-         *
-         * For this first compatibility test, allow either:
-         *   - missing key omitted from result map
-         *   - missing key present with null value
+         * Some Geode response shapes may omit missing keys, while others may include
+         * the key with a null value. For this compatibility test, allow either.
          */
         if (result.containsKey(missingKey)) {
             assertNull(result.get(missingKey));
+        }
+    }
+
+    @Test
+    void putAllForStringValuesShouldPersistAllEntriesAndBeReadableByGetAndGetAll() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-1-" + suffix;
+        String key2 = "it-putall-2-" + suffix;
+        String key3 = "it-putall-3-" + suffix;
+
+        String value1 = "putall-value-1-" + suffix;
+        String value2 = "putall-value-2-" + suffix;
+        String value3 = "putall-value-3-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, value1);
+        entries.put(key2, value2);
+        entries.put(key3, value3);
+
+        putAllOrDumpShimLogs(region, entries);
+
+        Object raw1 = region.get(key1);
+        Object raw2 = region.get(key2);
+        Object raw3 = region.get(key3);
+
+        assertInstanceOf(String.class, raw1);
+        assertInstanceOf(String.class, raw2);
+        assertInstanceOf(String.class, raw3);
+
+        assertEquals(value1, raw1);
+        assertEquals(value2, raw2);
+        assertEquals(value3, raw3);
+
+        Map<String, Object> getAllResult = getAllOrDumpShimLogs(region, Set.of(key1, key2, key3));
+
+        assertNotNull(getAllResult);
+        assertEquals(3, getAllResult.size());
+
+        assertEquals(value1, getAllResult.get(key1));
+        assertEquals(value2, getAllResult.get(key2));
+        assertEquals(value3, getAllResult.get(key3));
+    }
+
+    @Test
+    void putAllShouldOverwriteExistingStringValues() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-overwrite-1-" + suffix;
+        String key2 = "it-putall-overwrite-2-" + suffix;
+
+        region.put(key1, "before-1-" + suffix);
+        region.put(key2, "before-2-" + suffix);
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, "after-1-" + suffix);
+        entries.put(key2, "after-2-" + suffix);
+
+        putAllOrDumpShimLogs(region, entries);
+
+        /*
+         * Validate PUT_ALL overwrite behavior with direct GET reads.
+         *
+         * Do not add a getAll(...) assertion here yet. The previous run exposed
+         * a separate GET_ALL edge case for exactly two existing keys. We want this
+         * test to prove the PUT_ALL overwrite milestone independently.
+         */
+        assertEquals("after-1-" + suffix, region.get(key1));
+        assertEquals("after-2-" + suffix, region.get(key2));
+    }
+
+    private static void putAllOrDumpShimLogs(
+            Region<String, Object> region,
+            Map<String, Object> entries
+    ) {
+        try {
+            region.putAll(entries);
+        } catch (RuntimeException e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PUT_ALL failure ==========");
+
+            try {
+                String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
+                System.err.println(dockerLogs(containerName));
+            } catch (RuntimeException logError) {
+                System.err.println("Failed to read shim logs: " + logError.getMessage());
+            }
+
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
         }
     }
 

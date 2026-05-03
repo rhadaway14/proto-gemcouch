@@ -4,6 +4,9 @@ import java.nio.charset.StandardCharsets;
 
 public final class ValueDecoding {
 
+    private static final int GEODE_STRING_CODE = 0x57;
+    private static final int GEODE_NULL_CODE = 0x29;
+
     private ValueDecoding() {
     }
 
@@ -12,47 +15,95 @@ public final class ValueDecoding {
             return null;
         }
 
-        String direct = clean(new String(payload, StandardCharsets.UTF_8));
-        if (looksReasonable(direct)) {
-            return direct;
-        }
-
-        if (payload.length > 1) {
-            String skipOne = clean(new String(payload, 1, payload.length - 1, StandardCharsets.UTF_8));
-            if (looksReasonable(skipOne)) {
-                return skipOne;
-            }
-        }
-
-        if (payload.length > 2) {
-            String skipTwo = clean(new String(payload, 2, payload.length - 2, StandardCharsets.UTF_8));
-            if (looksReasonable(skipTwo)) {
-                return skipTwo;
-            }
-        }
-
-        return null;
-    }
-
-    private static String clean(String value) {
-        if (value == null) {
+        /*
+         * Geode NULL / absent-ish marker.
+         *
+         * Do not let this fall through to raw UTF-8, otherwise it becomes ")"
+         * and gets stored as a real document value.
+         */
+        if (payload.length == 1 && (payload[0] & 0xff) == GEODE_NULL_CODE) {
             return null;
         }
-        return value.replace("\u0000", "").trim();
+
+        /*
+         * Preferred/current Geode string shape:
+         *
+         *   0x57
+         *   2-byte unsigned UTF-8 length
+         *   UTF-8 bytes
+         */
+        if ((payload[0] & 0xff) == GEODE_STRING_CODE) {
+            String decoded = decodeLengthPrefixedGeodeString(payload);
+            if (decoded != null) {
+                return decoded;
+            }
+
+            /*
+             * Legacy/unit-test fixture shape:
+             *
+             *   0x57
+             *   UTF-8 bytes
+             *
+             * Several existing PutAllHandler tests use this shape. Preserve support
+             * for it, but only after the proper length-prefixed parse fails.
+             */
+            if (payload.length > 1) {
+                String markerStripped = new String(
+                        payload,
+                        1,
+                        payload.length - 1,
+                        StandardCharsets.UTF_8
+                )
+                        .replace("\u0000", "")
+                        .trim();
+
+                return markerStripped.isBlank() ? null : markerStripped;
+            }
+
+            return null;
+        }
+
+        /*
+         * Plain UTF-8 fallback for older/local fixtures and non-Geode payloads.
+         *
+         * Keep this conservative. Single-byte control/token-like values should not
+         * become persisted strings.
+         */
+        if (payload.length == 1 && isLikelyGeodeToken(payload[0] & 0xff)) {
+            return null;
+        }
+
+        String text = new String(payload, StandardCharsets.UTF_8)
+                .replace("\u0000", "")
+                .trim();
+
+        return text.isBlank() ? null : text;
     }
 
-    private static boolean looksReasonable(String value) {
-        if (value == null || value.isBlank()) {
-            return false;
+    private static String decodeLengthPrefixedGeodeString(byte[] payload) {
+        if (payload.length < 3) {
+            return null;
         }
 
-        int printable = 0;
-        for (char c : value.toCharArray()) {
-            if (!Character.isISOControl(c) || Character.isWhitespace(c)) {
-                printable++;
-            }
+        int length = ((payload[1] & 0xff) << 8)
+                | (payload[2] & 0xff);
+
+        int start = 3;
+        int end = start + length;
+
+        if (length < 0 || end > payload.length) {
+            return null;
         }
 
-        return printable >= Math.max(1, value.length() / 2);
+        String value = new String(payload, start, length, StandardCharsets.UTF_8);
+        return value.isBlank() ? null : value;
+    }
+
+    private static boolean isLikelyGeodeToken(int value) {
+        /*
+         * Geode/DataSerializable token space. For this validated string-value path,
+         * single-byte values in this range should not become user strings.
+         */
+        return value >= 0x00 && value <= 0x7f;
     }
 }

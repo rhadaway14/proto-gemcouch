@@ -46,6 +46,7 @@ public class PutAllHandler implements OperationHandler {
                     "parts", frame.getParts().size(),
                     "txId", frame.getTransactionId()
             ));
+
             ctx.writeAndFlush(Unpooled.wrappedBuffer(
                     GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())
             ));
@@ -84,38 +85,15 @@ public class PutAllHandler implements OperationHandler {
             GemPart valuePart = frame.getParts().get(partIndex++);
 
             String key = ByteUtils.bytesToString(keyPart.getPayload());
+            byte[] valuePayload = valuePart.getPayload();
 
-            Object rawValue;
-            try {
-                rawValue = GeodeSerialization.deserializeObject(valuePart.getPayload());
-            } catch (Throwable t) {
-                log.warn(StructuredLog.event(
-                        "handler_put_all_value_deserialize_error",
-                        "key", key,
-                        "error", t.getMessage(),
-                        "txId", frame.getTransactionId()
-                ));
-                rawValue = null;
-            }
-
-            String value = rawValue == null ? null : String.valueOf(rawValue);
-
-            if (value == null) {
-                value = ValueDecoding.decodeStringLikeValue(valuePart.getPayload());
-                if (value != null) {
-                    log.info(StructuredLog.event(
-                            "handler_put_all_value_fallback_decode_ok",
-                            "key", key,
-                            "txId", frame.getTransactionId()
-                    ));
-                }
-            }
+            String value = decodePutAllValue(key, valuePayload, frame.getTransactionId());
 
             log.debug(StructuredLog.event(
                     "handler_put_all_entry",
                     "key", key,
                     "hasValue", value != null,
-                    "valueHex", ByteBufUtil.hexDump(valuePart.getPayload()),
+                    "valueHex", ByteBufUtil.hexDump(valuePayload),
                     "txId", frame.getTransactionId()
             ));
 
@@ -147,5 +125,63 @@ public class PutAllHandler implements OperationHandler {
         ctx.writeAndFlush(Unpooled.wrappedBuffer(
                 GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())
         ));
+    }
+
+    private String decodePutAllValue(String key, byte[] valuePayload, int txId) {
+        /*
+         * Prefer the validated lightweight decoder first.
+         *
+         * Real Geode string values in this project are encoded like:
+         *
+         *   0x57
+         *   2-byte UTF-8 length
+         *   UTF-8 bytes
+         *
+         * If we treat that whole payload as plain UTF-8, the stored value gets
+         * prefixes like "W3..." or "W,...". This method avoids that.
+         */
+        String value = ValueDecoding.decodeStringLikeValue(valuePayload);
+
+        if (value != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "string-like",
+                    "key", key,
+                    "txId", txId
+            ));
+            return value;
+        }
+
+        /*
+         * Keep GeodeSerialization as a secondary fallback for older/unit-test
+         * payloads that may still be directly DataSerializer-compatible.
+         */
+        try {
+            Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+            if (rawValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "txId", txId
+                ));
+                return String.valueOf(rawValue);
+            }
+        } catch (Throwable t) {
+            log.warn(StructuredLog.event(
+                    "handler_put_all_value_deserialize_error",
+                    "key", key,
+                    "error", t.getMessage(),
+                    "txId", txId
+            ));
+        }
+
+        log.warn(StructuredLog.event(
+                "handler_put_all_value_decode_failed",
+                "key", key,
+                "txId", txId
+        ));
+
+        return null;
     }
 }
