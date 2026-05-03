@@ -70,7 +70,7 @@ public class PutHandler implements OperationHandler {
              * typed envelope for integers. This keeps existing string/bulk behavior
              * stable while enabling integer round-trips for PUT/GET.
              */
-            repository.put(docId, value.toRepositoryValue());
+            repository.put(docId, value);
 
             log.info(StructuredLog.event(
                     "handler_put_ok",

@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
@@ -24,9 +25,9 @@ class GetAllHandlerTest {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
-        Map<String, String> repoResult = new LinkedHashMap<>();
-        repoResult.put("key-1", "value-1");
-        repoResult.put("key-2", "value-2");
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("key-1", StoredValue.stringValue("value-1"));
+        repoResult.put("key-2", StoredValue.stringValue("value-2"));
         repoResult.put("missing", null);
 
         when(repository.getAll("/helloWorld", List.of("key-1", "key-2", "missing")))
@@ -113,8 +114,8 @@ class GetAllHandlerTest {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
-        Map<String, String> repoResult = new LinkedHashMap<>();
-        repoResult.put("key-1", "value-1");
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("key-1", StoredValue.stringValue("value-1"));
         repoResult.put("missing", null);
 
         when(repository.getAll("/helloWorld", List.of("key-1", "missing")))

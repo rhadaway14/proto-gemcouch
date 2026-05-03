@@ -41,8 +41,7 @@ public class GetHandler implements OperationHandler {
                 "txId", frame.getTransactionId()
         ));
 
-        String rawValue = repository.get(docId);
-        StoredValue value = StoredValue.fromRepositoryValue(rawValue);
+        StoredValue value = repository.get(docId);
 
         byte[] response;
 

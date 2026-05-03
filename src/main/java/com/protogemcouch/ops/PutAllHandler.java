@@ -3,6 +3,7 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -103,13 +104,22 @@ public class PutAllHandler implements OperationHandler {
         for (Map.Entry<String, String> entry : entries.entrySet()) {
             if (entry.getValue() != null) {
                 String docId = DocumentKeyUtil.docId(region, entry.getKey());
-                repository.put(docId, entry.getValue());
+
+                /*
+                 * Current PUT_ALL compatibility remains string-only.
+                 *
+                 * The repository now stores first-class StoredValue instances, but
+                 * this handler should preserve the already validated string PUT_ALL
+                 * behavior until typed bulk support is implemented intentionally.
+                 */
+                repository.put(docId, StoredValue.stringValue(entry.getValue()));
 
                 log.info(StructuredLog.event(
                         "handler_put_all_store_ok",
                         "region", region,
                         "key", entry.getKey(),
                         "docId", docId,
+                        "valueType", StoredValue.Type.STRING,
                         "txId", frame.getTransactionId()
                 ));
             } else {

@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
@@ -13,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class PutAllHandlerTest {
@@ -26,6 +28,8 @@ class PutAllHandlerTest {
         repository = mock(Repository.class);
         ctx = mock(ChannelHandlerContext.class);
         handler = new PutAllHandler(repository);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
     }
 
     @Test
@@ -39,8 +43,16 @@ class PutAllHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository).put("/helloWorld::key-1", "value-1");
-        verify(repository).put("/helloWorld::key-2", "value-2");
+        verify(repository).put(
+                eq("/helloWorld::key-1"),
+                eq(StoredValue.stringValue("value-1"))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::key-2"),
+                eq(StoredValue.stringValue("value-2"))
+        );
+
         verify(ctx).writeAndFlush(any());
     }
 
@@ -68,8 +80,16 @@ class PutAllHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository).put("/helloWorld::key-1", "value-1");
-        verify(repository, never()).put(eq("/helloWorld::key-2"), any());
+        verify(repository).put(
+                eq("/helloWorld::key-1"),
+                eq(StoredValue.stringValue("value-1"))
+        );
+
+        verify(repository, never()).put(
+                eq("/helloWorld::key-2"),
+                any(StoredValue.class)
+        );
+
         verify(ctx).writeAndFlush(any());
     }
 
@@ -95,8 +115,16 @@ class PutAllHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository).put("/helloWorld::key-1", "value-1");
-        verify(repository).put("/helloWorld::key-2", "value-2");
+        verify(repository).put(
+                eq("/helloWorld::key-1"),
+                eq(StoredValue.stringValue("value-1"))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::key-2"),
+                eq(StoredValue.stringValue("value-2"))
+        );
+
         verify(ctx).writeAndFlush(any());
     }
 
@@ -111,8 +139,16 @@ class PutAllHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository).put("/helloWorld::key-1", "value-1");
-        verify(repository, never()).put(eq("/helloWorld::key-2"), any());
+        verify(repository).put(
+                eq("/helloWorld::key-1"),
+                eq(StoredValue.stringValue("value-1"))
+        );
+
+        verify(repository, never()).put(
+                eq("/helloWorld::key-2"),
+                any(StoredValue.class)
+        );
+
         verify(ctx).writeAndFlush(any());
     }
 

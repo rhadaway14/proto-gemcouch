@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
@@ -13,11 +14,13 @@ import static org.mockito.Mockito.*;
 class GetHandlerTest {
 
     @Test
-    void handle_existing_value_writes_response() {
+    void handle_existing_string_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
-        when(repository.get("/helloWorld::my-key")).thenReturn("my-value");
+        when(repository.get("/helloWorld::my-key"))
+                .thenReturn(StoredValue.stringValue("my-value"));
+
         when(ctx.writeAndFlush(any())).thenReturn(null);
 
         GetHandler handler = new GetHandler(repository);
@@ -30,6 +33,29 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_integer_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-int-key"))
+                .thenReturn(StoredValue.integerValue(12345));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-int-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-int-key");
         verify(ctx).writeAndFlush(any());
     }
 

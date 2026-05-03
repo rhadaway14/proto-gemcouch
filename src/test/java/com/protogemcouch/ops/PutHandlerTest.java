@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import static com.protogemcouch.testsupport.FrameTestUtil.objectPart;
 import static com.protogemcouch.testsupport.FrameTestUtil.part;
 import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class PutHandlerTest {
@@ -36,7 +38,10 @@ class PutHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository).put("/helloWorld::my-key", "my-value");
+        verify(repository).put(
+                eq("/helloWorld::my-key"),
+                eq(StoredValue.stringValue("my-value"))
+        );
         verify(ctx).writeAndFlush(any());
     }
 
@@ -61,7 +66,7 @@ class PutHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository, never()).put(any(), any());
+        verify(repository, never()).put(any(), any(StoredValue.class));
         verify(ctx).writeAndFlush(any());
     }
 
@@ -86,7 +91,7 @@ class PutHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository, never()).put(any(), any());
+        verify(repository, never()).put(any(), any(StoredValue.class));
         verify(ctx).writeAndFlush(any());
     }
 
@@ -111,7 +116,7 @@ class PutHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository, never()).put(any(), any());
+        verify(repository, never()).put(any(), any(StoredValue.class));
         verify(ctx).writeAndFlush(any());
     }
 
@@ -130,7 +135,7 @@ class PutHandlerTest {
 
         handler.handle(ctx, frame);
 
-        verify(repository, never()).put(any(), any());
+        verify(repository, never()).put(any(), any(StoredValue.class));
         verify(ctx).writeAndFlush(any());
     }
 }

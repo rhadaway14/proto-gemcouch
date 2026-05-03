@@ -3,6 +3,7 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
@@ -112,7 +113,27 @@ public class GetAllHandler implements OperationHandler {
                 results = new LinkedHashMap<>();
                 results.put("__protogemcouch_empty_getall_placeholder__", null);
             } else {
-                results = repository.getAll(region, keys);
+                Map<String, StoredValue> typedResults = repository.getAll(region, keys);
+                results = new LinkedHashMap<>();
+
+                for (String key : keys) {
+                    StoredValue value = typedResults.get(key);
+
+                    /*
+                     * Current GET_ALL compatibility remains string-only.
+                     *
+                     * This keeps the existing validated GET_ALL tests green while the
+                     * repository contract moves to StoredValue. Typed GET_ALL support
+                     * for Integer and mixed values should be added in the next phase by
+                     * teaching GemResponseWriter.buildGetAllChunkedResponse(...) to
+                     * encode each value with its correct Geode type.
+                     */
+                    if (value == null) {
+                        results.put(key, null);
+                    } else {
+                        results.put(key, value.value());
+                    }
+                }
             }
 
             log.info(StructuredLog.event(

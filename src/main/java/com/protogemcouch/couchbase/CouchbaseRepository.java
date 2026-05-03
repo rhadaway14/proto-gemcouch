@@ -12,6 +12,7 @@ import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.DocumentKeyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,12 @@ import java.util.Map;
 public class CouchbaseRepository implements Repository {
 
     private static final Logger log = LoggerFactory.getLogger(CouchbaseRepository.class);
+
+    private static final String FIELD_VALUE = "value";
+    private static final String FIELD_TYPE = "type";
+
+    private static final String TYPE_STRING = "string";
+    private static final String TYPE_INTEGER = "integer";
 
     private final ServerConfig config;
 
@@ -83,7 +90,7 @@ public class CouchbaseRepository implements Repository {
     }
 
     @Override
-    public String get(String docId) {
+    public StoredValue get(String docId) {
         try {
             GetResult result = collection.get(docId);
             JsonObject content = result.contentAsObject();
@@ -93,9 +100,12 @@ public class CouchbaseRepository implements Repository {
                     "docId", docId
             ));
 
-            if (content.containsKey("value")) {
-                return content.getString("value");
-            }
+            return decodeStoredValue(content);
+        } catch (DocumentNotFoundException e) {
+            log.info(StructuredLog.event(
+                    "repository_get_miss",
+                    "docId", docId
+            ));
             return null;
         } catch (Exception e) {
             log.warn(StructuredLog.event(
@@ -108,11 +118,12 @@ public class CouchbaseRepository implements Repository {
     }
 
     @Override
-    public Map<String, String> getAll(String region, List<String> keys) {
-        Map<String, String> out = new LinkedHashMap<>();
+    public Map<String, StoredValue> getAll(String region, List<String> keys) {
+        Map<String, StoredValue> out = new LinkedHashMap<>();
+
         for (String key : keys) {
             String docId = DocumentKeyUtil.docId(region, key);
-            String value = get(docId);
+            StoredValue value = get(docId);
             out.put(key, value);
         }
 
@@ -126,13 +137,22 @@ public class CouchbaseRepository implements Repository {
     }
 
     @Override
-    public void put(String docId, String value) {
-        JsonObject body = JsonObject.create().put("value", value);
+    public void put(String docId, StoredValue value) {
+        if (value == null) {
+            log.warn(StructuredLog.event(
+                    "repository_put_skipped_null_value",
+                    "docId", docId
+            ));
+            return;
+        }
+
+        JsonObject body = encodeStoredValue(value);
         collection.upsert(docId, body);
 
         log.info(StructuredLog.event(
                 "repository_put_ok",
-                "docId", docId
+                "docId", docId,
+                "valueType", value.type()
         ));
     }
 
@@ -142,6 +162,11 @@ public class CouchbaseRepository implements Repository {
             collection.remove(docId);
             log.info(StructuredLog.event(
                     "repository_remove_ok",
+                    "docId", docId
+            ));
+        } catch (DocumentNotFoundException e) {
+            log.info(StructuredLog.event(
+                    "repository_remove_miss",
                     "docId", docId
             ));
         } catch (Exception e) {
@@ -180,7 +205,9 @@ public class CouchbaseRepository implements Repository {
         try {
             GetResult result = collection.get(docId);
             JsonObject content = result.contentAsObject();
-            boolean hasValue = content != null && content.containsKey("value") && content.get("value") != null;
+
+            StoredValue value = decodeStoredValue(content);
+            boolean hasValue = value != null && value.value() != null;
 
             log.info(StructuredLog.event(
                     "repository_contains_value_for_key_ok",
@@ -285,6 +312,56 @@ public class CouchbaseRepository implements Repository {
             ));
             return new ArrayList<>();
         }
+    }
+
+    private static JsonObject encodeStoredValue(StoredValue value) {
+        JsonObject body = JsonObject.create();
+
+        if (value.type() == StoredValue.Type.INTEGER) {
+            body.put(FIELD_TYPE, TYPE_INTEGER);
+            body.put(FIELD_VALUE, value.asInteger());
+            return body;
+        }
+
+        body.put(FIELD_TYPE, TYPE_STRING);
+        body.put(FIELD_VALUE, value.value());
+        return body;
+    }
+
+    private static StoredValue decodeStoredValue(JsonObject content) {
+        if (content == null || !content.containsKey(FIELD_VALUE)) {
+            return null;
+        }
+
+        String type = content.containsKey(FIELD_TYPE)
+                ? content.getString(FIELD_TYPE)
+                : TYPE_STRING;
+
+        if (TYPE_INTEGER.equalsIgnoreCase(type)) {
+            Object rawValue = content.get(FIELD_VALUE);
+
+            if (rawValue instanceof Number number) {
+                return StoredValue.integerValue(number.intValue());
+            }
+
+            if (rawValue instanceof String text) {
+                try {
+                    return StoredValue.integerValue(Integer.valueOf(text));
+                } catch (NumberFormatException e) {
+                    return StoredValue.stringValue(text);
+                }
+            }
+
+            return null;
+        }
+
+        Object rawValue = content.get(FIELD_VALUE);
+
+        if (rawValue == null) {
+            return null;
+        }
+
+        return StoredValue.stringValue(String.valueOf(rawValue));
     }
 
     private static String q(String identifier) {

@@ -1,15 +1,17 @@
 package com.protogemcouch.couchbase;
 
+import com.protogemcouch.serialization.StoredValue;
+
 import java.util.List;
 import java.util.Map;
 
 public interface Repository {
 
-    String get(String docId);
+    StoredValue get(String docId);
 
-    Map<String, String> getAll(String region, List<String> keys);
+    Map<String, StoredValue> getAll(String region, List<String> keys);
 
-    void put(String docId, String value);
+    void put(String docId, StoredValue value);
 
     void remove(String docId);
 
