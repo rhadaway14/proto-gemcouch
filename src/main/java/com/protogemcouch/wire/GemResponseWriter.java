@@ -1,7 +1,6 @@
 package com.protogemcouch.wire;
 
 import com.protogemcouch.serialization.ValueEncoding;
-import com.protogemcouch.util.ByteUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
@@ -41,6 +40,30 @@ public final class GemResponseWriter {
     private static final byte[] REMOVE_REPLY_PART4 = new byte[] {
             0x00, 0x00, 0x00, 0x00
     };
+
+    /*
+     * Geode DataSerializer integer marker observed from IntegerShapeTest:
+     *
+     *   Integer.valueOf(7) -> 39 00 00 00 07
+     */
+    private static final byte GEODE_INTEGER_CODE = 0x39;
+
+    /*
+     * Geode DataSerializer List marker observed from ListShapeTest:
+     *
+     *   List.of("key-1", "key-2", "key-3")
+     *
+     *   41 03
+     *   57 00 05 6b65792d31
+     *   57 00 05 6b65792d32
+     *   57 00 05 6b65792d33
+     *
+     * Note:
+     * keySetOnServer() expects this payload to deserialize to a java.util.List.
+     * A Geode Set payload starts with 0x49, but that caused a client-side
+     * ClassCastException because the client attempted to cast LinkedHashSet to List.
+     */
+    private static final byte GEODE_LIST_CODE = 0x41;
 
     private GemResponseWriter() {
     }
@@ -103,10 +126,15 @@ public final class GemResponseWriter {
     }
 
     public static byte[] buildSizeResponse(int txId, int size) {
+        /*
+         * The real Geode client sizeOnServer path expects an object response.
+         * Send a Geode-serialized Integer as an object part rather than raw int
+         * bytes as a non-object part.
+         */
         return buildMessage(
                 MessageTypes.RESPONSE,
                 txId,
-                List.of(new Part(ByteUtils.intToBytes(size), (byte) 0))
+                List.of(new Part(geodeSerializedInteger(size), (byte) 1))
         );
     }
 
@@ -153,29 +181,30 @@ public final class GemResponseWriter {
 
     public static byte[] buildKeySetChunkedResponse(int txId, List<String> keys) {
         /*
-         * Keep this as a simple chunked string-list-like response for now.
-         * The currently validated production-readiness focus is GET_ALL.
+         * The Geode client keySetOnServer path expects a List, not a Set.
+         *
+         * Geode DataSerializer List<String> shape observed from ListShapeTest:
+         *
+         *   41
+         *   small-count
+         *   geode-string-key-1
+         *   geode-string-key-2
+         *   ...
+         *
+         * Example for [key-1, key-2, key-3]:
+         *
+         *   41 03
+         *   57 00 05 6b65792d31
+         *   57 00 05 6b65792d32
+         *   57 00 05 6b65792d33
          */
-        ByteBuf payload = Unpooled.buffer();
+        byte[] payload = buildManualStringListPayload(keys);
 
-        try {
-            writeSmallCount(payload, keys.size());
-
-            for (String key : keys) {
-                payload.writeBytes(ValueEncoding.encodeGeodeStringValue(key));
-            }
-
-            byte[] bytes = new byte[payload.readableBytes()];
-            payload.getBytes(0, bytes);
-
-            return buildSingleChunkedMessage(
-                    MessageTypes.RESPONSE,
-                    txId,
-                    new Part(bytes, (byte) 1)
-            );
-        } finally {
-            payload.release();
-        }
+        return buildSingleChunkedMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                new Part(payload, (byte) 1)
+        );
     }
 
     private static byte[] buildManualVersionedObjectListPayload(List<String> keys, Map<String, String> values) {
@@ -243,10 +272,33 @@ public final class GemResponseWriter {
         }
     }
 
+    private static byte[] buildManualStringListPayload(List<String> keys) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            int size = keys == null ? 0 : keys.size();
+
+            buf.writeByte(GEODE_LIST_CODE);
+            writeSmallCount(buf, size);
+
+            if (keys != null) {
+                for (String key : keys) {
+                    buf.writeBytes(ValueEncoding.encodeGeodeStringValue(key));
+                }
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
     private static void writeSmallCount(ByteBuf buf, int count) {
         if (count < 0 || count > 0x7f) {
             throw new IllegalArgumentException(
-                    "Validated manual VersionedObjectList writer only supports counts from 0 to 127. Actual: " + count
+                    "Validated manual writer only supports counts from 0 to 127. Actual: " + count
             );
         }
 
@@ -258,6 +310,21 @@ public final class GemResponseWriter {
                 0x35,
                 (byte) (value ? 0x01 : 0x00)
         };
+    }
+
+    private static byte[] geodeSerializedInteger(int value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_INTEGER_CODE);
+            buf.writeInt(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
     }
 
     private static byte[] buildMessage(int messageType, int txId, List<Part> parts) {

@@ -162,10 +162,6 @@ class ProtoGemCouchCrudIntegrationTest {
         assertEquals(value1, result.get(key1));
         assertEquals(value2, result.get(key2));
 
-        /*
-         * Some Geode response shapes may omit missing keys, while others may include
-         * the key with a null value. For this compatibility test, allow either.
-         */
         if (result.containsKey(missingKey)) {
             assertNull(result.get(missingKey));
         }
@@ -228,15 +224,53 @@ class ProtoGemCouchCrudIntegrationTest {
 
         putAllOrDumpShimLogs(region, entries);
 
-        /*
-         * Validate PUT_ALL overwrite behavior with direct GET reads.
-         *
-         * Do not add a getAll(...) assertion here yet. The previous run exposed
-         * a separate GET_ALL edge case for exactly two existing keys. We want this
-         * test to prove the PUT_ALL overwrite milestone independently.
-         */
         assertEquals("after-1-" + suffix, region.get(key1));
         assertEquals("after-2-" + suffix, region.get(key2));
+    }
+
+    @Test
+    void sizeOnServerShouldReturnCurrentRegionCount() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-size-1-" + suffix;
+        String key2 = "it-size-2-" + suffix;
+        String key3 = "it-size-3-" + suffix;
+
+        region.put(key1, "size-value-1-" + suffix);
+        region.put(key2, "size-value-2-" + suffix);
+        region.put(key3, "size-value-3-" + suffix);
+
+        int size = sizeOnServerOrDumpShimLogs(region);
+
+        /*
+         * The shared test bucket may contain rows from previous tests in this same
+         * integration run. So assert that the server-side size includes at least
+         * the three rows created here.
+         */
+        assertTrue(
+                size >= 3,
+                "Expected sizeOnServer() to be at least 3 after inserting three keys, but was " + size
+        );
+    }
+
+    @Test
+    void keySetOnServerShouldReturnCurrentKeys() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-keyset-1-" + suffix;
+        String key2 = "it-keyset-2-" + suffix;
+        String key3 = "it-keyset-3-" + suffix;
+
+        region.put(key1, "keyset-value-1-" + suffix);
+        region.put(key2, "keyset-value-2-" + suffix);
+        region.put(key3, "keyset-value-3-" + suffix);
+
+        Set<String> keys = keySetOnServerOrDumpShimLogs(region);
+
+        assertNotNull(keys);
+        assertTrue(keys.contains(key1), "Expected keySetOnServer() to contain " + key1 + ", but got " + keys);
+        assertTrue(keys.contains(key2), "Expected keySetOnServer() to contain " + key2 + ", but got " + keys);
+        assertTrue(keys.contains(key3), "Expected keySetOnServer() to contain " + key3 + ", but got " + keys);
     }
 
     private static void putAllOrDumpShimLogs(
@@ -248,14 +282,7 @@ class ProtoGemCouchCrudIntegrationTest {
         } catch (RuntimeException e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after PUT_ALL failure ==========");
-
-            try {
-                String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
-                System.err.println(dockerLogs(containerName));
-            } catch (RuntimeException logError) {
-                System.err.println("Failed to read shim logs: " + logError.getMessage());
-            }
-
+            dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
 
@@ -272,18 +299,48 @@ class ProtoGemCouchCrudIntegrationTest {
         } catch (RuntimeException e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after GET_ALL failure ==========");
-
-            try {
-                String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
-                System.err.println(dockerLogs(containerName));
-            } catch (RuntimeException logError) {
-                System.err.println("Failed to read shim logs: " + logError.getMessage());
-            }
-
+            dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
 
             throw e;
+        }
+    }
+
+    private static int sizeOnServerOrDumpShimLogs(Region<String, Object> region) {
+        try {
+            return region.sizeOnServer();
+        } catch (RuntimeException e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after SIZE_ON_SERVER failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    private static Set<String> keySetOnServerOrDumpShimLogs(Region<String, Object> region) {
+        try {
+            return region.keySetOnServer();
+        } catch (RuntimeException e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after KEY_SET_ON_SERVER failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    private static void dumpShimLogs() {
+        try {
+            String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
+            System.err.println(dockerLogs(containerName));
+        } catch (RuntimeException logError) {
+            System.err.println("Failed to read shim logs: " + logError.getMessage());
         }
     }
 
