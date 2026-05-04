@@ -73,12 +73,17 @@ public class GetAllHandler implements OperationHandler {
                             "txId", frame.getTransactionId()
                     ));
                 } catch (Exception e) {
+                    /*
+                     * Malformed GET_ALL key payloads are expected in negative-path tests and
+                     * possible from invalid clients. Log the structured warning without the full
+                     * stack trace so normal test output stays readable.
+                     */
                     log.warn(StructuredLog.event(
                             "handler_get_all_key_deserialize_error",
                             "region", region,
                             "error", e.getMessage(),
                             "txId", frame.getTransactionId()
-                    ), e);
+                    ));
                 }
             }
 
