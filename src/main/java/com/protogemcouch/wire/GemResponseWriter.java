@@ -43,6 +43,14 @@ public final class GemResponseWriter {
     };
 
     /*
+     * Geode DataSerializer boolean marker:
+     *
+     *   Boolean.TRUE  -> 35 01
+     *   Boolean.FALSE -> 35 00
+     */
+    private static final byte GEODE_BOOLEAN_CODE = 0x35;
+
+    /*
      * Geode DataSerializer integer marker observed from IntegerShapeTest:
      *
      *   Integer.valueOf(7) -> 39 00 00 00 07
@@ -99,6 +107,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedInteger(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildBooleanGetResponse(int txId, boolean value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedBoolean(value), (byte) 1))
         );
     }
 
@@ -270,6 +286,10 @@ public final class GemResponseWriter {
             return storedValue;
         }
 
+        if (rawValue instanceof Boolean bool) {
+            return StoredValue.booleanValue(bool);
+        }
+
         if (rawValue instanceof Integer integer) {
             return StoredValue.integerValue(integer);
         }
@@ -278,6 +298,10 @@ public final class GemResponseWriter {
     }
 
     private static byte[] encodeStoredValueForGetAll(StoredValue value) {
+        if (value.type() == StoredValue.Type.BOOLEAN) {
+            return geodeSerializedBoolean(value.asBoolean());
+        }
+
         if (value.type() == StoredValue.Type.INTEGER) {
             return geodeSerializedInteger(value.asInteger());
         }
@@ -320,7 +344,7 @@ public final class GemResponseWriter {
 
     private static byte[] geodeSerializedBoolean(boolean value) {
         return new byte[] {
-                0x35,
+                GEODE_BOOLEAN_CODE,
                 (byte) (value ? 0x01 : 0x00)
         };
     }

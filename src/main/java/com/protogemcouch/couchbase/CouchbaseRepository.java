@@ -32,6 +32,7 @@ public class CouchbaseRepository implements Repository {
 
     private static final String TYPE_STRING = "string";
     private static final String TYPE_INTEGER = "integer";
+    private static final String TYPE_BOOLEAN = "boolean";
 
     private final ServerConfig config;
 
@@ -207,7 +208,7 @@ public class CouchbaseRepository implements Repository {
             JsonObject content = result.contentAsObject();
 
             StoredValue value = decodeStoredValue(content);
-            boolean hasValue = value != null && value.value() != null;
+            boolean hasValue = value != null;
 
             log.info(StructuredLog.event(
                     "repository_contains_value_for_key_ok",
@@ -317,6 +318,12 @@ public class CouchbaseRepository implements Repository {
     private static JsonObject encodeStoredValue(StoredValue value) {
         JsonObject body = JsonObject.create();
 
+        if (value.type() == StoredValue.Type.BOOLEAN) {
+            body.put(FIELD_TYPE, TYPE_BOOLEAN);
+            body.put(FIELD_VALUE, value.asBoolean());
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.INTEGER) {
             body.put(FIELD_TYPE, TYPE_INTEGER);
             body.put(FIELD_VALUE, value.asInteger());
@@ -337,9 +344,27 @@ public class CouchbaseRepository implements Repository {
                 ? content.getString(FIELD_TYPE)
                 : TYPE_STRING;
 
-        if (TYPE_INTEGER.equalsIgnoreCase(type)) {
-            Object rawValue = content.get(FIELD_VALUE);
+        Object rawValue = content.get(FIELD_VALUE);
 
+        if (TYPE_BOOLEAN.equalsIgnoreCase(type)) {
+            if (rawValue instanceof Boolean bool) {
+                return StoredValue.booleanValue(bool);
+            }
+
+            if (rawValue instanceof String text) {
+                if ("true".equalsIgnoreCase(text)) {
+                    return StoredValue.booleanValue(Boolean.TRUE);
+                }
+
+                if ("false".equalsIgnoreCase(text)) {
+                    return StoredValue.booleanValue(Boolean.FALSE);
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_INTEGER.equalsIgnoreCase(type)) {
             if (rawValue instanceof Number number) {
                 return StoredValue.integerValue(number.intValue());
             }
@@ -354,8 +379,6 @@ public class CouchbaseRepository implements Repository {
 
             return null;
         }
-
-        Object rawValue = content.get(FIELD_VALUE);
 
         if (rawValue == null) {
             return null;

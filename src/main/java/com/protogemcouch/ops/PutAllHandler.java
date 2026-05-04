@@ -148,14 +148,28 @@ public class PutAllHandler implements OperationHandler {
 
         /*
          * Important:
-         * Decode integer before the generic string-like fallback.
+         * Decode typed primitives before the generic string-like fallback.
          *
-         * Otherwise payloads like:
+         * Otherwise payloads such as:
          *
-         *   39 00 00 00 65
+         *   Boolean.TRUE -> 35 01
+         *   Integer 101  -> 39 00 00 00 65
          *
-         * can be incorrectly decoded as text such as "9e".
+         * can be incorrectly decoded as text.
          */
+        Boolean booleanValue = ValueDecoding.decodeBooleanValue(valuePayload);
+
+        if (booleanValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-boolean",
+                    "key", key,
+                    "valueType", "BOOLEAN",
+                    "txId", txId
+            ));
+            return StoredValue.booleanValue(booleanValue);
+        }
+
         Integer integerValue = ValueDecoding.decodeIntegerValue(valuePayload);
 
         if (integerValue != null) {
@@ -184,6 +198,17 @@ public class PutAllHandler implements OperationHandler {
 
         try {
             Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+
+            if (rawValue instanceof Boolean bool) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "BOOLEAN",
+                        "txId", txId
+                ));
+                return StoredValue.booleanValue(bool);
+            }
 
             if (rawValue instanceof Integer integer) {
                 log.info(StructuredLog.event(

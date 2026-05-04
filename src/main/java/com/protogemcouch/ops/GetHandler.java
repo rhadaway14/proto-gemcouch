@@ -47,6 +47,11 @@ public class GetHandler implements OperationHandler {
 
         if (value == null) {
             response = GemResponseWriter.buildNullGetResponse(frame.getTransactionId());
+        } else if (value.type() == StoredValue.Type.BOOLEAN) {
+            response = GemResponseWriter.buildBooleanGetResponse(
+                    frame.getTransactionId(),
+                    value.asBoolean()
+            );
         } else if (value.type() == StoredValue.Type.INTEGER) {
             response = GemResponseWriter.buildIntegerGetResponse(
                     frame.getTransactionId(),

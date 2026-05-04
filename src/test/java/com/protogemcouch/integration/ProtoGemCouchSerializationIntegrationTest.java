@@ -120,6 +120,31 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void booleanValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-boolean-value-" + suffix;
+
+        Boolean expected = Boolean.TRUE;
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Boolean.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BOOLEAN round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void putAllWithIntegerValuesShouldPersistAllEntriesAndBeReadableByGet() {
         String suffix = UUID.randomUUID().toString();
 

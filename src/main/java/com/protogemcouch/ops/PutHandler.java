@@ -65,11 +65,6 @@ public class PutHandler implements OperationHandler {
                 && value != null) {
             String docId = DocumentKeyUtil.docId(region, key);
 
-            /*
-             * Store the existing raw string shape for strings, and a lightweight
-             * typed envelope for integers. This keeps existing string/bulk behavior
-             * stable while enabling integer round-trips for PUT/GET.
-             */
             repository.put(docId, value);
 
             log.info(StructuredLog.event(
@@ -110,14 +105,27 @@ public class PutHandler implements OperationHandler {
 
         /*
          * Important:
-         * Decode integer before the generic string-like fallback.
+         * Decode typed primitives before the generic string-like fallback.
          *
-         * Otherwise payloads like:
+         * Otherwise payloads such as:
          *
-         *   39 00 00 00 64
+         *   Boolean.TRUE  -> 35 01
+         *   Integer 100   -> 39 00 00 00 64
          *
-         * can be incorrectly treated as text and show up as values like "9d".
+         * can be incorrectly treated as text.
          */
+        Boolean booleanValue = ValueDecoding.decodeBooleanValue(valuePayload);
+
+        if (booleanValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-boolean",
+                    "valueType", "BOOLEAN",
+                    "txId", txId
+            ));
+            return StoredValue.booleanValue(booleanValue);
+        }
+
         Integer integerValue = ValueDecoding.decodeIntegerValue(valuePayload);
 
         if (integerValue != null) {
@@ -144,6 +152,18 @@ public class PutHandler implements OperationHandler {
 
         try {
             Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+
+            if (rawValue instanceof Boolean bool) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "BOOLEAN",
+                        "txId", txId
+                ));
+                return StoredValue.booleanValue(bool);
+            }
+
             if (rawValue instanceof Integer integer) {
                 log.info(StructuredLog.event(
                         "handler_put_value_decode_ok",

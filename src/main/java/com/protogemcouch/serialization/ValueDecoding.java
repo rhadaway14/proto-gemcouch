@@ -8,6 +8,14 @@ public final class ValueDecoding {
     private static final int GEODE_NULL_CODE = 0x29;
 
     /*
+     * Geode DataSerializer boolean marker:
+     *
+     *   Boolean.TRUE  -> 35 01
+     *   Boolean.FALSE -> 35 00
+     */
+    private static final int GEODE_BOOLEAN_CODE = 0x35;
+
+    /*
      * Geode DataSerializer integer marker observed from IntegerShapeTest:
      *
      *   Integer.valueOf(7) -> 39 00 00 00 07
@@ -15,6 +23,28 @@ public final class ValueDecoding {
     private static final int GEODE_INTEGER_CODE = 0x39;
 
     private ValueDecoding() {
+    }
+
+    public static Boolean decodeBooleanValue(byte[] payload) {
+        if (payload == null || payload.length != 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_BOOLEAN_CODE) {
+            return null;
+        }
+
+        int value = payload[1] & 0xff;
+
+        if (value == 0x00) {
+            return Boolean.FALSE;
+        }
+
+        if (value == 0x01) {
+            return Boolean.TRUE;
+        }
+
+        return null;
     }
 
     public static Integer decodeIntegerValue(byte[] payload) {
@@ -82,6 +112,18 @@ public final class ValueDecoding {
                 return markerStripped.isBlank() ? null : markerStripped;
             }
 
+            return null;
+        }
+
+        /*
+         * Do not allow typed primitive Geode payloads to fall through into the
+         * plain UTF-8 fallback.
+         */
+        if (decodeBooleanValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeIntegerValue(payload) != null) {
             return null;
         }
 

@@ -1,82 +1,61 @@
 package com.protogemcouch.serialization;
 
-public record StoredValue(Type type, String value) {
+import java.util.Objects;
 
-    private static final String PREFIX = "__PROTOGEMCOUCH_TYPED__|";
-    private static final String SEP = "|";
+public record StoredValue(
+        Type type,
+        String value,
+        Integer integerValue,
+        Boolean booleanValue
+) {
 
     public enum Type {
         STRING,
-        INTEGER
+        INTEGER,
+        BOOLEAN
     }
 
     public static StoredValue stringValue(String value) {
-        if (value == null) {
-            return null;
-        }
-
-        return new StoredValue(Type.STRING, value);
+        return new StoredValue(Type.STRING, value, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        if (value == null) {
-            return null;
+        return new StoredValue(Type.INTEGER, null, value, null);
+    }
+
+    public static StoredValue booleanValue(Boolean value) {
+        return new StoredValue(Type.BOOLEAN, null, null, value);
+    }
+
+    public StoredValue {
+        Objects.requireNonNull(type, "type must not be null");
+
+        if (type == Type.STRING && value == null) {
+            throw new IllegalArgumentException("STRING StoredValue requires value");
         }
 
-        return new StoredValue(Type.INTEGER, String.valueOf(value));
+        if (type == Type.INTEGER && integerValue == null) {
+            throw new IllegalArgumentException("INTEGER StoredValue requires integerValue");
+        }
+
+        if (type == Type.BOOLEAN && booleanValue == null) {
+            throw new IllegalArgumentException("BOOLEAN StoredValue requires booleanValue");
+        }
     }
 
     public Integer asInteger() {
         if (type != Type.INTEGER) {
-            throw new IllegalStateException("Stored value is not an integer. Actual type: " + type);
+            throw new IllegalStateException("StoredValue is not INTEGER. Actual type: " + type);
         }
 
-        return Integer.valueOf(value);
+        return integerValue;
     }
 
-    public String toRepositoryValue() {
-        if (type == Type.STRING) {
-            /*
-             * Preserve the existing string storage path so all previously validated
-             * string operations continue to behave the same way.
-             */
-            return value;
+    public Boolean asBoolean() {
+        if (type != Type.BOOLEAN) {
+            throw new IllegalStateException("StoredValue is not BOOLEAN. Actual type: " + type);
         }
 
-        return PREFIX + type.name().toLowerCase() + SEP + value;
-    }
-
-    public static StoredValue fromRepositoryValue(String repositoryValue) {
-        if (repositoryValue == null) {
-            return null;
-        }
-
-        if (!repositoryValue.startsWith(PREFIX)) {
-            return stringValue(repositoryValue);
-        }
-
-        String body = repositoryValue.substring(PREFIX.length());
-        int separator = body.indexOf(SEP);
-
-        if (separator <= 0 || separator >= body.length() - 1) {
-            /*
-             * If the envelope is malformed, return it as a string rather than
-             * dropping data.
-             */
-            return stringValue(repositoryValue);
-        }
-
-        String typeText = body.substring(0, separator);
-        String valueText = body.substring(separator + 1);
-
-        if ("integer".equalsIgnoreCase(typeText)) {
-            return new StoredValue(Type.INTEGER, valueText);
-        }
-
-        if ("string".equalsIgnoreCase(typeText)) {
-            return new StoredValue(Type.STRING, valueText);
-        }
-
-        return stringValue(repositoryValue);
+        return booleanValue;
     }
 }
