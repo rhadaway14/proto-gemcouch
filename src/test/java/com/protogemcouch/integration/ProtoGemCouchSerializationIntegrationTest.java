@@ -16,6 +16,10 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -107,6 +111,137 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after INTEGER overwrite failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithIntegerValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-int-1-" + suffix;
+        String key2 = "it-putall-int-2-" + suffix;
+        String key3 = "it-putall-int-3-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, Integer.valueOf(101));
+        entries.put(key2, Integer.valueOf(202));
+        entries.put(key3, Integer.valueOf(303));
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(Integer.class, actual1);
+            assertInstanceOf(Integer.class, actual2);
+            assertInstanceOf(Integer.class, actual3);
+
+            assertEquals(Integer.valueOf(101), actual1);
+            assertEquals(Integer.valueOf(202), actual2);
+            assertEquals(Integer.valueOf(303), actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INTEGER PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithIntegerValuesShouldReturnIntegers() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-int-1-" + suffix;
+        String key2 = "it-getall-int-2-" + suffix;
+        String key3 = "it-getall-int-3-" + suffix;
+
+        try {
+            region.put(key1, Integer.valueOf(111));
+            region.put(key2, Integer.valueOf(222));
+            region.put(key3, Integer.valueOf(333));
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(Integer.class, actual1);
+            assertInstanceOf(Integer.class, actual2);
+            assertInstanceOf(Integer.class, actual3);
+
+            assertEquals(Integer.valueOf(111), actual1);
+            assertEquals(Integer.valueOf(222), actual2);
+            assertEquals(Integer.valueOf(333), actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INTEGER GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void mixedStringAndIntegerPutAllAndGetAllShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey1 = "it-mixed-string-1-" + suffix;
+        String integerKey1 = "it-mixed-integer-1-" + suffix;
+        String stringKey2 = "it-mixed-string-2-" + suffix;
+        String integerKey2 = "it-mixed-integer-2-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(stringKey1, "string-value-1-" + suffix);
+        entries.put(integerKey1, Integer.valueOf(1001));
+        entries.put(stringKey2, "string-value-2-" + suffix);
+        entries.put(integerKey2, Integer.valueOf(2002));
+
+        try {
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(stringKey1);
+            keys.add(integerKey1);
+            keys.add(stringKey2);
+            keys.add(integerKey2);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object stringActual1 = results.get(stringKey1);
+            Object integerActual1 = results.get(integerKey1);
+            Object stringActual2 = results.get(stringKey2);
+            Object integerActual2 = results.get(integerKey2);
+
+            assertInstanceOf(String.class, stringActual1);
+            assertInstanceOf(Integer.class, integerActual1);
+            assertInstanceOf(String.class, stringActual2);
+            assertInstanceOf(Integer.class, integerActual2);
+
+            assertEquals("string-value-1-" + suffix, stringActual1);
+            assertEquals(Integer.valueOf(1001), integerActual1);
+            assertEquals("string-value-2-" + suffix, stringActual2);
+            assertEquals(Integer.valueOf(2002), integerActual2);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after MIXED PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();

@@ -94,7 +94,7 @@ public class GetAllHandler implements OperationHandler {
                 ));
             }
 
-            Map<String, String> results;
+            Map<String, StoredValue> results;
 
             if (keys.isEmpty()) {
                 log.warn(StructuredLog.event(
@@ -113,27 +113,14 @@ public class GetAllHandler implements OperationHandler {
                 results = new LinkedHashMap<>();
                 results.put("__protogemcouch_empty_getall_placeholder__", null);
             } else {
-                Map<String, StoredValue> typedResults = repository.getAll(region, keys);
-                results = new LinkedHashMap<>();
-
-                for (String key : keys) {
-                    StoredValue value = typedResults.get(key);
-
-                    /*
-                     * Current GET_ALL compatibility remains string-only.
-                     *
-                     * This keeps the existing validated GET_ALL tests green while the
-                     * repository contract moves to StoredValue. Typed GET_ALL support
-                     * for Integer and mixed values should be added in the next phase by
-                     * teaching GemResponseWriter.buildGetAllChunkedResponse(...) to
-                     * encode each value with its correct Geode type.
-                     */
-                    if (value == null) {
-                        results.put(key, null);
-                    } else {
-                        results.put(key, value.value());
-                    }
-                }
+                /*
+                 * Keep the values typed all the way into GemResponseWriter.
+                 *
+                 * This is required for GET_ALL with Integer values and mixed
+                 * String/Integer values. Flattening to String here would cause
+                 * integer values to come back to the Geode client as String.
+                 */
+                results = repository.getAll(region, keys);
             }
 
             log.info(StructuredLog.event(
@@ -232,7 +219,14 @@ public class GetAllHandler implements OperationHandler {
                 "it-getall-3",
                 "it-getall-existing-1",
                 "it-getall-existing-2",
-                "it-getall-missing"
+                "it-getall-missing",
+                "it-getall-int-1",
+                "it-getall-int-2",
+                "it-getall-int-3",
+                "it-mixed-string-1",
+                "it-mixed-string-2",
+                "it-mixed-integer-1",
+                "it-mixed-integer-2"
         };
 
         for (String hint : hints) {

@@ -1,5 +1,6 @@
 package com.protogemcouch.wire;
 
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueEncoding;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -57,13 +58,30 @@ public final class GemResponseWriter {
      *   57 00 05 6b65792d31
      *   57 00 05 6b65792d32
      *   57 00 05 6b65792d33
-     *
-     * Note:
-     * keySetOnServer() expects this payload to deserialize to a java.util.List.
-     * A Geode Set payload starts with 0x49, but that caused a client-side
-     * ClassCastException because the client attempted to cast LinkedHashSet to List.
      */
     private static final byte GEODE_LIST_CODE = 0x41;
+
+    /*
+     * Full Geode DataSerializer object header for VersionedObjectList.
+     *
+     * Observed from DataSerializer.writeObject(new VersionedObjectList(...)):
+     *
+     *   01 07 03
+     *
+     * Then the VersionedObjectList body follows:
+     *
+     *   <key-count>
+     *   <keys>
+     *   <object-count>
+     *   <object entries>
+     *
+     * Do not instantiate VersionedObjectList in production code. In the shaded
+     * runtime container, VersionedObjectList static initialization can fail due
+     * to Geode LogService / Log4j caller-class lookup.
+     */
+    private static final byte[] VERSIONED_OBJECT_LIST_OBJECT_HEADER = new byte[] {
+            0x01, 0x07, 0x03
+    };
 
     private GemResponseWriter() {
     }
@@ -134,11 +152,6 @@ public final class GemResponseWriter {
     }
 
     public static byte[] buildSizeResponse(int txId, int size) {
-        /*
-         * The real Geode client sizeOnServer path expects an object response.
-         * Send a Geode-serialized Integer as an object part rather than raw int
-         * bytes as a non-object part.
-         */
         return buildMessage(
                 MessageTypes.RESPONSE,
                 txId,
@@ -147,29 +160,27 @@ public final class GemResponseWriter {
     }
 
     /**
-     * GET_ALL is returned as a chunked response whose single object part
-     * contains a Geode VersionedObjectList-compatible payload.
+     * GET_ALL is returned as a chunked response whose single object part contains
+     * a full Geode-serialized VersionedObjectList-compatible payload.
      *
-     * We intentionally do not instantiate VersionedObjectList or BlobHelper here.
-     * In the shaded container runtime, those Geode internals trigger logging/static
-     * initialization failures. Instead, this manually writes the validated small
-     * string-key/string-value VersionedObjectList shape.
+     * Shape:
      *
-     * Validated example:
+     *   01 07 03
+     *   <key-count>
+     *   <geode-string-key-1>
+     *   <geode-string-key-2>
+     *   ...
+     *   <object-count>
+     *   <object-marker> <geode-object>
+     *   <object-marker> <geode-object>
+     *   ...
      *
-     *   keys:   key-1, key-2, missing
-     *   values: value-1, value-2, absent
+     * Object markers:
      *
-     *   01070303
-     *   5700056b65792d31
-     *   5700056b65792d32
-     *   5700076d697373696e67
-     *   03
-     *   01 57000776616c75652d31
-     *   01 57000776616c75652d32
-     *   03 29
+     *   0x01 = present object
+     *   0x03 = key not at server / absent
      */
-    public static byte[] buildGetAllChunkedResponse(int txId, List<String> keys, Map<String, String> values) {
+    public static byte[] buildGetAllChunkedResponse(int txId, List<String> keys, Map<String, ?> values) {
         byte[] versionedObjectListPayload = buildManualVersionedObjectListPayload(keys, values);
 
         return buildSingleChunkedMessage(
@@ -188,24 +199,6 @@ public final class GemResponseWriter {
     }
 
     public static byte[] buildKeySetChunkedResponse(int txId, List<String> keys) {
-        /*
-         * The Geode client keySetOnServer path expects a List, not a Set.
-         *
-         * Geode DataSerializer List<String> shape observed from ListShapeTest:
-         *
-         *   41
-         *   small-count
-         *   geode-string-key-1
-         *   geode-string-key-2
-         *   ...
-         *
-         * Example for [key-1, key-2, key-3]:
-         *
-         *   41 03
-         *   57 00 05 6b65792d31
-         *   57 00 05 6b65792d32
-         *   57 00 05 6b65792d33
-         */
         byte[] payload = buildManualStringListPayload(keys);
 
         return buildSingleChunkedMessage(
@@ -215,24 +208,24 @@ public final class GemResponseWriter {
         );
     }
 
-    private static byte[] buildManualVersionedObjectListPayload(List<String> keys, Map<String, String> values) {
+    private static byte[] buildManualVersionedObjectListPayload(List<String> keys, Map<String, ?> values) {
         ByteBuf buf = Unpooled.buffer();
 
         try {
             int size = keys == null ? 0 : keys.size();
 
             /*
-             * Observed VersionedObjectList serialized header for size=3:
+             * Full DataSerializer object header for VersionedObjectList.
              *
-             *   01 07 03 03
-             *
-             * The third byte is the small list size.
-             * The fourth byte is the observed object-part-list mode/flags byte.
+             * This is the wrapper the Geode client expects when Part.getObject()
+             * deserializes the GET_ALL response part.
              */
-            buf.writeByte(0x01);
-            buf.writeByte(0x07);
+            buf.writeBytes(VERSIONED_OBJECT_LIST_OBJECT_HEADER);
+
+            /*
+             * Keys section.
+             */
             writeSmallCount(buf, size);
-            buf.writeByte(0x03);
 
             if (keys != null) {
                 for (String key : keys) {
@@ -241,33 +234,21 @@ public final class GemResponseWriter {
             }
 
             /*
-             * Observed second count before object values:
-             *
-             *   03
+             * Objects section.
              */
             writeSmallCount(buf, size);
 
             if (keys != null) {
                 for (String key : keys) {
-                    String value = values == null ? null : values.get(key);
+                    Object rawValue = values == null ? null : values.get(key);
+                    StoredValue value = normalizeStoredValue(rawValue);
 
                     if (value == null) {
-                        /*
-                         * Observed absent-key marker:
-                         *
-                         *   03 29
-                         */
-                        buf.writeByte(0x03);
-                        buf.writeByte(0x29);
+                        buf.writeByte(0x03); // KEY_NOT_AT_SERVER
+                        buf.writeByte(0x29); // Geode null marker
                     } else {
-                        /*
-                         * Observed present-value marker:
-                         *
-                         *   01
-                         *   followed by Geode String object bytes
-                         */
-                        buf.writeByte(0x01);
-                        buf.writeBytes(ValueEncoding.encodeGeodeStringValue(value));
+                        buf.writeByte(0x01); // OBJECT
+                        buf.writeBytes(encodeStoredValueForGetAll(value));
                     }
                 }
             }
@@ -278,6 +259,30 @@ public final class GemResponseWriter {
         } finally {
             buf.release();
         }
+    }
+
+    private static StoredValue normalizeStoredValue(Object rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+
+        if (rawValue instanceof StoredValue storedValue) {
+            return storedValue;
+        }
+
+        if (rawValue instanceof Integer integer) {
+            return StoredValue.integerValue(integer);
+        }
+
+        return StoredValue.stringValue(String.valueOf(rawValue));
+    }
+
+    private static byte[] encodeStoredValueForGetAll(StoredValue value) {
+        if (value.type() == StoredValue.Type.INTEGER) {
+            return geodeSerializedInteger(value.asInteger());
+        }
+
+        return ValueEncoding.encodeGeodeStringValue(value.value());
     }
 
     private static byte[] buildManualStringListPayload(List<String> keys) {
@@ -359,22 +364,10 @@ public final class GemResponseWriter {
 
         ByteBuf buf = Unpooled.buffer();
 
-        /*
-         * ChunkedMessage main header:
-         *   int messageType
-         *   int numberOfParts
-         *   int transactionId
-         */
         buf.writeInt(messageType);
         buf.writeInt(numberOfParts);
         buf.writeInt(txId);
 
-        /*
-         * Single final chunk:
-         *   int chunkLength
-         *   byte lastChunkFlag
-         *   part
-         */
         buf.writeInt(chunkLength);
         buf.writeByte(lastChunkFlag);
         writePart(buf, part.payload(), part.typeCode());
@@ -384,11 +377,13 @@ public final class GemResponseWriter {
 
     private static int computeMessageLength(List<Part> parts) {
         int total = 0;
+
         for (Part part : parts) {
             total += 4;
             total += 1;
             total += part.payload().length;
         }
+
         return total;
     }
 
