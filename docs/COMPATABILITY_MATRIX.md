@@ -7,12 +7,12 @@ ProtoGemCouch currently supports a validated subset of Apache Geode client opera
 The latest full validation run completed successfully:
 
 ```text
-Unit tests: 85 passing
-Serialization integration tests: 5 passing
+Unit tests: 87 passing
+Integration tests: 16 passing
 Build result: BUILD SUCCESS
 ```
 
-The typed bulk value work has been validated end-to-end through:
+The typed value work has been validated end-to-end through:
 
 ```text
 Apache Geode Java client
@@ -27,13 +27,13 @@ Docker Compose integration environment
 
 | Geode Operation | Current Status | Supported Value Types | Notes |
 |---|---|---|---|
-| `get` | Supported | `String`, `Integer` | Returns typed values through Geode-compatible serialization. |
-| `put` | Supported | `String`, `Integer` | Persists typed values using `StoredValue`. |
+| `get` | Supported | `String`, `Integer`, `Boolean` | Returns typed values through Geode-compatible serialization. |
+| `put` | Supported | `String`, `Integer`, `Boolean` | Persists typed values using `StoredValue`. |
 | `remove` | Supported | N/A | Removes the mapped Couchbase document. |
 | `containsKey` | Supported | N/A | Uses document existence in Couchbase. |
-| `containsValueForKey` | Supported | N/A | Checks whether a stored value exists for the key. |
-| `putAll` | Supported | `String`, `Integer`, mixed `String`/`Integer` | Bulk values preserve type. |
-| `getAll` | Supported | `String`, `Integer`, mixed `String`/`Integer` | Uses a manually built `VersionedObjectList`-compatible response. |
+| `containsValueForKey` | Supported | N/A | Checks whether a stored `StoredValue` exists for the key. |
+| `putAll` | Supported | `String`, `Integer`, `Boolean`, mixed typed values | Bulk values preserve type. |
+| `getAll` | Supported | `String`, `Integer`, `Boolean`, mixed typed values | Uses a manually built `VersionedObjectList`-compatible response. |
 | `sizeOnServer` | Supported | N/A | Returns a Geode-serialized `Integer`. |
 | `keySetOnServer` | Supported | `String` keys | Returns a Geode-compatible list of keys. |
 | `GET_CLIENT_PARTITION_ATTRIBUTES` | Observed / no explicit response | N/A | The client sends this, but current behavior does not require a full implementation for tested operations. |
@@ -47,8 +47,8 @@ Docker Compose integration environment
 |---|---:|---:|---:|---:|---:|
 | `String` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `Integer` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Boolean` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `Long` | Not yet | Not yet | Not yet | Not yet | Not yet |
-| `Boolean` | Not yet | Not yet | Not yet | Not yet | Not yet |
 | `Double` | Not yet | Not yet | Not yet | Not yet | Not yet |
 | Custom objects | Not yet | Not yet | Not yet | Not yet | Not yet |
 
@@ -58,13 +58,21 @@ Docker Compose integration environment
 
 | Scenario | Status |
 |---|---|
+| `put` with `String` value | ✅ Supported |
+| `get` returning `String` value | ✅ Supported |
 | `put` with `Integer` value | ✅ Supported |
 | `get` returning `Integer` value | ✅ Supported |
 | overwriting an `Integer` with another `Integer` | ✅ Supported |
+| `put` with `Boolean` value | ✅ Supported |
+| `get` returning `Boolean` value | ✅ Supported |
 | `putAll` with all `Integer` values | ✅ Supported |
 | `getAll` returning all `Integer` values | ✅ Supported |
+| `putAll` with all `Boolean` values | ✅ Supported |
+| `getAll` returning all `Boolean` values | ✅ Supported |
 | `putAll` with mixed `String` and `Integer` values | ✅ Supported |
 | `getAll` returning mixed `String` and `Integer` values | ✅ Supported |
+| `putAll` with mixed `String`, `Integer`, and `Boolean` values | ✅ Supported |
+| `getAll` returning mixed `String`, `Integer`, and `Boolean` values | ✅ Supported |
 | mixed bulk operation preserving original Java value types | ✅ Supported |
 
 ---
@@ -73,16 +81,15 @@ Docker Compose integration environment
 
 Typed values are represented internally by `StoredValue`.
 
-This replaces the earlier string-only repository behavior and prevents values from being flattened into strings during storage or response generation.
-
 Current validated logical types:
 
 ```text
 StoredValue.Type.STRING
 StoredValue.Type.INTEGER
+StoredValue.Type.BOOLEAN
 ```
 
-The repository contract now supports:
+The repository contract supports:
 
 ```java
 StoredValue get(String docId);
@@ -90,6 +97,43 @@ StoredValue get(String docId);
 Map<String, StoredValue> getAll(String region, List<String> keys);
 
 void put(String docId, StoredValue value);
+```
+
+---
+
+## Couchbase Persistence Compatibility
+
+Typed values are persisted as JSON documents with a logical type field.
+
+| Java / Geode Value | Couchbase `type` | Couchbase `value` |
+|---|---|---|
+| `String` | `string` | JSON string |
+| `Integer` | `integer` | JSON number |
+| `Boolean` | `boolean` | JSON boolean |
+| `Long` | Not yet | Not yet |
+| `Double` | Not yet | Not yet |
+
+Example documents:
+
+```json
+{
+  "type": "string",
+  "value": "hello"
+}
+```
+
+```json
+{
+  "type": "integer",
+  "value": 12345
+}
+```
+
+```json
+{
+  "type": "boolean",
+  "value": true
+}
 ```
 
 ---
@@ -108,6 +152,12 @@ String:
 
 Integer:
 39 <4-byte integer>
+
+Boolean.TRUE:
+35 01
+
+Boolean.FALSE:
+35 00
 ```
 
 ### `sizeOnServer`
@@ -130,13 +180,11 @@ Observed list shape:
 41 <count> <geode-string-key-1> <geode-string-key-2> ...
 ```
 
-A Geode `Set` payload was avoided because the client path expected a list and attempted a list cast.
-
 ### `getAll`
 
 `GET_ALL` requires special handling because the Geode Java client expects a `VersionedObjectList`-compatible object part.
 
-ProtoGemCouch now writes the compatible wire shape manually to avoid runtime class initialization issues in the shaded container.
+ProtoGemCouch writes the compatible wire shape manually.
 
 The validated `GET_ALL` payload shape starts with the full Geode serialized object header:
 
@@ -169,6 +217,12 @@ String:
 Integer:
 39 <4-byte integer>
 
+Boolean.TRUE:
+35 01
+
+Boolean.FALSE:
+35 00
+
 Absent / missing:
 03 29
 ```
@@ -182,19 +236,55 @@ Current typed serialization integration tests:
 ```text
 integerValueShouldRoundTripThroughShimAndCouchbase
 integerValueShouldBeOverwrittenByAnotherIntegerValue
+booleanValueShouldRoundTripThroughShimAndCouchbase
 putAllWithIntegerValuesShouldPersistAllEntriesAndBeReadableByGet
+putAllWithBooleanValuesShouldPersistAllEntriesAndBeReadableByGet
 getAllWithIntegerValuesShouldReturnIntegers
+getAllWithBooleanValuesShouldReturnBooleans
 mixedStringAndIntegerPutAllAndGetAllShouldPreserveTypes
+mixedStringIntegerAndBooleanPutAllAndGetAllShouldPreserveTypes
 ```
 
 Focused wire-shape tests include:
 
 ```text
+BooleanShapeTest
 IntegerShapeTest
 ListShapeTest
 KeySetShapeTest
 VersionedObjectListShapeTest
 MixedVersionedObjectListShapeTest
+```
+
+---
+
+## Build/Test Coverage Snapshot
+
+### Unit Tests
+
+```text
+Tests run: 87
+Failures: 0
+Errors: 0
+Skipped: 0
+```
+
+### Integration Tests
+
+```text
+ProtoGemCouchCrudIntegrationTest: 7 passing
+ProtoGemCouchSerializationIntegrationTest: 9 passing
+
+Integration tests total: 16 passing
+Failures: 0
+Errors: 0
+Skipped: 0
+```
+
+### Build Result
+
+```text
+BUILD SUCCESS
 ```
 
 ---
@@ -205,7 +295,6 @@ The next recommended compatibility work is to add more primitive value types:
 
 ```text
 Long
-Boolean
 Double
 ```
 
@@ -213,10 +302,11 @@ Recommended future integration tests:
 
 ```text
 longValueShouldRoundTripThroughShimAndCouchbase
-booleanValueShouldRoundTripThroughShimAndCouchbase
 doubleValueShouldRoundTripThroughShimAndCouchbase
-putAllWithLongBooleanAndDoubleValuesShouldPersistTypedValues
-getAllWithLongBooleanAndDoubleValuesShouldReturnTypedValues
+putAllWithLongValuesShouldPersistTypedValues
+putAllWithDoubleValuesShouldPersistTypedValues
+getAllWithLongValuesShouldReturnLongs
+getAllWithDoubleValuesShouldReturnDoubles
 mixedPrimitivePutAllAndGetAllShouldPreserveTypes
 ```
 
@@ -230,7 +320,7 @@ GemResponseWriter
 PutHandler
 PutAllHandler
 GetHandler
-GetAllHandler
+CouchbaseRepository
 unit tests
 integration tests
 ```
@@ -239,11 +329,11 @@ integration tests
 
 ## Current Recommendation
 
-The current compatibility checkpoint is stable enough to commit.
+The current Boolean bulk compatibility checkpoint is stable enough to commit.
 
 Suggested commit:
 
 ```powershell
 git add .
-git commit -m "Add typed bulk value support for putAll and getAll"
+git commit -m "Extend boolean support to bulk operations"
 ```
