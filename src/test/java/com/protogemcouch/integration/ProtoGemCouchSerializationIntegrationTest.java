@@ -183,6 +183,44 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void putAllWithBooleanValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-bool-1-" + suffix;
+        String key2 = "it-putall-bool-2-" + suffix;
+        String key3 = "it-putall-bool-3-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, Boolean.TRUE);
+        entries.put(key2, Boolean.FALSE);
+        entries.put(key3, Boolean.TRUE);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(Boolean.class, actual1);
+            assertInstanceOf(Boolean.class, actual2);
+            assertInstanceOf(Boolean.class, actual3);
+
+            assertEquals(Boolean.TRUE, actual1);
+            assertEquals(Boolean.FALSE, actual2);
+            assertEquals(Boolean.TRUE, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BOOLEAN PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void getAllWithIntegerValuesShouldReturnIntegers() {
         String suffix = UUID.randomUUID().toString();
 
@@ -216,6 +254,48 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after INTEGER GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithBooleanValuesShouldReturnBooleans() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-bool-1-" + suffix;
+        String key2 = "it-getall-bool-2-" + suffix;
+        String key3 = "it-getall-bool-3-" + suffix;
+
+        try {
+            region.put(key1, Boolean.TRUE);
+            region.put(key2, Boolean.FALSE);
+            region.put(key3, Boolean.TRUE);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(Boolean.class, actual1);
+            assertInstanceOf(Boolean.class, actual2);
+            assertInstanceOf(Boolean.class, actual3);
+
+            assertEquals(Boolean.TRUE, actual1);
+            assertEquals(Boolean.FALSE, actual2);
+            assertEquals(Boolean.TRUE, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BOOLEAN GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -267,6 +347,57 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after MIXED PUT_ALL/GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void mixedStringIntegerAndBooleanPutAllAndGetAllShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey = "it-mixed3-string-" + suffix;
+        String integerKey = "it-mixed3-integer-" + suffix;
+        String booleanTrueKey = "it-mixed3-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed3-bool-false-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(stringKey, "string-value-" + suffix);
+        entries.put(integerKey, Integer.valueOf(3003));
+        entries.put(booleanTrueKey, Boolean.TRUE);
+        entries.put(booleanFalseKey, Boolean.FALSE);
+
+        try {
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(stringKey);
+            keys.add(integerKey);
+            keys.add(booleanTrueKey);
+            keys.add(booleanFalseKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object stringActual = results.get(stringKey);
+            Object integerActual = results.get(integerKey);
+            Object booleanTrueActual = results.get(booleanTrueKey);
+            Object booleanFalseActual = results.get(booleanFalseKey);
+
+            assertInstanceOf(String.class, stringActual);
+            assertInstanceOf(Integer.class, integerActual);
+            assertInstanceOf(Boolean.class, booleanTrueActual);
+            assertInstanceOf(Boolean.class, booleanFalseActual);
+
+            assertEquals("string-value-" + suffix, stringActual);
+            assertEquals(Integer.valueOf(3003), integerActual);
+            assertEquals(Boolean.TRUE, booleanTrueActual);
+            assertEquals(Boolean.FALSE, booleanFalseActual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after MIXED STRING/INTEGER/BOOLEAN PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
