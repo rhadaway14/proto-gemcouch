@@ -111,6 +111,7 @@ public class PutHandler implements OperationHandler {
          *
          *   Boolean.TRUE  -> 35 01
          *   Integer 100   -> 39 00 00 00 64
+         *   Long 100L     -> 3a 00 00 00 00 00 00 00 64
          *
          * can be incorrectly treated as text.
          */
@@ -136,6 +137,18 @@ public class PutHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.integerValue(integerValue);
+        }
+
+        Long longValue = ValueDecoding.decodeLongValue(valuePayload);
+
+        if (longValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-long",
+                    "valueType", "LONG",
+                    "txId", txId
+            ));
+            return StoredValue.longValue(longValue);
         }
 
         String stringLikeValue = ValueDecoding.decodeStringLikeValue(valuePayload);
@@ -173,6 +186,17 @@ public class PutHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.integerValue(integer);
+            }
+
+            if (rawValue instanceof Long longObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "LONG",
+                        "txId", txId
+                ));
+                return StoredValue.longValue(longObject);
             }
 
             if (rawValue != null) {

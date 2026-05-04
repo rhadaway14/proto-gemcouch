@@ -57,6 +57,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asInteger()
             );
+        } else if (value.type() == StoredValue.Type.LONG) {
+            response = GemResponseWriter.buildLongGetResponse(
+                    frame.getTransactionId(),
+                    value.asLong()
+            );
         } else {
             response = GemResponseWriter.buildGetResponse(
                     frame.getTransactionId(),

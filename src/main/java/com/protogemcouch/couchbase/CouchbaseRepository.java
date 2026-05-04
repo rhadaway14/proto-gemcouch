@@ -33,6 +33,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_STRING = "string";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_BOOLEAN = "boolean";
+    private static final String TYPE_LONG = "long";
 
     private final ServerConfig config;
 
@@ -330,6 +331,12 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.LONG) {
+            body.put(FIELD_TYPE, TYPE_LONG);
+            body.put(FIELD_VALUE, value.asLong());
+            return body;
+        }
+
         body.put(FIELD_TYPE, TYPE_STRING);
         body.put(FIELD_VALUE, value.value());
         return body;
@@ -372,6 +379,22 @@ public class CouchbaseRepository implements Repository {
             if (rawValue instanceof String text) {
                 try {
                     return StoredValue.integerValue(Integer.valueOf(text));
+                } catch (NumberFormatException e) {
+                    return StoredValue.stringValue(text);
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_LONG.equalsIgnoreCase(type)) {
+            if (rawValue instanceof Number number) {
+                return StoredValue.longValue(number.longValue());
+            }
+
+            if (rawValue instanceof String text) {
+                try {
+                    return StoredValue.longValue(Long.valueOf(text));
                 } catch (NumberFormatException e) {
                     return StoredValue.stringValue(text);
                 }

@@ -22,6 +22,15 @@ public final class ValueDecoding {
      */
     private static final int GEODE_INTEGER_CODE = 0x39;
 
+    /*
+     * Geode DataSerializer long marker observed from LongShapeTest:
+     *
+     *   Long.valueOf(7L)           -> 3a 00 00 00 00 00 00 00 07
+     *   Long.valueOf(-7L)          -> 3a ff ff ff ff ff ff ff f9
+     *   Long.valueOf(9876543210L)  -> 3a 00 00 00 02 4c b0 16 ea
+     */
+    private static final int GEODE_LONG_CODE = 0x3a;
+
     private ValueDecoding() {
     }
 
@@ -60,6 +69,25 @@ public final class ValueDecoding {
                 | ((payload[2] & 0xff) << 16)
                 | ((payload[3] & 0xff) << 8)
                 | (payload[4] & 0xff);
+    }
+
+    public static Long decodeLongValue(byte[] payload) {
+        if (payload == null || payload.length != 9) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_LONG_CODE) {
+            return null;
+        }
+
+        return ((long) (payload[1] & 0xff) << 56)
+                | ((long) (payload[2] & 0xff) << 48)
+                | ((long) (payload[3] & 0xff) << 40)
+                | ((long) (payload[4] & 0xff) << 32)
+                | ((long) (payload[5] & 0xff) << 24)
+                | ((long) (payload[6] & 0xff) << 16)
+                | ((long) (payload[7] & 0xff) << 8)
+                | ((long) (payload[8] & 0xff));
     }
 
     public static String decodeStringLikeValue(byte[] payload) {
@@ -124,6 +152,10 @@ public final class ValueDecoding {
         }
 
         if (decodeIntegerValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeLongValue(payload) != null) {
             return null;
         }
 

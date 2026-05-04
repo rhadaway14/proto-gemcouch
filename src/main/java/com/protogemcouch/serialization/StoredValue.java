@@ -6,25 +6,31 @@ public record StoredValue(
         Type type,
         String value,
         Integer integerValue,
-        Boolean booleanValue
+        Boolean booleanValue,
+        Long longValue
 ) {
 
     public enum Type {
         STRING,
         INTEGER,
-        BOOLEAN
+        BOOLEAN,
+        LONG
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, value, null);
+        return new StoredValue(Type.INTEGER, null, value, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, value);
+        return new StoredValue(Type.BOOLEAN, null, null, value, null);
+    }
+
+    public static StoredValue longValue(Long value) {
+        return new StoredValue(Type.LONG, null, null, null, value);
     }
 
     public StoredValue {
@@ -40,6 +46,10 @@ public record StoredValue(
 
         if (type == Type.BOOLEAN && booleanValue == null) {
             throw new IllegalArgumentException("BOOLEAN StoredValue requires booleanValue");
+        }
+
+        if (type == Type.LONG && longValue == null) {
+            throw new IllegalArgumentException("LONG StoredValue requires longValue");
         }
     }
 
@@ -57,5 +67,13 @@ public record StoredValue(
         }
 
         return booleanValue;
+    }
+
+    public Long asLong() {
+        if (type != Type.LONG) {
+            throw new IllegalStateException("StoredValue is not LONG. Actual type: " + type);
+        }
+
+        return longValue;
     }
 }

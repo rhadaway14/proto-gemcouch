@@ -58,6 +58,15 @@ public final class GemResponseWriter {
     private static final byte GEODE_INTEGER_CODE = 0x39;
 
     /*
+     * Geode DataSerializer long marker observed from LongShapeTest:
+     *
+     *   Long.valueOf(7L)           -> 3a 00 00 00 00 00 00 00 07
+     *   Long.valueOf(-7L)          -> 3a ff ff ff ff ff ff ff f9
+     *   Long.valueOf(9876543210L)  -> 3a 00 00 00 02 4c b0 16 ea
+     */
+    private static final byte GEODE_LONG_CODE = 0x3a;
+
+    /*
      * Geode DataSerializer List marker observed from ListShapeTest:
      *
      *   List.of("key-1", "key-2", "key-3")
@@ -115,6 +124,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedBoolean(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildLongGetResponse(int txId, long value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedLong(value), (byte) 1))
         );
     }
 
@@ -294,6 +311,10 @@ public final class GemResponseWriter {
             return StoredValue.integerValue(integer);
         }
 
+        if (rawValue instanceof Long longValue) {
+            return StoredValue.longValue(longValue);
+        }
+
         return StoredValue.stringValue(String.valueOf(rawValue));
     }
 
@@ -304,6 +325,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.INTEGER) {
             return geodeSerializedInteger(value.asInteger());
+        }
+
+        if (value.type() == StoredValue.Type.LONG) {
+            return geodeSerializedLong(value.asLong());
         }
 
         return ValueEncoding.encodeGeodeStringValue(value.value());
@@ -355,6 +380,21 @@ public final class GemResponseWriter {
         try {
             buf.writeByte(GEODE_INTEGER_CODE);
             buf.writeInt(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedLong(long value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_LONG_CODE);
+            buf.writeLong(value);
 
             byte[] bytes = new byte[buf.readableBytes()];
             buf.getBytes(0, bytes);
