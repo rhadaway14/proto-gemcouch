@@ -67,6 +67,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_LONG_CODE = 0x3a;
 
     /*
+     * Geode DataSerializer double marker observed from DoubleShapeTest:
+     *
+     *   Double.valueOf(7.25d)        -> 3c 40 1d 00 00 00 00 00 00
+     *   Double.valueOf(-7.25d)       -> 3c c0 1d 00 00 00 00 00 00
+     *   Double.valueOf(9876543.210d) -> 3c 41 62 d6 87 e6 b8 51 ec
+     *   Double.valueOf(0.0d)         -> 3c 00 00 00 00 00 00 00 00
+     */
+    private static final byte GEODE_DOUBLE_CODE = 0x3c;
+
+    /*
      * Geode DataSerializer List marker observed from ListShapeTest:
      *
      *   List.of("key-1", "key-2", "key-3")
@@ -132,6 +142,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedLong(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildDoubleGetResponse(int txId, double value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedDouble(value), (byte) 1))
         );
     }
 
@@ -315,6 +333,10 @@ public final class GemResponseWriter {
             return StoredValue.longValue(longValue);
         }
 
+        if (rawValue instanceof Double doubleValue) {
+            return StoredValue.doubleValue(doubleValue);
+        }
+
         return StoredValue.stringValue(String.valueOf(rawValue));
     }
 
@@ -329,6 +351,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.LONG) {
             return geodeSerializedLong(value.asLong());
+        }
+
+        if (value.type() == StoredValue.Type.DOUBLE) {
+            return geodeSerializedDouble(value.asDouble());
         }
 
         return ValueEncoding.encodeGeodeStringValue(value.value());
@@ -395,6 +421,21 @@ public final class GemResponseWriter {
         try {
             buf.writeByte(GEODE_LONG_CODE);
             buf.writeLong(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedDouble(double value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_DOUBLE_CODE);
+            buf.writeLong(Double.doubleToRawLongBits(value));
 
             byte[] bytes = new byte[buf.readableBytes()];
             buf.getBytes(0, bytes);

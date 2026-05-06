@@ -62,6 +62,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asLong()
             );
+        } else if (value.type() == StoredValue.Type.DOUBLE) {
+            response = GemResponseWriter.buildDoubleGetResponse(
+                    frame.getTransactionId(),
+                    value.asDouble()
+            );
         } else {
             response = GemResponseWriter.buildGetResponse(
                     frame.getTransactionId(),

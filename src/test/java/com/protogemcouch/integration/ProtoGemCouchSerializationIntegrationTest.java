@@ -170,6 +170,31 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void doubleValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-double-value-" + suffix;
+
+        Double expected = 7.25d;
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Double.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DOUBLE round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void putAllWithIntegerValuesShouldPersistAllEntriesAndBeReadableByGet() {
         String suffix = UUID.randomUUID().toString();
 
@@ -275,6 +300,44 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after LONG PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithDoubleValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-double-1-" + suffix;
+        String key2 = "it-putall-double-2-" + suffix;
+        String key3 = "it-putall-double-3-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, Double.valueOf(7.25d));
+        entries.put(key2, Double.valueOf(-7.25d));
+        entries.put(key3, Double.valueOf(9_876_543.210d));
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(Double.class, actual1);
+            assertInstanceOf(Double.class, actual2);
+            assertInstanceOf(Double.class, actual3);
+
+            assertEquals(Double.valueOf(7.25d), actual1);
+            assertEquals(Double.valueOf(-7.25d), actual2);
+            assertEquals(Double.valueOf(9_876_543.210d), actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DOUBLE PUT_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -401,6 +464,48 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after LONG GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithDoubleValuesShouldReturnDoubles() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-double-1-" + suffix;
+        String key2 = "it-getall-double-2-" + suffix;
+        String key3 = "it-getall-double-3-" + suffix;
+
+        try {
+            region.put(key1, Double.valueOf(7.25d));
+            region.put(key2, Double.valueOf(-7.25d));
+            region.put(key3, Double.valueOf(9_876_543.210d));
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(Double.class, actual1);
+            assertInstanceOf(Double.class, actual2);
+            assertInstanceOf(Double.class, actual3);
+
+            assertEquals(Double.valueOf(7.25d), actual1);
+            assertEquals(Double.valueOf(-7.25d), actual2);
+            assertEquals(Double.valueOf(9_876_543.210d), actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DOUBLE GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -566,6 +671,81 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after MIXED STRING/INTEGER/BOOLEAN/LONG PUT_ALL/GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void mixedStringIntegerBooleanLongAndDoublePutAllAndGetAllShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey = "it-mixed5-string-" + suffix;
+        String integerKey = "it-mixed5-integer-" + suffix;
+        String booleanTrueKey = "it-mixed5-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed5-bool-false-" + suffix;
+        String longPositiveKey = "it-mixed5-long-positive-" + suffix;
+        String longNegativeKey = "it-mixed5-long-negative-" + suffix;
+        String doublePositiveKey = "it-mixed5-double-positive-" + suffix;
+        String doubleNegativeKey = "it-mixed5-double-negative-" + suffix;
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(stringKey, "string-value-" + suffix);
+        entries.put(integerKey, Integer.valueOf(5005));
+        entries.put(booleanTrueKey, Boolean.TRUE);
+        entries.put(booleanFalseKey, Boolean.FALSE);
+        entries.put(longPositiveKey, Long.valueOf(9_876_543_210L));
+        entries.put(longNegativeKey, Long.valueOf(-9_876_543_210L));
+        entries.put(doublePositiveKey, Double.valueOf(7.25d));
+        entries.put(doubleNegativeKey, Double.valueOf(-7.25d));
+
+        try {
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(stringKey);
+            keys.add(integerKey);
+            keys.add(booleanTrueKey);
+            keys.add(booleanFalseKey);
+            keys.add(longPositiveKey);
+            keys.add(longNegativeKey);
+            keys.add(doublePositiveKey);
+            keys.add(doubleNegativeKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object stringActual = results.get(stringKey);
+            Object integerActual = results.get(integerKey);
+            Object booleanTrueActual = results.get(booleanTrueKey);
+            Object booleanFalseActual = results.get(booleanFalseKey);
+            Object longPositiveActual = results.get(longPositiveKey);
+            Object longNegativeActual = results.get(longNegativeKey);
+            Object doublePositiveActual = results.get(doublePositiveKey);
+            Object doubleNegativeActual = results.get(doubleNegativeKey);
+
+            assertInstanceOf(String.class, stringActual);
+            assertInstanceOf(Integer.class, integerActual);
+            assertInstanceOf(Boolean.class, booleanTrueActual);
+            assertInstanceOf(Boolean.class, booleanFalseActual);
+            assertInstanceOf(Long.class, longPositiveActual);
+            assertInstanceOf(Long.class, longNegativeActual);
+            assertInstanceOf(Double.class, doublePositiveActual);
+            assertInstanceOf(Double.class, doubleNegativeActual);
+
+            assertEquals("string-value-" + suffix, stringActual);
+            assertEquals(Integer.valueOf(5005), integerActual);
+            assertEquals(Boolean.TRUE, booleanTrueActual);
+            assertEquals(Boolean.FALSE, booleanFalseActual);
+            assertEquals(Long.valueOf(9_876_543_210L), longPositiveActual);
+            assertEquals(Long.valueOf(-9_876_543_210L), longNegativeActual);
+            assertEquals(Double.valueOf(7.25d), doublePositiveActual);
+            assertEquals(Double.valueOf(-7.25d), doubleNegativeActual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after MIXED STRING/INTEGER/BOOLEAN/LONG/DOUBLE PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();

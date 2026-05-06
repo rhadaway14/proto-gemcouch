@@ -31,6 +31,16 @@ public final class ValueDecoding {
      */
     private static final int GEODE_LONG_CODE = 0x3a;
 
+    /*
+     * Geode DataSerializer double marker observed from DoubleShapeTest:
+     *
+     *   Double.valueOf(7.25d)        -> 3c 40 1d 00 00 00 00 00 00
+     *   Double.valueOf(-7.25d)       -> 3c c0 1d 00 00 00 00 00 00
+     *   Double.valueOf(9876543.210d) -> 3c 41 62 d6 87 e6 b8 51 ec
+     *   Double.valueOf(0.0d)         -> 3c 00 00 00 00 00 00 00 00
+     */
+    private static final int GEODE_DOUBLE_CODE = 0x3c;
+
     private ValueDecoding() {
     }
 
@@ -88,6 +98,27 @@ public final class ValueDecoding {
                 | ((long) (payload[6] & 0xff) << 16)
                 | ((long) (payload[7] & 0xff) << 8)
                 | ((long) (payload[8] & 0xff));
+    }
+
+    public static Double decodeDoubleValue(byte[] payload) {
+        if (payload == null || payload.length != 9) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_DOUBLE_CODE) {
+            return null;
+        }
+
+        long bits = ((long) (payload[1] & 0xff) << 56)
+                | ((long) (payload[2] & 0xff) << 48)
+                | ((long) (payload[3] & 0xff) << 40)
+                | ((long) (payload[4] & 0xff) << 32)
+                | ((long) (payload[5] & 0xff) << 24)
+                | ((long) (payload[6] & 0xff) << 16)
+                | ((long) (payload[7] & 0xff) << 8)
+                | ((long) (payload[8] & 0xff));
+
+        return Double.longBitsToDouble(bits);
     }
 
     public static String decodeStringLikeValue(byte[] payload) {
@@ -156,6 +187,10 @@ public final class ValueDecoding {
         }
 
         if (decodeLongValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeDoubleValue(payload) != null) {
             return null;
         }
 
