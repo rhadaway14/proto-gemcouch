@@ -57,6 +57,144 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_integer_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("integer-key-1", geodeInteger(12345)),
+                entry("integer-key-2", geodeInteger(-12345))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key-1"),
+                eq(StoredValue.integerValue(12345))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key-2"),
+                eq(StoredValue.integerValue(-12345))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_boolean_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("boolean-key-true", geodeBoolean(true)),
+                entry("boolean-key-false", geodeBoolean(false))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::boolean-key-true"),
+                eq(StoredValue.booleanValue(Boolean.TRUE))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::boolean-key-false"),
+                eq(StoredValue.booleanValue(Boolean.FALSE))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_long_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("long-key-1", geodeLong(9_876_543_210L)),
+                entry("long-key-2", geodeLong(-9_876_543_210L))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::long-key-1"),
+                eq(StoredValue.longValue(9_876_543_210L))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::long-key-2"),
+                eq(StoredValue.longValue(-9_876_543_210L))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_double_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("double-key-1", geodeDouble(7.25d)),
+                entry("double-key-2", geodeDouble(-7.25d))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::double-key-1"),
+                eq(StoredValue.doubleValue(7.25d))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::double-key-2"),
+                eq(StoredValue.doubleValue(-7.25d))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_mixed_primitive_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                5,
+                entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
+                entry("integer-key", geodeInteger(12345)),
+                entry("boolean-key", geodeBoolean(true)),
+                entry("long-key", geodeLong(9_876_543_210L)),
+                entry("double-key", geodeDouble(7.25d))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-key"),
+                eq(StoredValue.stringValue("value-1"))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key"),
+                eq(StoredValue.integerValue(12345))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::boolean-key"),
+                eq(StoredValue.booleanValue(Boolean.TRUE))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::long-key"),
+                eq(StoredValue.longValue(9_876_543_210L))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::double-key"),
+                eq(StoredValue.doubleValue(7.25d))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_frame_too_small_writes_response_and_does_not_store() {
         GemFrame frame = frame(
                 part("/helloWorld"),
@@ -181,6 +319,53 @@ class PutAllHandlerTest {
         System.arraycopy(text, 0, out, 1, text.length);
 
         return out;
+    }
+
+    private static byte[] geodeBoolean(boolean value) {
+        return new byte[] {
+                0x35,
+                (byte) (value ? 0x01 : 0x00)
+        };
+    }
+
+    private static byte[] geodeInteger(int value) {
+        return new byte[] {
+                0x39,
+                (byte) ((value >>> 24) & 0xff),
+                (byte) ((value >>> 16) & 0xff),
+                (byte) ((value >>> 8) & 0xff),
+                (byte) (value & 0xff)
+        };
+    }
+
+    private static byte[] geodeLong(long value) {
+        return new byte[] {
+                0x3a,
+                (byte) ((value >>> 56) & 0xff),
+                (byte) ((value >>> 48) & 0xff),
+                (byte) ((value >>> 40) & 0xff),
+                (byte) ((value >>> 32) & 0xff),
+                (byte) ((value >>> 24) & 0xff),
+                (byte) ((value >>> 16) & 0xff),
+                (byte) ((value >>> 8) & 0xff),
+                (byte) (value & 0xff)
+        };
+    }
+
+    private static byte[] geodeDouble(double value) {
+        long bits = Double.doubleToRawLongBits(value);
+
+        return new byte[] {
+                0x3c,
+                (byte) ((bits >>> 56) & 0xff),
+                (byte) ((bits >>> 48) & 0xff),
+                (byte) ((bits >>> 40) & 0xff),
+                (byte) ((bits >>> 32) & 0xff),
+                (byte) ((bits >>> 24) & 0xff),
+                (byte) ((bits >>> 16) & 0xff),
+                (byte) ((bits >>> 8) & 0xff),
+                (byte) (bits & 0xff)
+        };
     }
 
     private static GemFrame frame(GemPart... parts) {

@@ -46,6 +46,132 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_integer_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-int-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x39,
+                        0x00, 0x00, 0x30, 0x39
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-int-key"),
+                eq(StoredValue.integerValue(12345))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_boolean_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-bool-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x35,
+                        0x01
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-bool-key"),
+                eq(StoredValue.booleanValue(Boolean.TRUE))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_long_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-long-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x3a,
+                        0x00, 0x00, 0x00, 0x02,
+                        0x4c, (byte) 0xb0, 0x16, (byte) 0xea
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-long-key"),
+                eq(StoredValue.longValue(9_876_543_210L))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_double_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-double-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x3c,
+                        0x40, 0x1d, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-double-key"),
+                eq(StoredValue.doubleValue(7.25d))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_missing_region_does_not_store_but_still_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

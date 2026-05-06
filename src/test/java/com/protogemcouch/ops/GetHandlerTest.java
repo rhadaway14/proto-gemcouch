@@ -65,7 +65,7 @@ class GetHandlerTest {
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
         when(repository.get("/helloWorld::my-bool-key"))
-                .thenReturn(StoredValue.booleanValue(true));
+                .thenReturn(StoredValue.booleanValue(Boolean.TRUE));
 
         when(ctx.writeAndFlush(any())).thenReturn(null);
 
@@ -79,6 +79,52 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-bool-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_long_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-long-key"))
+                .thenReturn(StoredValue.longValue(9_876_543_210L));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-long-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-long-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_double_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-double-key"))
+                .thenReturn(StoredValue.doubleValue(7.25d));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-double-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-double-key");
         verify(ctx).writeAndFlush(any());
     }
 
