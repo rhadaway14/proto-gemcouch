@@ -106,6 +106,29 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_float_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-float-key"))
+                .thenReturn(StoredValue.floatValue(7.25f));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-float-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-float-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_double_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

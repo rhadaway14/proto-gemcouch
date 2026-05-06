@@ -155,6 +155,7 @@ public class PutAllHandler implements OperationHandler {
          *   Boolean.TRUE -> 35 01
          *   Integer 101  -> 39 00 00 00 65
          *   Long 101L    -> 3a 00 00 00 00 00 00 00 65
+         *   Float 7.25f  -> 3b 40 e8 00 00
          *   Double 7.25d -> 3c 40 1d 00 00 00 00 00 00
          *
          * can be incorrectly decoded as text.
@@ -196,6 +197,19 @@ public class PutAllHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.longValue(longValue);
+        }
+
+        Float floatValue = ValueDecoding.decodeFloatValue(valuePayload);
+
+        if (floatValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-float",
+                    "key", key,
+                    "valueType", "FLOAT",
+                    "txId", txId
+            ));
+            return StoredValue.floatValue(floatValue);
         }
 
         Double doubleValue = ValueDecoding.decodeDoubleValue(valuePayload);
@@ -258,6 +272,17 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.longValue(longObject);
+            }
+
+            if (rawValue instanceof Float floatObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "FLOAT",
+                        "txId", txId
+                ));
+                return StoredValue.floatValue(floatObject);
             }
 
             if (rawValue instanceof Double doubleObject) {

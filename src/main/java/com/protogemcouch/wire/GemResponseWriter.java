@@ -67,6 +67,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_LONG_CODE = 0x3a;
 
     /*
+     * Geode DataSerializer float marker observed from FloatShapeTest:
+     *
+     *   Float.valueOf(7.25f)      -> 3b 40 e8 00 00
+     *   Float.valueOf(-7.25f)     -> 3b c0 e8 00 00
+     *   Float.valueOf(987654.25f) -> 3b 49 71 20 64
+     *   Float.valueOf(0.0f)       -> 3b 00 00 00 00
+     */
+    private static final byte GEODE_FLOAT_CODE = 0x3b;
+
+    /*
      * Geode DataSerializer double marker observed from DoubleShapeTest:
      *
      *   Double.valueOf(7.25d)        -> 3c 40 1d 00 00 00 00 00 00
@@ -142,6 +152,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedLong(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildFloatGetResponse(int txId, float value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedFloat(value), (byte) 1))
         );
     }
 
@@ -333,6 +351,10 @@ public final class GemResponseWriter {
             return StoredValue.longValue(longValue);
         }
 
+        if (rawValue instanceof Float floatValue) {
+            return StoredValue.floatValue(floatValue);
+        }
+
         if (rawValue instanceof Double doubleValue) {
             return StoredValue.doubleValue(doubleValue);
         }
@@ -351,6 +373,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.LONG) {
             return geodeSerializedLong(value.asLong());
+        }
+
+        if (value.type() == StoredValue.Type.FLOAT) {
+            return geodeSerializedFloat(value.asFloat());
         }
 
         if (value.type() == StoredValue.Type.DOUBLE) {
@@ -421,6 +447,21 @@ public final class GemResponseWriter {
         try {
             buf.writeByte(GEODE_LONG_CODE);
             buf.writeLong(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedFloat(float value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_FLOAT_CODE);
+            buf.writeInt(Float.floatToRawIntBits(value));
 
             byte[] bytes = new byte[buf.readableBytes()];
             buf.getBytes(0, bytes);

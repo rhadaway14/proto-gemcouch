@@ -129,6 +129,30 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_float_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("float-key-1", geodeFloat(7.25f)),
+                entry("float-key-2", geodeFloat(-7.25f))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::float-key-1"),
+                eq(StoredValue.floatValue(7.25f))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::float-key-2"),
+                eq(StoredValue.floatValue(-7.25f))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_double_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -156,11 +180,12 @@ class PutAllHandlerTest {
     void handle_parses_mixed_primitive_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                5,
+                6,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("integer-key", geodeInteger(12345)),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("long-key", geodeLong(9_876_543_210L)),
+                entry("float-key", geodeFloat(7.25f)),
                 entry("double-key", geodeDouble(7.25d))
         );
 
@@ -184,6 +209,11 @@ class PutAllHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::long-key"),
                 eq(StoredValue.longValue(9_876_543_210L))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::float-key"),
+                eq(StoredValue.floatValue(7.25f))
         );
 
         verify(repository).put(
@@ -349,6 +379,18 @@ class PutAllHandlerTest {
                 (byte) ((value >>> 16) & 0xff),
                 (byte) ((value >>> 8) & 0xff),
                 (byte) (value & 0xff)
+        };
+    }
+
+    private static byte[] geodeFloat(float value) {
+        int bits = Float.floatToRawIntBits(value);
+
+        return new byte[] {
+                0x3b,
+                (byte) ((bits >>> 24) & 0xff),
+                (byte) ((bits >>> 16) & 0xff),
+                (byte) ((bits >>> 8) & 0xff),
+                (byte) (bits & 0xff)
         };
     }
 

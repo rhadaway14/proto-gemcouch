@@ -130,6 +130,33 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_float_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("float-key-1", StoredValue.floatValue(7.25f));
+        repoResult.put("float-key-2", StoredValue.floatValue(-7.25f));
+
+        when(repository.getAll("/helloWorld", List.of("float-key-1", "float-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("float-key-1", "float-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("float-key-1", "float-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_double_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -166,6 +193,7 @@ class GetAllHandlerTest {
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
         repoResult.put("long-key", StoredValue.longValue(9_876_543_210L));
+        repoResult.put("float-key", StoredValue.floatValue(7.25f));
         repoResult.put("double-key", StoredValue.doubleValue(7.25d));
         repoResult.put("missing", null);
 
@@ -174,6 +202,7 @@ class GetAllHandlerTest {
                 "integer-key",
                 "boolean-key",
                 "long-key",
+                "float-key",
                 "double-key",
                 "missing"
         );

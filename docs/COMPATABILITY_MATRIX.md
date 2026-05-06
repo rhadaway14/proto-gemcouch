@@ -1,126 +1,109 @@
 # ProtoGemCouch Compatibility Matrix
 
-## Current Validation Status
+_Last updated: 2026-05-06_
 
-ProtoGemCouch currently supports a validated subset of Apache Geode client operations translated into Couchbase-backed behavior.
+This matrix tracks the current compatibility status of the ProtoGemCouch GemFire/Geode protocol shim. The shim accepts GemFire client operations, translates them into Couchbase-backed storage operations, and returns Geode-compatible responses.
 
-The latest full validation run completed successfully:
+## Summary
 
-```text
-Unit tests: 87 passing
-Integration tests: 16 passing
-Build result: BUILD SUCCESS
-```
-
-The typed value work has been validated end-to-end through:
-
-```text
-Apache Geode Java client
-ProtoGemCouch wire shim
-Couchbase-backed repository
-Docker Compose integration environment
-```
-
----
+| Area | Status | Notes |
+|---|---:|---|
+| Native Geode client connection | Supported | Java Geode client can connect to the shim by changing the server endpoint. |
+| Couchbase-backed persistence | Supported | Values are persisted as typed JSON documents in Couchbase. |
+| String round trip | Supported | `String` values are stored and returned as `String`. |
+| Integer round trip | Supported | `Integer` values use Geode marker `0x39`. |
+| Boolean round trip | Supported | `Boolean.TRUE` / `Boolean.FALSE` use Geode marker `0x35`. |
+| Long round trip | Supported | `Long` values use Geode marker `0x3a`. |
+| Float round trip | Supported | `Float` values use Geode marker `0x3b`. |
+| Double round trip | Supported | `Double` values use Geode marker `0x3c`. |
+| Mixed primitive typed values | Supported | Mixed `String`, `Integer`, `Boolean`, `Long`, `Float`, and `Double` values are supported in `putAll` and `getAll`. |
+| Missing values / null-like responses | Supported | Missing keys return null-compatible Geode responses. |
+| Custom Java object serialization | Not yet supported | Planned future work. |
+| Complex nested objects | Not yet supported | Planned after custom object serialization strategy is defined. |
 
 ## Operation Compatibility
 
-| Geode Operation | Current Status | Supported Value Types | Notes |
-|---|---|---|---|
-| `get` | Supported | `String`, `Integer`, `Boolean` | Returns typed values through Geode-compatible serialization. |
-| `put` | Supported | `String`, `Integer`, `Boolean` | Persists typed values using `StoredValue`. |
-| `remove` | Supported | N/A | Removes the mapped Couchbase document. |
-| `containsKey` | Supported | N/A | Uses document existence in Couchbase. |
-| `containsValueForKey` | Supported | N/A | Checks whether a stored `StoredValue` exists for the key. |
-| `putAll` | Supported | `String`, `Integer`, `Boolean`, mixed typed values | Bulk values preserve type. |
-| `getAll` | Supported | `String`, `Integer`, `Boolean`, mixed typed values | Uses a manually built `VersionedObjectList`-compatible response. |
-| `sizeOnServer` | Supported | N/A | Returns a Geode-serialized `Integer`. |
-| `keySetOnServer` | Supported | `String` keys | Returns a Geode-compatible list of keys. |
-| `GET_CLIENT_PARTITION_ATTRIBUTES` | Observed / no explicit response | N/A | The client sends this, but current behavior does not require a full implementation for tested operations. |
-| `CONTROL` | Observed / acknowledged | N/A | Control frames are received during client lifecycle. |
+| GemFire / Geode Operation | Current Status | Supported Value Types | Notes |
+|---|---:|---|---|
+| `put` | Supported | `String`, `Integer`, `Boolean`, `Long`, `Float`, `Double` | Decodes Geode/DataSerializer primitive payloads and stores typed values in Couchbase. |
+| `get` | Supported | `String`, `Integer`, `Boolean`, `Long`, `Float`, `Double`, missing/null | Reads typed Couchbase document and returns Geode-compatible serialized value. |
+| `putAll` | Supported | `String`, `Integer`, `Boolean`, `Long`, `Float`, `Double`, mixed values | Handles typed primitive batches and skips invalid/null-like payloads safely. |
+| `getAll` | Supported | `String`, `Integer`, `Boolean`, `Long`, `Float`, `Double`, mixed values, missing/null | Builds a manual `VersionedObjectList`-compatible payload. |
+| `remove` | Supported | N/A | Removes Couchbase document by translated region/key document ID. |
+| `containsKey` | Supported | N/A | Uses Couchbase existence check. |
+| `containsValueForKey` | Supported | N/A | Checks whether a stored typed value exists for the key. |
+| `size` | Supported | N/A | Counts documents for a region prefix. |
+| `keySetOnServer` | Supported | N/A | Returns keys by Couchbase document ID prefix. |
+| Unknown opcode handling | Supported | N/A | Logs unknown frame details and avoids crashing. |
+| Simple ack / ping-style response | Supported | N/A | Basic acknowledgement path is tested. |
 
----
+## Type Compatibility
 
-## Value Type Compatibility
+| Java Type | Geode Marker | Payload Shape | Decode Support | Encode Response Support | Couchbase Persistence | Unit Coverage | Integration Coverage |
+|---|---:|---|---:|---:|---:|---:|---:|
+| `String` | `0x57` | `57 <2-byte length> <UTF-8 bytes>` | Yes | Yes | `type=string` | Yes | Yes |
+| `Integer` | `0x39` | `39 <4-byte signed int>` | Yes | Yes | `type=integer` | Yes | Yes |
+| `Boolean` | `0x35` | `35 01` / `35 00` | Yes | Yes | `type=boolean` | Yes | Yes |
+| `Long` | `0x3a` | `3a <8-byte signed long>` | Yes | Yes | `type=long` | Yes | Yes |
+| `Float` | `0x3b` | `3b <4-byte IEEE-754 float>` | Yes | Yes | `type=float` | Yes | Yes |
+| `Double` | `0x3c` | `3c <8-byte IEEE-754 double>` | Yes | Yes | `type=double` | Yes | Yes |
+| Custom object | Varies | Geode/DataSerializable object payload | No | No | Not yet defined | No | No |
 
-| Value Type | `put` | `get` | `putAll` | `getAll` | Mixed Bulk |
-|---|---:|---:|---:|---:|---:|
-| `String` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Integer` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Boolean` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Long` | Not yet | Not yet | Not yet | Not yet | Not yet |
-| `Double` | Not yet | Not yet | Not yet | Not yet | Not yet |
-| Custom objects | Not yet | Not yet | Not yet | Not yet | Not yet |
+## Confirmed Primitive Wire Shapes
 
----
+### Boolean
 
-## Validated Typed Value Scenarios
-
-| Scenario | Status |
+| Value | Hex |
 |---|---|
-| `put` with `String` value | ✅ Supported |
-| `get` returning `String` value | ✅ Supported |
-| `put` with `Integer` value | ✅ Supported |
-| `get` returning `Integer` value | ✅ Supported |
-| overwriting an `Integer` with another `Integer` | ✅ Supported |
-| `put` with `Boolean` value | ✅ Supported |
-| `get` returning `Boolean` value | ✅ Supported |
-| `putAll` with all `Integer` values | ✅ Supported |
-| `getAll` returning all `Integer` values | ✅ Supported |
-| `putAll` with all `Boolean` values | ✅ Supported |
-| `getAll` returning all `Boolean` values | ✅ Supported |
-| `putAll` with mixed `String` and `Integer` values | ✅ Supported |
-| `getAll` returning mixed `String` and `Integer` values | ✅ Supported |
-| `putAll` with mixed `String`, `Integer`, and `Boolean` values | ✅ Supported |
-| `getAll` returning mixed `String`, `Integer`, and `Boolean` values | ✅ Supported |
-| mixed bulk operation preserving original Java value types | ✅ Supported |
+| `Boolean.TRUE` | `3501` |
+| `Boolean.FALSE` | `3500` |
 
----
+### Integer
 
-## Repository Value Model
+| Value | Hex |
+|---|---|
+| `Integer.valueOf(7)` | `3900000007` |
 
-Typed values are represented internally by `StoredValue`.
+### Long
 
-Current validated logical types:
+| Value | Hex |
+|---|---|
+| `Long.valueOf(7L)` | `3a0000000000000007` |
+| `Long.valueOf(-7L)` | `3afffffffffffffff9` |
+| `Long.valueOf(9876543210L)` | `3a000000024cb016ea` |
 
-```text
-StoredValue.Type.STRING
-StoredValue.Type.INTEGER
-StoredValue.Type.BOOLEAN
-```
+### Float
 
-The repository contract supports:
+| Value | Hex |
+|---|---|
+| `Float.valueOf(7.25f)` | `3b40e80000` |
+| `Float.valueOf(-7.25f)` | `3bc0e80000` |
+| `Float.valueOf(987654.25f)` | `3b49712064` |
+| `Float.valueOf(0.0f)` | `3b00000000` |
 
-```java
-StoredValue get(String docId);
+### Double
 
-Map<String, StoredValue> getAll(String region, List<String> keys);
+| Value | Hex |
+|---|---|
+| `Double.valueOf(7.25d)` | `3c401d000000000000` |
+| `Double.valueOf(-7.25d)` | `3cc01d000000000000` |
+| `Double.valueOf(9876543.210d)` | `3c4162d687e6b851ec` |
+| `Double.valueOf(0.0d)` | `3c0000000000000000` |
 
-void put(String docId, StoredValue value);
-```
+## Couchbase Persistence Format
 
----
+Values are persisted as typed JSON documents.
 
-## Couchbase Persistence Compatibility
-
-Typed values are persisted as JSON documents with a logical type field.
-
-| Java / Geode Value | Couchbase `type` | Couchbase `value` |
-|---|---|---|
-| `String` | `string` | JSON string |
-| `Integer` | `integer` | JSON number |
-| `Boolean` | `boolean` | JSON boolean |
-| `Long` | Not yet | Not yet |
-| `Double` | Not yet | Not yet |
-
-Example documents:
+### String
 
 ```json
 {
   "type": "string",
-  "value": "hello"
+  "value": "example"
 }
 ```
+
+### Integer
 
 ```json
 {
@@ -129,6 +112,8 @@ Example documents:
 }
 ```
 
+### Boolean
+
 ```json
 {
   "type": "boolean",
@@ -136,204 +121,70 @@ Example documents:
 }
 ```
 
----
+### Long
 
-## Wire Serialization Notes
-
-### `get`
-
-Single-key `get` responses return a Geode-compatible object part.
-
-Supported shapes:
-
-```text
-String:
-57 <2-byte UTF-8 length> <UTF-8 bytes>
-
-Integer:
-39 <4-byte integer>
-
-Boolean.TRUE:
-35 01
-
-Boolean.FALSE:
-35 00
+```json
+{
+  "type": "long",
+  "value": 9876543210
+}
 ```
 
-### `sizeOnServer`
+### Float
 
-`sizeOnServer` returns a Geode-serialized `Integer`, not a raw integer payload.
-
-Observed integer shape:
-
-```text
-39 00 00 00 07
+```json
+{
+  "type": "float",
+  "value": 7.25
+}
 ```
 
-### `keySetOnServer`
+### Double
 
-`keySetOnServer` returns a Geode-compatible list payload.
-
-Observed list shape:
-
-```text
-41 <count> <geode-string-key-1> <geode-string-key-2> ...
+```json
+{
+  "type": "double",
+  "value": 7.25
+}
 ```
 
-### `getAll`
+## Current Test Coverage
 
-`GET_ALL` requires special handling because the Geode Java client expects a `VersionedObjectList`-compatible object part.
+| Test Area | Coverage |
+|---|---|
+| Primitive shape tests | Boolean, Integer, Long, Float, Double |
+| Response writer tests | String, Integer, Boolean, Long, Float, Double, mixed `VersionedObjectList` payloads |
+| Handler unit tests | `GetHandler`, `GetAllHandler`, `PutHandler`, `PutAllHandler` include Float and Double coverage |
+| Repository tests | Repository factory and typed persistence paths compile and validate successfully |
+| Integration tests | CRUD and serialization integration tests validate typed round trips through the shim and Couchbase |
 
-ProtoGemCouch writes the compatible wire shape manually.
+## Latest Verified Test Result
 
-The validated `GET_ALL` payload shape starts with the full Geode serialized object header:
-
-```text
-01 07 03
-```
-
-followed by:
-
-```text
-<key-count>
-<keys>
-<object-count>
-<object markers and typed values>
-```
-
-Object markers used:
+Latest full verification result:
 
 ```text
-0x01 = present object
-0x03 = key not at server / absent
-```
+Unit tests:
+Tests run: 119, Failures: 0, Errors: 0, Skipped: 0
 
-Typed value payloads used inside `GET_ALL`:
+Integration tests:
+ProtoGemCouchCrudIntegrationTest: 7 passed
+ProtoGemCouchSerializationIntegrationTest: 20 passed
 
-```text
-String:
-57 <2-byte UTF-8 length> <UTF-8 bytes>
+Integration total:
+Tests run: 27, Failures: 0, Errors: 0, Skipped: 0
 
-Integer:
-39 <4-byte integer>
-
-Boolean.TRUE:
-35 01
-
-Boolean.FALSE:
-35 00
-
-Absent / missing:
-03 29
-```
-
----
-
-## Integration Tests Covering Compatibility
-
-Current typed serialization integration tests:
-
-```text
-integerValueShouldRoundTripThroughShimAndCouchbase
-integerValueShouldBeOverwrittenByAnotherIntegerValue
-booleanValueShouldRoundTripThroughShimAndCouchbase
-putAllWithIntegerValuesShouldPersistAllEntriesAndBeReadableByGet
-putAllWithBooleanValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithIntegerValuesShouldReturnIntegers
-getAllWithBooleanValuesShouldReturnBooleans
-mixedStringAndIntegerPutAllAndGetAllShouldPreserveTypes
-mixedStringIntegerAndBooleanPutAllAndGetAllShouldPreserveTypes
-```
-
-Focused wire-shape tests include:
-
-```text
-BooleanShapeTest
-IntegerShapeTest
-ListShapeTest
-KeySetShapeTest
-VersionedObjectListShapeTest
-MixedVersionedObjectListShapeTest
-```
-
----
-
-## Build/Test Coverage Snapshot
-
-### Unit Tests
-
-```text
-Tests run: 87
-Failures: 0
-Errors: 0
-Skipped: 0
-```
-
-### Integration Tests
-
-```text
-ProtoGemCouchCrudIntegrationTest: 7 passing
-ProtoGemCouchSerializationIntegrationTest: 9 passing
-
-Integration tests total: 16 passing
-Failures: 0
-Errors: 0
-Skipped: 0
-```
-
-### Build Result
-
-```text
 BUILD SUCCESS
 ```
 
----
+## Known Gaps / Next Compatibility Targets
 
-## Known Gaps / Future Work
-
-The next recommended compatibility work is to add more primitive value types:
-
-```text
-Long
-Double
-```
-
-Recommended future integration tests:
-
-```text
-longValueShouldRoundTripThroughShimAndCouchbase
-doubleValueShouldRoundTripThroughShimAndCouchbase
-putAllWithLongValuesShouldPersistTypedValues
-putAllWithDoubleValuesShouldPersistTypedValues
-getAllWithLongValuesShouldReturnLongs
-getAllWithDoubleValuesShouldReturnDoubles
-mixedPrimitivePutAllAndGetAllShouldPreserveTypes
-```
-
-Likely files to extend:
-
-```text
-StoredValue
-ValueDecoding
-ValueEncoding
-GemResponseWriter
-PutHandler
-PutAllHandler
-GetHandler
-CouchbaseRepository
-unit tests
-integration tests
-```
-
----
-
-## Current Recommendation
-
-The current Boolean bulk compatibility checkpoint is stable enough to commit.
-
-Suggested commit:
-
-```powershell
-git add .
-git commit -m "Extend boolean support to bulk operations"
-```
+| Target | Priority | Notes |
+|---|---:|---|
+| `Short` | High | Natural next primitive wrapper after Float/Double. |
+| `Byte` | High | Small primitive wrapper; likely easy to support once marker is confirmed. |
+| `Character` | Medium | Useful for completeness, but less common in cache values. |
+| `BigInteger` / `BigDecimal` | Medium | Useful for financial/business data; requires shape discovery. |
+| Custom Java serialized objects | High | Required for broader real-world GemFire migration compatibility. |
+| Geode PDX objects | High | Important for enterprise GemFire/Geode apps. |
+| Object arrays / collections | Medium | Needed for complex cache values. |
+| Null explicit values | Medium | Missing-key behavior is supported; explicit null value semantics need further validation. |

@@ -34,6 +34,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_BOOLEAN = "boolean";
     private static final String TYPE_LONG = "long";
+    private static final String TYPE_FLOAT = "float";
     private static final String TYPE_DOUBLE = "double";
 
     private final ServerConfig config;
@@ -338,6 +339,12 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.FLOAT) {
+            body.put(FIELD_TYPE, TYPE_FLOAT);
+            body.put(FIELD_VALUE, value.asFloat());
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.DOUBLE) {
             body.put(FIELD_TYPE, TYPE_DOUBLE);
             body.put(FIELD_VALUE, value.asDouble());
@@ -402,6 +409,22 @@ public class CouchbaseRepository implements Repository {
             if (rawValue instanceof String text) {
                 try {
                     return StoredValue.longValue(Long.valueOf(text));
+                } catch (NumberFormatException e) {
+                    return StoredValue.stringValue(text);
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_FLOAT.equalsIgnoreCase(type)) {
+            if (rawValue instanceof Number number) {
+                return StoredValue.floatValue(number.floatValue());
+            }
+
+            if (rawValue instanceof String text) {
+                try {
+                    return StoredValue.floatValue(Float.valueOf(text));
                 } catch (NumberFormatException e) {
                     return StoredValue.stringValue(text);
                 }

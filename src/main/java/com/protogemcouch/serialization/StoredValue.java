@@ -8,6 +8,7 @@ public record StoredValue(
         Integer integerValue,
         Boolean booleanValue,
         Long longValue,
+        Float floatValue,
         Double doubleValue
 ) {
 
@@ -16,27 +17,32 @@ public record StoredValue(
         INTEGER,
         BOOLEAN,
         LONG,
+        FLOAT,
         DOUBLE
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, value, null, null, null);
+        return new StoredValue(Type.INTEGER, null, value, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, value, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, value, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, value, null);
+        return new StoredValue(Type.LONG, null, null, null, value, null, null);
+    }
+
+    public static StoredValue floatValue(Float value) {
+        return new StoredValue(Type.FLOAT, null, null, null, null, value, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, value);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, value);
     }
 
     public StoredValue {
@@ -56,6 +62,10 @@ public record StoredValue(
 
         if (type == Type.LONG && longValue == null) {
             throw new IllegalArgumentException("LONG StoredValue requires longValue");
+        }
+
+        if (type == Type.FLOAT && floatValue == null) {
+            throw new IllegalArgumentException("FLOAT StoredValue requires floatValue");
         }
 
         if (type == Type.DOUBLE && doubleValue == null) {
@@ -85,6 +95,14 @@ public record StoredValue(
         }
 
         return longValue;
+    }
+
+    public Float asFloat() {
+        if (type != Type.FLOAT) {
+            throw new IllegalStateException("StoredValue is not FLOAT. Actual type: " + type);
+        }
+
+        return floatValue;
     }
 
     public Double asDouble() {

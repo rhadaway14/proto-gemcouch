@@ -140,6 +140,37 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_float_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-float-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x3b,
+                        0x40, (byte) 0xe8, 0x00, 0x00
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-float-key"),
+                eq(StoredValue.floatValue(7.25f))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_double_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

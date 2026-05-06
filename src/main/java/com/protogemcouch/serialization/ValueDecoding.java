@@ -32,6 +32,16 @@ public final class ValueDecoding {
     private static final int GEODE_LONG_CODE = 0x3a;
 
     /*
+     * Geode DataSerializer float marker observed from FloatShapeTest:
+     *
+     *   Float.valueOf(7.25f)      -> 3b 40 e8 00 00
+     *   Float.valueOf(-7.25f)     -> 3b c0 e8 00 00
+     *   Float.valueOf(987654.25f) -> 3b 49 71 20 64
+     *   Float.valueOf(0.0f)       -> 3b 00 00 00 00
+     */
+    private static final int GEODE_FLOAT_CODE = 0x3b;
+
+    /*
      * Geode DataSerializer double marker observed from DoubleShapeTest:
      *
      *   Double.valueOf(7.25d)        -> 3c 40 1d 00 00 00 00 00 00
@@ -98,6 +108,23 @@ public final class ValueDecoding {
                 | ((long) (payload[6] & 0xff) << 16)
                 | ((long) (payload[7] & 0xff) << 8)
                 | ((long) (payload[8] & 0xff));
+    }
+
+    public static Float decodeFloatValue(byte[] payload) {
+        if (payload == null || payload.length != 5) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_FLOAT_CODE) {
+            return null;
+        }
+
+        int bits = ((payload[1] & 0xff) << 24)
+                | ((payload[2] & 0xff) << 16)
+                | ((payload[3] & 0xff) << 8)
+                | (payload[4] & 0xff);
+
+        return Float.intBitsToFloat(bits);
     }
 
     public static Double decodeDoubleValue(byte[] payload) {
@@ -187,6 +214,10 @@ public final class ValueDecoding {
         }
 
         if (decodeLongValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeFloatValue(payload) != null) {
             return null;
         }
 
