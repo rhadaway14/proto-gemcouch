@@ -153,6 +153,7 @@ public class PutAllHandler implements OperationHandler {
          * Otherwise payloads such as:
          *
          *   Boolean.TRUE -> 35 01
+         *   Short 7      -> 38 00 07
          *   Integer 101  -> 39 00 00 00 65
          *   Long 101L    -> 3a 00 00 00 00 00 00 00 65
          *   Float 7.25f  -> 3b 40 e8 00 00
@@ -171,6 +172,19 @@ public class PutAllHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.booleanValue(booleanValue);
+        }
+
+        Short shortValue = ValueDecoding.decodeShortValue(valuePayload);
+
+        if (shortValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-short",
+                    "key", key,
+                    "valueType", "SHORT",
+                    "txId", txId
+            ));
+            return StoredValue.shortValue(shortValue);
         }
 
         Integer integerValue = ValueDecoding.decodeIntegerValue(valuePayload);
@@ -250,6 +264,17 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.booleanValue(bool);
+            }
+
+            if (rawValue instanceof Short shortObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "SHORT",
+                        "txId", txId
+                ));
+                return StoredValue.shortValue(shortObject);
             }
 
             if (rawValue instanceof Integer integer) {

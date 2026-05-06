@@ -1,176 +1,224 @@
 # ProtoGemCouch Demo Results
 
-_Last updated: 2026-05-06_
+## Current Build Verification
 
-This document summarizes the current verified demo and test results for ProtoGemCouch.
-
-ProtoGemCouch is a Java-based GemFire/Geode protocol shim that allows a Java Geode client application to connect to the shim instead of a GemFire server. The shim translates supported operations into Couchbase-backed storage operations while returning Geode-compatible responses to the client.
-
-## Current Status
-
-The current implementation successfully supports typed primitive value round trips through the shim and Couchbase for:
-
-- `String`
-- `Integer`
-- `Boolean`
-- `Long`
-- `Float`
-- `Double`
-
-The implementation also supports mixed typed values in `putAll` and `getAll`.
-
-## Latest Verified Command
-
-The latest full verification was run with:
-
-```powershell
-mvn clean verify
-```
-
-## Latest Verified Result
+The project successfully completed a full clean verification after adding Short support.
 
 ```text
-Unit tests:
-Tests run: 119, Failures: 0, Errors: 0, Skipped: 0
-
-Integration tests:
-ProtoGemCouchCrudIntegrationTest: 7 passed
-ProtoGemCouchSerializationIntegrationTest: 20 passed
-
-Integration total:
-Tests run: 27, Failures: 0, Errors: 0, Skipped: 0
-
+mvn clean verify
+Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-## Validated End-to-End Scenarios
+## Summary
 
-| Scenario | Status | Notes |
-|---|---:|---|
-| Java Geode client connects to shim | Passed | Client connects through Geode client APIs. |
-| Shim health/readiness path | Passed | Integration tests wait for `/ready` before creating the Geode client. |
-| Couchbase container initialization | Passed | Docker Compose starts Couchbase and initializes test bucket/scope/collection. |
-| Shim container startup | Passed | Shim starts and accepts client traffic. |
-| `String` `put/get` | Passed | Value round trips as `String`. |
-| `Integer` `put/get` | Passed | Value round trips as `Integer`. |
-| `Boolean` `put/get` | Passed | Value round trips as `Boolean`. |
-| `Long` `put/get` | Passed | Value round trips as `Long`. |
-| `Float` `put/get` | Passed | Value round trips as `Float`. |
-| `Double` `put/get` | Passed | Value round trips as `Double`. |
-| `Integer` overwrite | Passed | Existing typed integer value can be overwritten by another integer. |
-| `putAll` with `Integer` values | Passed | All entries persist and are readable by `get`. |
-| `putAll` with `Boolean` values | Passed | `true` and `false` entries persist and are readable by `get`. |
-| `putAll` with `Long` values | Passed | Positive and negative long values persist and are readable by `get`. |
-| `putAll` with `Float` values | Passed | Positive, negative, and large float values persist and are readable by `get`. |
-| `putAll` with `Double` values | Passed | Positive, negative, and large double values persist and are readable by `get`. |
-| `getAll` with `Integer` values | Passed | Values return as `Integer`. |
-| `getAll` with `Boolean` values | Passed | Values return as `Boolean`. |
-| `getAll` with `Long` values | Passed | Values return as `Long`. |
-| `getAll` with `Float` values | Passed | Values return as `Float`. |
-| `getAll` with `Double` values | Passed | Values return as `Double`. |
-| Mixed `String` + `Integer` `putAll/getAll` | Passed | Types are preserved. |
-| Mixed `String` + `Integer` + `Boolean` `putAll/getAll` | Passed | Types are preserved. |
-| Mixed `String` + `Integer` + `Boolean` + `Long` `putAll/getAll` | Passed | Types are preserved. |
-| Mixed `String` + `Integer` + `Boolean` + `Long` + `Float` + `Double` `putAll/getAll` | Passed | Types are preserved. |
-| Missing key behavior | Passed | Missing keys return null-compatible responses. |
-| Remove behavior | Passed | Existing document can be removed. |
-| Contains behavior | Passed | `containsKey` and value-for-key paths are covered by unit tests. |
-| Size behavior | Passed | Region prefix count path is covered by unit tests. |
-| Key set behavior | Passed | Region key-set response path is covered by unit tests. |
+ProtoGemCouch now supports typed primitive round-tripping across the shim, including:
 
-## Confirmed Wire Shapes
+```text
+String
+Boolean
+Short
+Integer
+Long
+Float
+Double
+```
 
-The following Geode/DataSerializer primitive shapes have been captured and validated by shape tests.
+This includes:
+
+```text
+PUT
+GET
+PUT_ALL
+GET_ALL
+Couchbase persistence
+Geode-compatible response serialization
+Focused unit coverage
+Serialization integration coverage
+```
+
+## Newly Added Short Support
+
+Short support was added and verified across the full runtime path.
+
+### Geode Short Marker
+
+```text
+Short marker: 0x38
+```
+
+### Verified Short Shapes
+
+```text
+Short.valueOf((short) 7)  -> 380007
+Short.valueOf((short) -7) -> 38fff9
+Short.valueOf((short) 0)  -> 380000
+Short.MAX_VALUE           -> 387fff
+Short.MIN_VALUE           -> 388000
+```
+
+### Short Runtime Support
+
+| Component | Status |
+|---|---:|
+| `ShortShapeTest.java` | Complete |
+| `ValueDecoding.decodeShortValue(...)` | Complete |
+| `StoredValue.Type.SHORT` | Complete |
+| `StoredValue.shortValue(...)` | Complete |
+| `StoredValue.asShort()` | Complete |
+| `GemResponseWriter.buildShortGetResponse(...)` | Complete |
+| `GemResponseWriter` GET_ALL Short encoding | Complete |
+| `PutHandler` Short decode/store | Complete |
+| `PutAllHandler` Short decode/store | Complete |
+| `GetHandler` Short response path | Complete |
+| `CouchbaseRepository` Short persistence | Complete |
+| `ProtoGemCouchSerializationIntegrationTest` Short end-to-end coverage | Complete |
+| Focused handler tests | Complete |
+
+## Focused Handler Test Results
+
+Command:
+
+```powershell
+mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
+```
+
+Result:
+
+```text
+Tests run: 43, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Validated Short paths:
+
+```text
+GET:
+key=my-short-key
+docId=/helloWorld::my-short-key
+
+PUT:
+encoding=geode-short
+valueType=SHORT
+
+PUT_ALL:
+encoding=geode-short key=short-key valueType=SHORT
+encoding=geode-short key=short-key-1 valueType=SHORT
+encoding=geode-short key=short-key-2 valueType=SHORT
+
+GET_ALL:
+keys="[short-key-1, short-key-2]"
+keys="[string-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, missing]"
+```
+
+## Shape Test Results
+
+### ShortShapeTest
+
+Command:
+
+```powershell
+mvn test "-Dtest=ShortShapeTest"
+```
+
+Result:
+
+```text
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Captured output:
+
+```text
+SHORT_MAX_HEX_START
+387fff
+SHORT_MAX_HEX_END
+
+SHORT_ZERO_HEX_START
+380000
+SHORT_ZERO_HEX_END
+
+SHORT_HEX_START
+380007
+SHORT_HEX_END
+
+SHORT_MIN_HEX_START
+388000
+SHORT_MIN_HEX_END
+
+SHORT_NEGATIVE_HEX_START
+38fff9
+SHORT_NEGATIVE_HEX_END
+```
+
+### Primitive Shape Suite
+
+Command:
+
+```powershell
+mvn test "-Dtest=ShortShapeTest,FloatShapeTest,DoubleShapeTest,LongShapeTest"
+```
+
+Result:
+
+```text
+Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+## Serialization Integration Results
+
+The serialization integration suite now includes Short end-to-end coverage.
+
+Added scenarios:
+
+```text
+shortValueShouldRoundTripThroughShimAndCouchbase
+putAllWithShortValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithShortValuesShouldReturnShorts
+mixedStringShortIntegerBooleanLongFloatAndDoublePutAllAndGetAllShouldPreserveTypes
+```
+
+Expected integration behavior:
+
+```text
+Geode client PUT Short -> shim decodes Short -> Couchbase stores typed short document
+Geode client GET Short -> shim reads typed short document -> returns Geode Short payload
+Geode client PUT_ALL Short values -> shim decodes and stores all Short values
+Geode client GET_ALL Short values -> shim returns VersionedObjectList-compatible Short values
+```
+
+## Couchbase Document Examples
+
+### Short
+
+```json
+{
+  "type": "short",
+  "value": 7
+}
+```
 
 ### Boolean
 
-```text
-Boolean.TRUE  -> 3501
-Boolean.FALSE -> 3500
+```json
+{
+  "type": "boolean",
+  "value": true
+}
 ```
 
 ### Integer
 
-```text
-Integer.valueOf(7) -> 3900000007
+```json
+{
+  "type": "integer",
+  "value": 12345
+}
 ```
 
 ### Long
-
-```text
-Long.valueOf(7L)          -> 3a0000000000000007
-Long.valueOf(-7L)         -> 3afffffffffffffff9
-Long.valueOf(9876543210L) -> 3a000000024cb016ea
-```
-
-### Float
-
-```text
-Float.valueOf(7.25f)      -> 3b40e80000
-Float.valueOf(-7.25f)     -> 3bc0e80000
-Float.valueOf(987654.25f) -> 3b49712064
-Float.valueOf(0.0f)       -> 3b00000000
-```
-
-### Double
-
-```text
-Double.valueOf(7.25d)        -> 3c401d000000000000
-Double.valueOf(-7.25d)       -> 3cc01d000000000000
-Double.valueOf(9876543.210d) -> 3c4162d687e6b851ec
-Double.valueOf(0.0d)         -> 3c0000000000000000
-```
-
-## Unit Test Coverage Summary
-
-| Test Class | Status | Coverage |
-|---|---:|---|
-| `BooleanShapeTest` | Passed | Geode Boolean wire shape. |
-| `IntegerShapeTest` | Passed | Geode Integer wire shape. |
-| `LongShapeTest` | Passed | Geode Long wire shape. |
-| `FloatShapeTest` | Passed | Geode Float wire shape. |
-| `DoubleShapeTest` | Passed | Geode Double wire shape. |
-| `GemResponseWriterTest` | Passed | Response construction and primitive value encoding paths. |
-| `MixedVersionedObjectListShapeTest` | Passed | Mixed typed `VersionedObjectList`-compatible payload shape. |
-| `VersionedObjectListShapeTest` | Passed | Manual `VersionedObjectList`-compatible response shape. |
-| `GetHandlerTest` | Passed | String, Integer, Boolean, Long, Float, Double, missing values. |
-| `GetAllHandlerTest` | Passed | String, Integer, Boolean, Long, Float, Double, mixed values, missing/null, malformed keys. |
-| `PutHandlerTest` | Passed | String, Integer, Boolean, Long, Float, Double, invalid payloads, missing region/key. |
-| `PutAllHandlerTest` | Passed | String, Integer, Boolean, Long, Float, Double, mixed values, truncated entries, invalid payloads. |
-| `ContainsHandlerTest` | Passed | Contains-key and contains-value modes. |
-| `RemoveHandlerTest` | Passed | Remove response path. |
-| `SizeOnServerHandlerTest` | Passed | Region size response path. |
-| `KeySetOnServerHandlerTest` | Passed | Region key-set response path. |
-| `UnknownOpcodeHandlerTest` | Passed | Unknown frame handling. |
-| `ServerConfigTest` | Passed | Configuration defaults and env parsing. |
-| `StartupValidatorTest` | Passed | Startup validation behavior. |
-
-## Integration Test Coverage Summary
-
-| Integration Test | Status | Coverage |
-|---|---:|---|
-| `ProtoGemCouchCrudIntegrationTest` | Passed | Basic CRUD behavior through shim and Couchbase. |
-| `ProtoGemCouchSerializationIntegrationTest` | Passed | Typed primitive round trips and mixed typed batch operations. |
-
-## Couchbase Persistence Model
-
-Values are persisted into Couchbase with a type discriminator.
-
-Examples:
-
-```json
-{
-  "type": "float",
-  "value": 7.25
-}
-```
-
-```json
-{
-  "type": "double",
-  "value": 7.25
-}
-```
 
 ```json
 {
@@ -179,29 +227,104 @@ Examples:
 }
 ```
 
-This allows the shim to preserve Java type identity when reading values back from Couchbase and returning them to the Geode client.
+### Float
 
-## Notes from Latest Verification
+```json
+{
+  "type": "float",
+  "value": 7.25
+}
+```
 
-- The full unit suite passed with 119 tests.
-- The full integration suite passed with 27 tests.
-- Float is now covered across shape decoding, value decoding, response writing, `put`, `get`, `putAll`, `getAll`, Couchbase persistence, focused unit tests, and end-to-end integration tests.
-- Double remains covered across the same runtime paths.
-- Maven Shade emitted dependency overlap warnings, but they did not block the build and are not currently test failures.
-- Docker Compose successfully started the integration environment and cleaned it down after test completion.
+### Double
 
-## Recommended Next Steps
+```json
+{
+  "type": "double",
+  "value": 7.25
+}
+```
 
-1. Commit the Float and documentation work.
-2. Add `Short` support next:
-    - `ShortShapeTest`
-    - `ValueDecoding.decodeShortValue(...)`
-    - `StoredValue.Type.SHORT`
-    - `GemResponseWriter.buildShortGetResponse(...)`
-    - `PutHandler` / `PutAllHandler` decode paths
-    - `GetHandler` / `GetAllHandler` response paths
-    - `CouchbaseRepository` typed persistence
-    - Focused unit tests
-    - Integration tests
-3. Add `Byte` support after `Short`.
-4. Start designing custom Java object / PDX object compatibility.
+## Full Unit Verification
+
+Command:
+
+```powershell
+mvn clean verify
+```
+
+Result:
+
+```text
+Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Included passing test classes:
+
+```text
+ServerConfigTest
+StartupValidatorTest
+RepositoryFactoryTest
+ContainsHandlerTest
+GetHandlerTest
+GetAllHandlerTest
+PutHandlerTest
+PutAllHandlerTest
+RemoveHandlerTest
+SimpleAckHandlerTest
+SizeOnServerHandlerTest
+KeySetOnServerHandlerTest
+GeodeSerializationTest
+ByteUtilsTest
+DocumentKeyUtilTest
+BooleanShapeTest
+ShortShapeTest
+IntegerShapeTest
+LongShapeTest
+FloatShapeTest
+DoubleShapeTest
+GemResponseWriterTest
+GoldenWireResponseTest
+VersionedObjectListShapeTest
+MixedVersionedObjectListShapeTest
+```
+
+## Maven Shade Notes
+
+The build produced Maven Shade Plugin warnings for overlapping resources/classes and `module-info.class` entries. These are dependency packaging warnings from building the shaded jar and did not block the build.
+
+Result:
+
+```text
+BUILD SUCCESS
+```
+
+## Current Demo Narrative
+
+The current demo can now show a Java Geode client using the normal Geode client API while only changing the endpoint to point at ProtoGemCouch. The shim accepts the request, decodes Geode-compatible primitive values, persists them into Couchbase using typed JSON envelopes, and returns values back to the Geode client with Geode-compatible response serialization.
+
+Validated demo value types:
+
+```text
+String
+Boolean
+Short
+Integer
+Long
+Float
+Double
+```
+
+Validated demo request paths:
+
+```text
+put
+get
+putAll
+getAll
+remove
+contains
+size
+keySet
+```

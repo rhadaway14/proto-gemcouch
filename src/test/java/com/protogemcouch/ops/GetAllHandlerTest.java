@@ -103,6 +103,33 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_short_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("short-key-1", StoredValue.shortValue(Short.valueOf((short) 7)));
+        repoResult.put("short-key-2", StoredValue.shortValue(Short.valueOf((short) -7)));
+
+        when(repository.getAll("/helloWorld", List.of("short-key-1", "short-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("short-key-1", "short-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("short-key-1", "short-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_long_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -190,6 +217,7 @@ class GetAllHandlerTest {
 
         Map<String, StoredValue> repoResult = new LinkedHashMap<>();
         repoResult.put("string-key", StoredValue.stringValue("value-1"));
+        repoResult.put("short-key", StoredValue.shortValue(Short.valueOf((short) 7)));
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
         repoResult.put("long-key", StoredValue.longValue(9_876_543_210L));
@@ -199,6 +227,7 @@ class GetAllHandlerTest {
 
         List<String> keys = List.of(
                 "string-key",
+                "short-key",
                 "integer-key",
                 "boolean-key",
                 "long-key",

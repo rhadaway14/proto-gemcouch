@@ -46,37 +46,6 @@ class PutHandlerTest {
     }
 
     @Test
-    void handle_parses_integer_put_and_stores_value() {
-        Repository repository = mock(Repository.class);
-        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
-
-        when(ctx.writeAndFlush(any())).thenReturn(null);
-
-        PutHandler handler = new PutHandler(repository);
-        GemFrame frame = mockFrame(
-                7,
-                stringPart("/helloWorld"),
-                part(new byte[]{0x0c}),
-                intPart(0),
-                stringPart("my-int-key"),
-                objectPart("5"),
-                part(new byte[]{
-                        0x39,
-                        0x00, 0x00, 0x30, 0x39
-                }),
-                part(new byte[]{0x02, 0x00, 0x01})
-        );
-
-        handler.handle(ctx, frame);
-
-        verify(repository).put(
-                eq("/helloWorld::my-int-key"),
-                eq(StoredValue.integerValue(12345))
-        );
-        verify(ctx).writeAndFlush(any());
-    }
-
-    @Test
     void handle_parses_boolean_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -103,6 +72,68 @@ class PutHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::my-bool-key"),
                 eq(StoredValue.booleanValue(Boolean.TRUE))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_short_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-short-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x38,
+                        0x00, 0x07
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-short-key"),
+                eq(StoredValue.shortValue(Short.valueOf((short) 7)))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_integer_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-int-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x39,
+                        0x00, 0x00, 0x30, 0x39
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-int-key"),
+                eq(StoredValue.integerValue(12345))
         );
         verify(ctx).writeAndFlush(any());
     }

@@ -83,6 +83,29 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_short_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-short-key"))
+                .thenReturn(StoredValue.shortValue(Short.valueOf((short) 7)));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-short-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-short-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_long_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

@@ -16,6 +16,17 @@ public final class ValueDecoding {
     private static final int GEODE_BOOLEAN_CODE = 0x35;
 
     /*
+     * Geode DataSerializer short marker observed from ShortShapeTest:
+     *
+     *   Short.valueOf((short) 7)  -> 38 00 07
+     *   Short.valueOf((short) -7) -> 38 ff f9
+     *   Short.valueOf((short) 0)  -> 38 00 00
+     *   Short.MAX_VALUE           -> 38 7f ff
+     *   Short.MIN_VALUE           -> 38 80 00
+     */
+    private static final int GEODE_SHORT_CODE = 0x38;
+
+    /*
      * Geode DataSerializer integer marker observed from IntegerShapeTest:
      *
      *   Integer.valueOf(7) -> 39 00 00 00 07
@@ -74,6 +85,21 @@ public final class ValueDecoding {
         }
 
         return null;
+    }
+
+    public static Short decodeShortValue(byte[] payload) {
+        if (payload == null || payload.length != 3) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_SHORT_CODE) {
+            return null;
+        }
+
+        int value = ((payload[1] & 0xff) << 8)
+                | (payload[2] & 0xff);
+
+        return (short) value;
     }
 
     public static Integer decodeIntegerValue(byte[] payload) {
@@ -206,6 +232,10 @@ public final class ValueDecoding {
          * plain UTF-8 fallback.
          */
         if (decodeBooleanValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeShortValue(payload) != null) {
             return null;
         }
 

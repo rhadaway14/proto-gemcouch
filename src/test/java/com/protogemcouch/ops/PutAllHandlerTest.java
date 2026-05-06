@@ -57,30 +57,6 @@ class PutAllHandlerTest {
     }
 
     @Test
-    void handle_parses_integer_values_and_stores_them() {
-        GemFrame frame = putAllFrame(
-                "/helloWorld",
-                2,
-                entry("integer-key-1", geodeInteger(12345)),
-                entry("integer-key-2", geodeInteger(-12345))
-        );
-
-        handler.handle(ctx, frame);
-
-        verify(repository).put(
-                eq("/helloWorld::integer-key-1"),
-                eq(StoredValue.integerValue(12345))
-        );
-
-        verify(repository).put(
-                eq("/helloWorld::integer-key-2"),
-                eq(StoredValue.integerValue(-12345))
-        );
-
-        verify(ctx).writeAndFlush(any());
-    }
-
-    @Test
     void handle_parses_boolean_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -99,6 +75,54 @@ class PutAllHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::boolean-key-false"),
                 eq(StoredValue.booleanValue(Boolean.FALSE))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_short_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("short-key-1", geodeShort((short) 7)),
+                entry("short-key-2", geodeShort((short) -7))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::short-key-1"),
+                eq(StoredValue.shortValue(Short.valueOf((short) 7)))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::short-key-2"),
+                eq(StoredValue.shortValue(Short.valueOf((short) -7)))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_integer_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("integer-key-1", geodeInteger(12345)),
+                entry("integer-key-2", geodeInteger(-12345))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key-1"),
+                eq(StoredValue.integerValue(12345))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key-2"),
+                eq(StoredValue.integerValue(-12345))
         );
 
         verify(ctx).writeAndFlush(any());
@@ -180,10 +204,11 @@ class PutAllHandlerTest {
     void handle_parses_mixed_primitive_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                6,
+                7,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
-                entry("integer-key", geodeInteger(12345)),
                 entry("boolean-key", geodeBoolean(true)),
+                entry("short-key", geodeShort((short) 7)),
+                entry("integer-key", geodeInteger(12345)),
                 entry("long-key", geodeLong(9_876_543_210L)),
                 entry("float-key", geodeFloat(7.25f)),
                 entry("double-key", geodeDouble(7.25d))
@@ -197,13 +222,18 @@ class PutAllHandlerTest {
         );
 
         verify(repository).put(
-                eq("/helloWorld::integer-key"),
-                eq(StoredValue.integerValue(12345))
+                eq("/helloWorld::boolean-key"),
+                eq(StoredValue.booleanValue(Boolean.TRUE))
         );
 
         verify(repository).put(
-                eq("/helloWorld::boolean-key"),
-                eq(StoredValue.booleanValue(Boolean.TRUE))
+                eq("/helloWorld::short-key"),
+                eq(StoredValue.shortValue(Short.valueOf((short) 7)))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::integer-key"),
+                eq(StoredValue.integerValue(12345))
         );
 
         verify(repository).put(
@@ -355,6 +385,14 @@ class PutAllHandlerTest {
         return new byte[] {
                 0x35,
                 (byte) (value ? 0x01 : 0x00)
+        };
+    }
+
+    private static byte[] geodeShort(short value) {
+        return new byte[] {
+                0x38,
+                (byte) ((value >>> 8) & 0xff),
+                (byte) (value & 0xff)
         };
     }
 
