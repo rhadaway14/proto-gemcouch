@@ -152,12 +152,14 @@ public class PutAllHandler implements OperationHandler {
          *
          * Otherwise payloads such as:
          *
-         *   Boolean.TRUE -> 35 01
-         *   Short 7      -> 38 00 07
-         *   Integer 101  -> 39 00 00 00 65
-         *   Long 101L    -> 3a 00 00 00 00 00 00 00 65
-         *   Float 7.25f  -> 3b 40 e8 00 00
-         *   Double 7.25d -> 3c 40 1d 00 00 00 00 00 00
+         *   Boolean.TRUE  -> 35 01
+         *   Character 'A' -> 36 00 41
+         *   Byte 7        -> 37 07
+         *   Short 7       -> 38 00 07
+         *   Integer 101   -> 39 00 00 00 65
+         *   Long 101L     -> 3a 00 00 00 00 00 00 00 65
+         *   Float 7.25f   -> 3b 40 e8 00 00
+         *   Double 7.25d  -> 3c 40 1d 00 00 00 00 00 00
          *
          * can be incorrectly decoded as text.
          */
@@ -172,6 +174,32 @@ public class PutAllHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.booleanValue(booleanValue);
+        }
+
+        Character characterValue = ValueDecoding.decodeCharacterValue(valuePayload);
+
+        if (characterValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-character",
+                    "key", key,
+                    "valueType", "CHARACTER",
+                    "txId", txId
+            ));
+            return StoredValue.characterValue(characterValue);
+        }
+
+        Byte byteValue = ValueDecoding.decodeByteValue(valuePayload);
+
+        if (byteValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-byte",
+                    "key", key,
+                    "valueType", "BYTE",
+                    "txId", txId
+            ));
+            return StoredValue.byteValue(byteValue);
         }
 
         Short shortValue = ValueDecoding.decodeShortValue(valuePayload);
@@ -264,6 +292,28 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.booleanValue(bool);
+            }
+
+            if (rawValue instanceof Character characterObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "CHARACTER",
+                        "txId", txId
+                ));
+                return StoredValue.characterValue(characterObject);
+            }
+
+            if (rawValue instanceof Byte byteObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "BYTE",
+                        "txId", txId
+                ));
+                return StoredValue.byteValue(byteObject);
             }
 
             if (rawValue instanceof Short shortObject) {

@@ -31,9 +31,11 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_TYPE = "type";
 
     private static final String TYPE_STRING = "string";
+    private static final String TYPE_BOOLEAN = "boolean";
+    private static final String TYPE_CHARACTER = "character";
+    private static final String TYPE_BYTE = "byte";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
-    private static final String TYPE_BOOLEAN = "boolean";
     private static final String TYPE_LONG = "long";
     private static final String TYPE_FLOAT = "float";
     private static final String TYPE_DOUBLE = "double";
@@ -328,6 +330,18 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.CHARACTER) {
+            body.put(FIELD_TYPE, TYPE_CHARACTER);
+            body.put(FIELD_VALUE, String.valueOf(value.asCharacter()));
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.BYTE) {
+            body.put(FIELD_TYPE, TYPE_BYTE);
+            body.put(FIELD_VALUE, value.asByte());
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -386,6 +400,40 @@ public class CouchbaseRepository implements Repository {
 
                 if ("false".equalsIgnoreCase(text)) {
                     return StoredValue.booleanValue(Boolean.FALSE);
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_CHARACTER.equalsIgnoreCase(type)) {
+            if (rawValue instanceof Character character) {
+                return StoredValue.characterValue(character);
+            }
+
+            if (rawValue instanceof String text) {
+                if (text.length() == 1) {
+                    return StoredValue.characterValue(text.charAt(0));
+                }
+
+                if (!text.isEmpty()) {
+                    return StoredValue.stringValue(text);
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_BYTE.equalsIgnoreCase(type)) {
+            if (rawValue instanceof Number number) {
+                return StoredValue.byteValue(number.byteValue());
+            }
+
+            if (rawValue instanceof String text) {
+                try {
+                    return StoredValue.byteValue(Byte.valueOf(text));
+                } catch (NumberFormatException e) {
+                    return StoredValue.stringValue(text);
                 }
             }
 

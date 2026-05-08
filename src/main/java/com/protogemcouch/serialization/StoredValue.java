@@ -5,6 +5,8 @@ import java.util.Objects;
 public record StoredValue(
         Type type,
         String value,
+        Character characterValue,
+        Byte byteValue,
         Short shortValue,
         Integer integerValue,
         Boolean booleanValue,
@@ -15,6 +17,8 @@ public record StoredValue(
 
     public enum Type {
         STRING,
+        CHARACTER,
+        BYTE,
         SHORT,
         INTEGER,
         BOOLEAN,
@@ -24,31 +28,39 @@ public record StoredValue(
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue characterValue(Character value) {
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue byteValue(Byte value) {
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, value, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, value, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, value, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, value, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, value, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, value, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, value);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, value);
     }
 
     public StoredValue {
@@ -56,6 +68,14 @@ public record StoredValue(
 
         if (type == Type.STRING && value == null) {
             throw new IllegalArgumentException("STRING StoredValue requires value");
+        }
+
+        if (type == Type.CHARACTER && characterValue == null) {
+            throw new IllegalArgumentException("CHARACTER StoredValue requires characterValue");
+        }
+
+        if (type == Type.BYTE && byteValue == null) {
+            throw new IllegalArgumentException("BYTE StoredValue requires byteValue");
         }
 
         if (type == Type.SHORT && shortValue == null) {
@@ -81,6 +101,22 @@ public record StoredValue(
         if (type == Type.DOUBLE && doubleValue == null) {
             throw new IllegalArgumentException("DOUBLE StoredValue requires doubleValue");
         }
+    }
+
+    public Character asCharacter() {
+        if (type != Type.CHARACTER) {
+            throw new IllegalStateException("StoredValue is not CHARACTER. Actual type: " + type);
+        }
+
+        return characterValue;
+    }
+
+    public Byte asByte() {
+        if (type != Type.BYTE) {
+            throw new IllegalStateException("StoredValue is not BYTE. Actual type: " + type);
+        }
+
+        return byteValue;
     }
 
     public Short asShort() {

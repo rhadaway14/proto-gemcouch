@@ -49,33 +49,6 @@ class GetAllHandlerTest {
     }
 
     @Test
-    void handle_integer_values_in_repository_result_are_encoded_in_response() {
-        Repository repository = mock(Repository.class);
-        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
-
-        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
-        repoResult.put("int-key-1", StoredValue.integerValue(12345));
-        repoResult.put("int-key-2", StoredValue.integerValue(-12345));
-
-        when(repository.getAll("/helloWorld", List.of("int-key-1", "int-key-2")))
-                .thenReturn(repoResult);
-        when(ctx.writeAndFlush(any())).thenReturn(null);
-
-        GetAllHandler handler = new GetAllHandler(repository);
-        GemFrame frame = mockFrame(
-                100,
-                stringPart("/helloWorld"),
-                objectPart(List.of("int-key-1", "int-key-2")),
-                intPart(0)
-        );
-
-        handler.handle(ctx, frame);
-
-        verify(repository).getAll("/helloWorld", List.of("int-key-1", "int-key-2"));
-        verify(ctx).writeAndFlush(any());
-    }
-
-    @Test
     void handle_boolean_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -103,6 +76,60 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_character_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("character-key-1", StoredValue.characterValue(Character.valueOf('A')));
+        repoResult.put("character-key-2", StoredValue.characterValue(Character.valueOf('Z')));
+
+        when(repository.getAll("/helloWorld", List.of("character-key-1", "character-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("character-key-1", "character-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("character-key-1", "character-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_byte_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("byte-key-1", StoredValue.byteValue(Byte.valueOf((byte) 7)));
+        repoResult.put("byte-key-2", StoredValue.byteValue(Byte.valueOf((byte) -7)));
+
+        when(repository.getAll("/helloWorld", List.of("byte-key-1", "byte-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("byte-key-1", "byte-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("byte-key-1", "byte-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_short_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -126,6 +153,33 @@ class GetAllHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).getAll("/helloWorld", List.of("short-key-1", "short-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_integer_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("int-key-1", StoredValue.integerValue(12345));
+        repoResult.put("int-key-2", StoredValue.integerValue(-12345));
+
+        when(repository.getAll("/helloWorld", List.of("int-key-1", "int-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("int-key-1", "int-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("int-key-1", "int-key-2"));
         verify(ctx).writeAndFlush(any());
     }
 
@@ -217,6 +271,8 @@ class GetAllHandlerTest {
 
         Map<String, StoredValue> repoResult = new LinkedHashMap<>();
         repoResult.put("string-key", StoredValue.stringValue("value-1"));
+        repoResult.put("character-key", StoredValue.characterValue(Character.valueOf('A')));
+        repoResult.put("byte-key", StoredValue.byteValue(Byte.valueOf((byte) 7)));
         repoResult.put("short-key", StoredValue.shortValue(Short.valueOf((short) 7)));
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
@@ -227,6 +283,8 @@ class GetAllHandlerTest {
 
         List<String> keys = List.of(
                 "string-key",
+                "character-key",
+                "byte-key",
                 "short-key",
                 "integer-key",
                 "boolean-key",

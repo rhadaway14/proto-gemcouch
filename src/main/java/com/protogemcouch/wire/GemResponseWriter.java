@@ -51,6 +51,27 @@ public final class GemResponseWriter {
     private static final byte GEODE_BOOLEAN_CODE = 0x35;
 
     /*
+     * Geode DataSerializer character marker observed from CharacterShapeTest:
+     *
+     *   Character.valueOf('A') -> 36 00 41
+     *   Character.valueOf('Z') -> 36 00 5a
+     *   Character.valueOf('0') -> 36 00 30
+     *   Character.valueOf(' ') -> 36 00 20
+     */
+    private static final byte GEODE_CHARACTER_CODE = 0x36;
+
+    /*
+     * Geode DataSerializer byte marker observed from ByteShapeTest:
+     *
+     *   Byte.valueOf((byte) 0)    -> 37 00
+     *   Byte.valueOf((byte) 7)    -> 37 07
+     *   Byte.valueOf((byte) -7)   -> 37 f9
+     *   Byte.MAX_VALUE            -> 37 7f
+     *   Byte.MIN_VALUE            -> 37 80
+     */
+    private static final byte GEODE_BYTE_CODE = 0x37;
+
+    /*
      * Geode DataSerializer short marker observed from ShortShapeTest:
      *
      *   Short.valueOf((short) 7)  -> 38 00 07
@@ -147,6 +168,22 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedBoolean(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildCharacterGetResponse(int txId, char value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedCharacter(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildByteGetResponse(int txId, byte value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedByte(value), (byte) 1))
         );
     }
 
@@ -362,6 +399,14 @@ public final class GemResponseWriter {
             return StoredValue.booleanValue(bool);
         }
 
+        if (rawValue instanceof Character characterValue) {
+            return StoredValue.characterValue(characterValue);
+        }
+
+        if (rawValue instanceof Byte byteValue) {
+            return StoredValue.byteValue(byteValue);
+        }
+
         if (rawValue instanceof Short shortValue) {
             return StoredValue.shortValue(shortValue);
         }
@@ -388,6 +433,14 @@ public final class GemResponseWriter {
     private static byte[] encodeStoredValueForGetAll(StoredValue value) {
         if (value.type() == StoredValue.Type.BOOLEAN) {
             return geodeSerializedBoolean(value.asBoolean());
+        }
+
+        if (value.type() == StoredValue.Type.CHARACTER) {
+            return geodeSerializedCharacter(value.asCharacter());
+        }
+
+        if (value.type() == StoredValue.Type.BYTE) {
+            return geodeSerializedByte(value.asByte());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -450,6 +503,28 @@ public final class GemResponseWriter {
         return new byte[] {
                 GEODE_BOOLEAN_CODE,
                 (byte) (value ? 0x01 : 0x00)
+        };
+    }
+
+    private static byte[] geodeSerializedCharacter(char value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_CHARACTER_CODE);
+            buf.writeChar(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedByte(byte value) {
+        return new byte[] {
+                GEODE_BYTE_CODE,
+                value
         };
     }
 

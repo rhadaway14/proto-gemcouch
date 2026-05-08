@@ -6,9 +6,15 @@ Last updated after successful full verification:
 
 ```text
 mvn clean verify
-Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+
+Failsafe integration tests:
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
+
+Full integration verification completed successfully with Docker Compose-managed Couchbase and ProtoGemCouch shim containers.
 
 ## Supported Operations
 
@@ -32,6 +38,8 @@ BUILD SUCCESS
 |---|---:|---|---|---|---|
 | `String` | `0x57` | `57 00 <len> <utf8>` | Yes | Yes | Yes |
 | `Boolean` | `0x35` | `true -> 3501`, `false -> 3500` | Yes | Yes | Yes |
+| `Character` | `0x36` | `'A' -> 360041` | Yes | Yes | Yes |
+| `Byte` | `0x37` | `7 -> 3707` | Yes | Yes | Yes |
 | `Short` | `0x38` | `7 -> 380007` | Yes | Yes | Yes |
 | `Integer` | `0x39` | `7 -> 3900000007` | Yes | Yes | Yes |
 | `Long` | `0x3a` | `7 -> 3a0000000000000007` | Yes | Yes | Yes |
@@ -46,6 +54,25 @@ BUILD SUCCESS
 |---:|---|
 | `Boolean.TRUE` | `3501` |
 | `Boolean.FALSE` | `3500` |
+
+### Character
+
+| Value | Hex |
+|---:|---|
+| `'A'` | `360041` |
+| `'Z'` | `36005a` |
+| `'0'` | `360030` |
+| `' '` | `360020` |
+
+### Byte
+
+| Value | Hex |
+|---:|---|
+| `(byte) 0` | `3700` |
+| `(byte) 7` | `3707` |
+| `(byte) -7` | `37f9` |
+| `Byte.MAX_VALUE` | `377f` |
+| `Byte.MIN_VALUE` | `3780` |
 
 ### Short
 
@@ -91,17 +118,17 @@ BUILD SUCCESS
 
 ## Value Pipeline Coverage
 
-| Component | String | Boolean | Short | Integer | Long | Float | Double |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Serialization integration test | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | String | Boolean | Character | Byte | Short | Integer | Long | Float | Double |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Serialization integration test | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ## Couchbase Persistence Shape
 
@@ -115,6 +142,20 @@ Current typed primitive documents are persisted using a simple typed envelope:
 ```
 
 Examples:
+
+```json
+{
+  "type": "byte",
+  "value": 7
+}
+```
+
+```json
+{
+  "type": "character",
+  "value": "A"
+}
+```
 
 ```json
 {
@@ -163,7 +204,7 @@ Object markers:
 The mixed typed GET_ALL path now includes:
 
 ```text
-String, Short, Integer, Boolean, Long, Float, Double, Missing
+String, Character, Byte, Short, Integer, Boolean, Long, Float, Double, Missing
 ```
 
 ## Test Coverage Summary
@@ -171,6 +212,8 @@ String, Short, Integer, Boolean, Long, Float, Double, Missing
 | Test Class | Purpose | Status |
 |---|---|---:|
 | `BooleanShapeTest` | Confirms Boolean Geode bytes | Passing |
+| `CharacterShapeTest` | Confirms Character Geode bytes | Passing |
+| `ByteShapeTest` | Confirms Byte Geode bytes | Passing |
 | `ShortShapeTest` | Confirms Short Geode bytes | Passing |
 | `IntegerShapeTest` | Confirms Integer Geode bytes | Passing |
 | `LongShapeTest` | Confirms Long Geode bytes | Passing |
@@ -181,4 +224,24 @@ String, Short, Integer, Boolean, Long, Float, Double, Missing
 | `GetAllHandlerTest` | Focused GET_ALL typed value coverage | Passing |
 | `PutHandlerTest` | Focused PUT typed value coverage | Passing |
 | `PutAllHandlerTest` | Focused PUT_ALL typed value coverage | Passing |
+| `ProtoGemCouchCrudIntegrationTest` | End-to-end CRUD behavior | Passing |
 | `ProtoGemCouchSerializationIntegrationTest` | End-to-end Geode client to Couchbase serialization coverage | Passing |
+
+## Integration Verification Summary
+
+Full integration verification now includes Byte round-trip coverage.
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 32, Failures: 0, Errors: 0, Skipped: 0
+
+Failsafe total:
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+```
+
+## Current Compatibility Summary
+
+ProtoGemCouch currently supports Geode client API compatibility for the validated operation and primitive serialization paths listed above. The current compatibility scope is focused on common cache operations and typed primitive value round-tripping through Couchbase-backed persistence.

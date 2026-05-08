@@ -16,6 +16,27 @@ public final class ValueDecoding {
     private static final int GEODE_BOOLEAN_CODE = 0x35;
 
     /*
+     * Geode DataSerializer character marker observed from CharacterShapeTest:
+     *
+     *   Character.valueOf('A') -> 36 00 41
+     *   Character.valueOf('Z') -> 36 00 5a
+     *   Character.valueOf('0') -> 36 00 30
+     *   Character.valueOf(' ') -> 36 00 20
+     */
+    private static final int GEODE_CHARACTER_CODE = 0x36;
+
+    /*
+     * Geode DataSerializer byte marker observed from ByteShapeTest:
+     *
+     *   Byte.valueOf((byte) 0)    -> 37 00
+     *   Byte.valueOf((byte) 7)    -> 37 07
+     *   Byte.valueOf((byte) -7)   -> 37 f9
+     *   Byte.MAX_VALUE            -> 37 7f
+     *   Byte.MIN_VALUE            -> 37 80
+     */
+    private static final int GEODE_BYTE_CODE = 0x37;
+
+    /*
      * Geode DataSerializer short marker observed from ShortShapeTest:
      *
      *   Short.valueOf((short) 7)  -> 38 00 07
@@ -85,6 +106,33 @@ public final class ValueDecoding {
         }
 
         return null;
+    }
+
+    public static Character decodeCharacterValue(byte[] payload) {
+        if (payload == null || payload.length != 3) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_CHARACTER_CODE) {
+            return null;
+        }
+
+        int value = ((payload[1] & 0xff) << 8)
+                | (payload[2] & 0xff);
+
+        return (char) value;
+    }
+
+    public static Byte decodeByteValue(byte[] payload) {
+        if (payload == null || payload.length != 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_BYTE_CODE) {
+            return null;
+        }
+
+        return payload[1];
     }
 
     public static Short decodeShortValue(byte[] payload) {
@@ -232,6 +280,14 @@ public final class ValueDecoding {
          * plain UTF-8 fallback.
          */
         if (decodeBooleanValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeCharacterValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeByteValue(payload) != null) {
             return null;
         }
 

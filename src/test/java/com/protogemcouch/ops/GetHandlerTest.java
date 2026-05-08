@@ -37,29 +37,6 @@ class GetHandlerTest {
     }
 
     @Test
-    void handle_existing_integer_value_writes_response() {
-        Repository repository = mock(Repository.class);
-        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
-
-        when(repository.get("/helloWorld::my-int-key"))
-                .thenReturn(StoredValue.integerValue(12345));
-
-        when(ctx.writeAndFlush(any())).thenReturn(null);
-
-        GetHandler handler = new GetHandler(repository);
-        GemFrame frame = mockFrame(
-                0,
-                stringPart("/helloWorld"),
-                stringPart("my-int-key")
-        );
-
-        handler.handle(ctx, frame);
-
-        verify(repository).get("/helloWorld::my-int-key");
-        verify(ctx).writeAndFlush(any());
-    }
-
-    @Test
     void handle_existing_boolean_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -83,6 +60,52 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_character_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-character-key"))
+                .thenReturn(StoredValue.characterValue(Character.valueOf('A')));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-character-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-character-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_byte_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-byte-key"))
+                .thenReturn(StoredValue.byteValue(Byte.valueOf((byte) 7)));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-byte-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-byte-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_short_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -102,6 +125,29 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-short-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_integer_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-int-key"))
+                .thenReturn(StoredValue.integerValue(12345));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-int-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-int-key");
         verify(ctx).writeAndFlush(any());
     }
 

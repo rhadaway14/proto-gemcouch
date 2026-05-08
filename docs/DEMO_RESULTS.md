@@ -2,13 +2,22 @@
 
 ## Current Build Verification
 
-The project successfully completed a full clean verification after adding Short support.
+The project successfully completed a full clean verification after adding Byte support.
 
 ```text
 mvn clean verify
-Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+
+Unit/focused test phase:
+Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
+
+Failsafe integration phase:
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+
 BUILD SUCCESS
+Total time: 05:13 min
 ```
+
+The full verification created Docker Compose-managed Couchbase and ProtoGemCouch shim containers, ran the integration suite, and successfully tore the environment down afterward.
 
 ## Summary
 
@@ -17,6 +26,8 @@ ProtoGemCouch now supports typed primitive round-tripping across the shim, inclu
 ```text
 String
 Boolean
+Character
+Byte
 Short
 Integer
 Long
@@ -37,88 +48,87 @@ Focused unit coverage
 Serialization integration coverage
 ```
 
-## Newly Added Short Support
+## Newly Added Byte Support
 
-Short support was added and verified across the full runtime path.
+Byte support was added and verified across the full runtime path.
 
-### Geode Short Marker
-
-```text
-Short marker: 0x38
-```
-
-### Verified Short Shapes
+### Geode Byte Marker
 
 ```text
-Short.valueOf((short) 7)  -> 380007
-Short.valueOf((short) -7) -> 38fff9
-Short.valueOf((short) 0)  -> 380000
-Short.MAX_VALUE           -> 387fff
-Short.MIN_VALUE           -> 388000
+Byte marker: 0x37
 ```
 
-### Short Runtime Support
+### Verified Byte Shapes
+
+```text
+Byte.valueOf((byte) 0)    -> 3700
+Byte.valueOf((byte) 7)    -> 3707
+Byte.valueOf((byte) -7)   -> 37f9
+Byte.MAX_VALUE            -> 377f
+Byte.MIN_VALUE            -> 3780
+```
+
+### Byte Runtime Support
 
 | Component | Status |
 |---|---:|
-| `ShortShapeTest.java` | Complete |
-| `ValueDecoding.decodeShortValue(...)` | Complete |
-| `StoredValue.Type.SHORT` | Complete |
-| `StoredValue.shortValue(...)` | Complete |
-| `StoredValue.asShort()` | Complete |
-| `GemResponseWriter.buildShortGetResponse(...)` | Complete |
-| `GemResponseWriter` GET_ALL Short encoding | Complete |
-| `PutHandler` Short decode/store | Complete |
-| `PutAllHandler` Short decode/store | Complete |
-| `GetHandler` Short response path | Complete |
-| `CouchbaseRepository` Short persistence | Complete |
-| `ProtoGemCouchSerializationIntegrationTest` Short end-to-end coverage | Complete |
+| `ByteShapeTest.java` | Complete |
+| `ValueDecoding.decodeByteValue(...)` | Complete |
+| `StoredValue.Type.BYTE` | Complete |
+| `StoredValue.byteValue(...)` | Complete |
+| `StoredValue.asByte()` | Complete |
+| `GemResponseWriter.buildByteGetResponse(...)` | Complete |
+| `GemResponseWriter` GET_ALL Byte encoding | Complete |
+| `PutHandler` Byte decode/store | Complete |
+| `PutAllHandler` Byte decode/store | Complete |
+| `GetHandler` Byte response path | Complete |
+| `GetAllHandler` Byte response path | Complete |
+| `CouchbaseRepository` Byte persistence/hydration | Complete |
+| `ProtoGemCouchSerializationIntegrationTest` Byte end-to-end coverage | Complete |
 | Focused handler tests | Complete |
+| Full `mvn clean verify` | Passing |
 
 ## Focused Handler Test Results
 
-Command:
+The focused handler tests validate typed primitive paths across `PUT`, `GET`, `PUT_ALL`, and `GET_ALL`.
+
+Representative command:
 
 ```powershell
 mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
 ```
 
-Result:
-
-```text
-Tests run: 43, Failures: 0, Errors: 0, Skipped: 0
-BUILD SUCCESS
-```
-
-Validated Short paths:
+Validated Byte paths:
 
 ```text
 GET:
-key=my-short-key
-docId=/helloWorld::my-short-key
+key=my-byte-key
+docId=/helloWorld::my-byte-key
 
 PUT:
-encoding=geode-short
-valueType=SHORT
+encoding=geode-byte
+valueType=BYTE
+key=my-byte-key
+docId=/helloWorld::my-byte-key
 
 PUT_ALL:
-encoding=geode-short key=short-key valueType=SHORT
-encoding=geode-short key=short-key-1 valueType=SHORT
-encoding=geode-short key=short-key-2 valueType=SHORT
+encoding=geode-byte key=byte-key valueType=BYTE
+encoding=geode-byte key=byte-key-1 valueType=BYTE
+encoding=geode-byte key=byte-key-2 valueType=BYTE
 
 GET_ALL:
-keys="[short-key-1, short-key-2]"
-keys="[string-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, missing]"
+keys="[byte-key-1, byte-key-2]"
+keys="[string-key, character-key, byte-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, missing]"
 ```
 
 ## Shape Test Results
 
-### ShortShapeTest
+### ByteShapeTest
 
 Command:
 
 ```powershell
-mvn test "-Dtest=ShortShapeTest"
+mvn test "-Dtest=ByteShapeTest"
 ```
 
 Result:
@@ -131,65 +141,109 @@ BUILD SUCCESS
 Captured output:
 
 ```text
-SHORT_MAX_HEX_START
-387fff
-SHORT_MAX_HEX_END
+BYTE_MIN_HEX_START
+3780
+BYTE_MIN_HEX_END
 
-SHORT_ZERO_HEX_START
-380000
-SHORT_ZERO_HEX_END
+BYTE_NEGATIVE_HEX_START
+37f9
+BYTE_NEGATIVE_HEX_END
 
-SHORT_HEX_START
-380007
-SHORT_HEX_END
+BYTE_MAX_HEX_START
+377f
+BYTE_MAX_HEX_END
 
-SHORT_MIN_HEX_START
-388000
-SHORT_MIN_HEX_END
+BYTE_ZERO_HEX_START
+3700
+BYTE_ZERO_HEX_END
 
-SHORT_NEGATIVE_HEX_START
-38fff9
-SHORT_NEGATIVE_HEX_END
+BYTE_POSITIVE_HEX_START
+3707
+BYTE_POSITIVE_HEX_END
 ```
 
 ### Primitive Shape Suite
 
-Command:
-
-```powershell
-mvn test "-Dtest=ShortShapeTest,FloatShapeTest,DoubleShapeTest,LongShapeTest"
-```
-
-Result:
+The validated primitive shape suite now includes:
 
 ```text
-Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
-BUILD SUCCESS
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+```
+
+Representative passing shape tests:
+
+```text
+BooleanShapeTest
+CharacterShapeTest
+ByteShapeTest
+ShortShapeTest
+IntegerShapeTest
+LongShapeTest
+FloatShapeTest
+DoubleShapeTest
 ```
 
 ## Serialization Integration Results
 
-The serialization integration suite now includes Short end-to-end coverage.
+The serialization integration suite now includes Byte end-to-end coverage.
 
-Added scenarios:
+Added / updated scenarios include:
 
 ```text
-shortValueShouldRoundTripThroughShimAndCouchbase
-putAllWithShortValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithShortValuesShouldReturnShorts
-mixedStringShortIntegerBooleanLongFloatAndDoublePutAllAndGetAllShouldPreserveTypes
+byteValueShouldRoundTripThroughShimAndCouchbase
+putAllWithByteValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithByteValuesShouldReturnBytes
+mixedStringCharacterByteShortIntegerBooleanLongFloatAndDoublePutAllAndGetAllShouldPreserveTypes
 ```
 
-Expected integration behavior:
+Verified integration behavior:
 
 ```text
-Geode client PUT Short -> shim decodes Short -> Couchbase stores typed short document
-Geode client GET Short -> shim reads typed short document -> returns Geode Short payload
-Geode client PUT_ALL Short values -> shim decodes and stores all Short values
-Geode client GET_ALL Short values -> shim returns VersionedObjectList-compatible Short values
+Geode client PUT Byte -> shim decodes Byte -> Couchbase stores typed byte document
+Geode client GET Byte -> shim reads typed byte document -> returns Geode Byte payload
+Geode client PUT_ALL Byte values -> shim decodes and stores all Byte values
+Geode client GET_ALL Byte values -> shim returns VersionedObjectList-compatible Byte values
+```
+
+Integration test results:
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 32, Failures: 0, Errors: 0, Skipped: 0
+
+Failsafe total:
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 ## Couchbase Document Examples
+
+### Byte
+
+```json
+{
+  "type": "byte",
+  "value": 7
+}
+```
+
+### Character
+
+```json
+{
+  "type": "character",
+  "value": "A"
+}
+```
 
 ### Short
 
@@ -250,13 +304,13 @@ Geode client GET_ALL Short values -> shim returns VersionedObjectList-compatible
 Command:
 
 ```powershell
-mvn clean verify
+mvn test
 ```
 
 Result:
 
 ```text
-Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -279,6 +333,8 @@ GeodeSerializationTest
 ByteUtilsTest
 DocumentKeyUtilTest
 BooleanShapeTest
+CharacterShapeTest
+ByteShapeTest
 ShortShapeTest
 IntegerShapeTest
 LongShapeTest
@@ -288,6 +344,36 @@ GemResponseWriterTest
 GoldenWireResponseTest
 VersionedObjectListShapeTest
 MixedVersionedObjectListShapeTest
+```
+
+## Full Verification
+
+Command:
+
+```powershell
+mvn clean verify
+```
+
+Result:
+
+```text
+BUILD SUCCESS
+Total time: 05:13 min
+```
+
+The verification lifecycle included:
+
+```text
+clean
+compile
+testCompile
+surefire unit tests
+jar
+shade
+docker-compose-up
+failsafe integration tests
+docker-compose-down
+failsafe verify
 ```
 
 ## Maven Shade Notes
@@ -309,6 +395,8 @@ Validated demo value types:
 ```text
 String
 Boolean
+Character
+Byte
 Short
 Integer
 Long
@@ -328,3 +416,25 @@ contains
 size
 keySet
 ```
+
+## Suggested Demo Flow
+
+1. Start the environment with Docker Compose.
+2. Show the Java Geode client using standard `Region.put`, `Region.get`, `Region.putAll`, and `Region.getAll`.
+3. Demonstrate a Byte round trip:
+   ```java
+   region.put("byte-demo-key", Byte.valueOf((byte) 7));
+   Object actual = region.get("byte-demo-key");
+   ```
+4. Show the Couchbase document:
+   ```json
+   {
+     "type": "byte",
+     "value": 7
+   }
+   ```
+5. Demonstrate mixed typed `putAll` / `getAll` preserving all validated primitive types.
+6. Run or reference:
+   ```powershell
+   mvn clean verify
+   ```
