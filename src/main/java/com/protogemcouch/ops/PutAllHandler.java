@@ -153,18 +153,32 @@ public class PutAllHandler implements OperationHandler {
          *
          * Otherwise payloads such as:
          *
-         *   Boolean.TRUE  -> 35 01
-         *   Character 'A' -> 36 00 41
-         *   Byte 7        -> 37 07
-         *   Short 7       -> 38 00 07
-         *   Integer 101   -> 39 00 00 00 65
-         *   Long 101L     -> 3a 00 00 00 00 00 00 00 65
-         *   Float 7.25f   -> 3b 40 e8 00 00
-         *   Double 7.25d  -> 3c 40 1d 00 00 00 00 00 00
-         *   Date(1000L)   -> 3d 00 00 00 00 00 00 03 e8
+         *   byte[] {1,2,3} via DataSerializer -> 2e 03 01 02 03
+         *   Boolean.TRUE                      -> 35 01
+         *   Character 'A'                     -> 36 00 41
+         *   Byte 7                            -> 37 07
+         *   Short 7                           -> 38 00 07
+         *   Integer 101                       -> 39 00 00 00 65
+         *   Long 101L                         -> 3a 00 00 00 00 00 00 00 65
+         *   Float 7.25f                       -> 3b 40 e8 00 00
+         *   Double 7.25d                      -> 3c 40 1d 00 00 00 00 00 00
+         *   Date(1000L)                       -> 3d 00 00 00 00 00 00 03 e8
          *
          * can be incorrectly decoded as text.
          */
+        byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
+
+        if (byteArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-byte-array",
+                    "key", key,
+                    "valueType", "BYTE_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.byteArrayValue(byteArrayValue);
+        }
+
         Boolean booleanValue = ValueDecoding.decodeBooleanValue(valuePayload);
 
         if (booleanValue != null) {
@@ -282,6 +296,26 @@ public class PutAllHandler implements OperationHandler {
             return StoredValue.dateValue(dateValue);
         }
 
+        /*
+         * Real Geode client Region.putAll(... byte[]) sends byte[] value parts as
+         * raw payloads instead of the DataSerializer byte-array wrapper.
+         *
+         * This must run after all known typed Geode decoders and before the
+         * generic string-like fallback.
+         */
+        byte[] rawByteArrayValue = ValueDecoding.decodeRawByteArrayValue(valuePayload);
+
+        if (rawByteArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "raw-byte-array",
+                    "key", key,
+                    "valueType", "BYTE_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.byteArrayValue(rawByteArrayValue);
+        }
+
         String stringLikeValue = ValueDecoding.decodeStringLikeValue(valuePayload);
 
         if (stringLikeValue != null) {
@@ -297,6 +331,17 @@ public class PutAllHandler implements OperationHandler {
 
         try {
             Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
+
+            if (rawValue instanceof byte[] byteArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "BYTE_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.byteArrayValue(byteArrayObject);
+            }
 
             if (rawValue instanceof Boolean bool) {
                 log.info(StructuredLog.event(
@@ -419,6 +464,8 @@ public class PutAllHandler implements OperationHandler {
         log.warn(StructuredLog.event(
                 "handler_put_all_value_decode_failed",
                 "key", key,
+                "payloadHex", ByteBufUtil.hexDump(valuePayload),
+                "payloadLength", valuePayload == null ? -1 : valuePayload.length,
                 "txId", txId
         ));
 

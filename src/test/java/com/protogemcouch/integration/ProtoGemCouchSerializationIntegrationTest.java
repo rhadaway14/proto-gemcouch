@@ -16,6 +16,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -24,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -1483,6 +1485,356 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after MIXED STRING/CHARACTER/BYTE/SHORT/INTEGER/BOOLEAN/LONG/FLOAT/DOUBLE PUT_ALL/GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void dateValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-date-value-" + suffix;
+
+        Date expected = new Date(1_000L);
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Date.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DATE round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void byteArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-byte-array-value-" + suffix;
+
+        byte[] expected = new byte[] {
+                0x01, 0x02, 0x03, 0x04, 0x05
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(byte[].class, actual);
+            assertArrayEquals(expected, (byte[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BYTE_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-date-1-" + suffix;
+        String key2 = "it-putall-date-2-" + suffix;
+        String key3 = "it-putall-date-3-" + suffix;
+
+        Date expected1 = new Date(0L);
+        Date expected2 = new Date(1_000L);
+        Date expected3 = new Date(1_778_265_266_000L);
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, expected1);
+        entries.put(key2, expected2);
+        entries.put(key3, expected3);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(Date.class, actual1);
+            assertInstanceOf(Date.class, actual2);
+            assertInstanceOf(Date.class, actual3);
+
+            assertEquals(expected1, actual1);
+            assertEquals(expected2, actual2);
+            assertEquals(expected3, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DATE PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithByteArrayValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-byte-array-1-" + suffix;
+        String key2 = "it-putall-byte-array-2-" + suffix;
+        String key3 = "it-putall-byte-array-3-" + suffix;
+
+        byte[] expected1 = new byte[] {};
+        byte[] expected2 = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
+        byte[] expected3 = new byte[] {0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff};
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, expected1);
+        entries.put(key2, expected2);
+        entries.put(key3, expected3);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(byte[].class, actual1);
+            assertInstanceOf(byte[].class, actual2);
+            assertInstanceOf(byte[].class, actual3);
+
+            assertArrayEquals(expected1, (byte[]) actual1);
+            assertArrayEquals(expected2, (byte[]) actual2);
+            assertArrayEquals(expected3, (byte[]) actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BYTE_ARRAY PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithDateValuesShouldReturnDates() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-date-1-" + suffix;
+        String key2 = "it-getall-date-2-" + suffix;
+        String key3 = "it-getall-date-3-" + suffix;
+
+        Date expected1 = new Date(0L);
+        Date expected2 = new Date(1_000L);
+        Date expected3 = new Date(1_778_265_266_000L);
+
+        try {
+            region.put(key1, expected1);
+            region.put(key2, expected2);
+            region.put(key3, expected3);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(Date.class, actual1);
+            assertInstanceOf(Date.class, actual2);
+            assertInstanceOf(Date.class, actual3);
+
+            assertEquals(expected1, actual1);
+            assertEquals(expected2, actual2);
+            assertEquals(expected3, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DATE GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithByteArrayValuesShouldReturnByteArrays() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-byte-array-1-" + suffix;
+        String key2 = "it-getall-byte-array-2-" + suffix;
+        String key3 = "it-getall-byte-array-3-" + suffix;
+
+        byte[] expected1 = new byte[] {};
+        byte[] expected2 = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
+        byte[] expected3 = new byte[] {0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff};
+
+        try {
+            region.put(key1, expected1);
+            region.put(key2, expected2);
+            region.put(key3, expected3);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(byte[].class, actual1);
+            assertInstanceOf(byte[].class, actual2);
+            assertInstanceOf(byte[].class, actual3);
+
+            assertArrayEquals(expected1, (byte[]) actual1);
+            assertArrayEquals(expected2, (byte[]) actual2);
+            assertArrayEquals(expected3, (byte[]) actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BYTE_ARRAY GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey = "it-mixed10-string-" + suffix;
+        String characterKey = "it-mixed10-character-" + suffix;
+        String byteKey = "it-mixed10-byte-" + suffix;
+        String byteArrayKey = "it-mixed10-byte-array-" + suffix;
+        String shortKey = "it-mixed10-short-" + suffix;
+        String integerKey = "it-mixed10-integer-" + suffix;
+        String booleanTrueKey = "it-mixed10-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed10-bool-false-" + suffix;
+        String longPositiveKey = "it-mixed10-long-positive-" + suffix;
+        String longNegativeKey = "it-mixed10-long-negative-" + suffix;
+        String floatPositiveKey = "it-mixed10-float-positive-" + suffix;
+        String floatNegativeKey = "it-mixed10-float-negative-" + suffix;
+        String doublePositiveKey = "it-mixed10-double-positive-" + suffix;
+        String doubleNegativeKey = "it-mixed10-double-negative-" + suffix;
+        String dateKey = "it-mixed10-date-" + suffix;
+
+        byte[] expectedByteArray = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
+        Date expectedDate = new Date(1_000L);
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(stringKey, "string-value-" + suffix);
+        entries.put(characterKey, Character.valueOf('A'));
+        entries.put(byteKey, Byte.valueOf((byte) 7));
+        entries.put(byteArrayKey, expectedByteArray);
+        entries.put(shortKey, Short.valueOf((short) 77));
+        entries.put(integerKey, Integer.valueOf(10_010));
+        entries.put(booleanTrueKey, Boolean.TRUE);
+        entries.put(booleanFalseKey, Boolean.FALSE);
+        entries.put(longPositiveKey, Long.valueOf(9_876_543_210L));
+        entries.put(longNegativeKey, Long.valueOf(-9_876_543_210L));
+        entries.put(floatPositiveKey, Float.valueOf(7.25f));
+        entries.put(floatNegativeKey, Float.valueOf(-7.25f));
+        entries.put(doublePositiveKey, Double.valueOf(7.25d));
+        entries.put(doubleNegativeKey, Double.valueOf(-7.25d));
+        entries.put(dateKey, expectedDate);
+
+        try {
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(stringKey);
+            keys.add(characterKey);
+            keys.add(byteKey);
+            keys.add(byteArrayKey);
+            keys.add(shortKey);
+            keys.add(integerKey);
+            keys.add(booleanTrueKey);
+            keys.add(booleanFalseKey);
+            keys.add(longPositiveKey);
+            keys.add(longNegativeKey);
+            keys.add(floatPositiveKey);
+            keys.add(floatNegativeKey);
+            keys.add(doublePositiveKey);
+            keys.add(doubleNegativeKey);
+            keys.add(dateKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object stringActual = results.get(stringKey);
+            Object characterActual = results.get(characterKey);
+            Object byteActual = results.get(byteKey);
+            Object byteArrayActual = results.get(byteArrayKey);
+            Object shortActual = results.get(shortKey);
+            Object integerActual = results.get(integerKey);
+            Object booleanTrueActual = results.get(booleanTrueKey);
+            Object booleanFalseActual = results.get(booleanFalseKey);
+            Object longPositiveActual = results.get(longPositiveKey);
+            Object longNegativeActual = results.get(longNegativeKey);
+            Object floatPositiveActual = results.get(floatPositiveKey);
+            Object floatNegativeActual = results.get(floatNegativeKey);
+            Object doublePositiveActual = results.get(doublePositiveKey);
+            Object doubleNegativeActual = results.get(doubleNegativeKey);
+            Object dateActual = results.get(dateKey);
+
+            assertInstanceOf(String.class, stringActual);
+            assertInstanceOf(Character.class, characterActual);
+            assertInstanceOf(Byte.class, byteActual);
+            assertInstanceOf(byte[].class, byteArrayActual);
+            assertInstanceOf(Short.class, shortActual);
+            assertInstanceOf(Integer.class, integerActual);
+            assertInstanceOf(Boolean.class, booleanTrueActual);
+            assertInstanceOf(Boolean.class, booleanFalseActual);
+            assertInstanceOf(Long.class, longPositiveActual);
+            assertInstanceOf(Long.class, longNegativeActual);
+            assertInstanceOf(Float.class, floatPositiveActual);
+            assertInstanceOf(Float.class, floatNegativeActual);
+            assertInstanceOf(Double.class, doublePositiveActual);
+            assertInstanceOf(Double.class, doubleNegativeActual);
+            assertInstanceOf(Date.class, dateActual);
+
+            assertEquals("string-value-" + suffix, stringActual);
+            assertEquals(Character.valueOf('A'), characterActual);
+            assertEquals(Byte.valueOf((byte) 7), byteActual);
+            assertArrayEquals(expectedByteArray, (byte[]) byteArrayActual);
+            assertEquals(Short.valueOf((short) 77), shortActual);
+            assertEquals(Integer.valueOf(10_010), integerActual);
+            assertEquals(Boolean.TRUE, booleanTrueActual);
+            assertEquals(Boolean.FALSE, booleanFalseActual);
+            assertEquals(Long.valueOf(9_876_543_210L), longPositiveActual);
+            assertEquals(Long.valueOf(-9_876_543_210L), longNegativeActual);
+            assertEquals(Float.valueOf(7.25f), floatPositiveActual);
+            assertEquals(Float.valueOf(-7.25f), floatNegativeActual);
+            assertEquals(Double.valueOf(7.25d), doublePositiveActual);
+            assertEquals(Double.valueOf(-7.25d), doubleNegativeActual);
+            assertEquals(expectedDate, dateActual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after MIXED STRING/CHARACTER/BYTE/BYTE_ARRAY/SHORT/INTEGER/BOOLEAN/LONG/FLOAT/DOUBLE/DATE PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();

@@ -1,12 +1,29 @@
 package com.protogemcouch.serialization;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Date;
 
 public final class ValueDecoding {
 
     private static final int GEODE_STRING_CODE = 0x57;
     private static final int GEODE_NULL_CODE = 0x29;
+
+    /*
+     * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
+     *
+     *   new byte[] {}                         -> 2e 00
+     *   new byte[] {0x01}                     -> 2e 01 01
+     *   new byte[] {0x01,2,3,4,5}             -> 2e 05 01 02 03 04 05
+     *   new byte[] {0,1,0x7f,0x80,0xff}       -> 2e 05 00 01 7f 80 ff
+     *
+     * This implementation supports the validated compact/small-length shape.
+     */
+    private static final int GEODE_BYTE_ARRAY_CODE = 0x2e;
 
     /*
      * Geode DataSerializer boolean marker:
@@ -95,6 +112,80 @@ public final class ValueDecoding {
     private static final int GEODE_DATE_CODE = 0x3d;
 
     private ValueDecoding() {
+    }
+
+    public static byte[] decodeByteArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_BYTE_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != length + 2) {
+            return null;
+        }
+
+        return Arrays.copyOfRange(payload, 2, payload.length);
+    }
+
+    public static byte[] decodeRawByteArrayValue(byte[] payload) {
+        if (payload == null) {
+            return null;
+        }
+
+        /*
+         * Real Geode client Region.put(key, byte[]) sends the byte[] value part as
+         * the raw payload, not as DataSerializer.writeObject(byte[]).
+         *
+         * Examples observed from integration logs:
+         *
+         *   new byte[] {}                         -> ""
+         *   new byte[] {1,2,3,4,5}                -> 0102030405
+         *
+         * Do not treat Geode NULL as an empty byte array.
+         */
+        if (payload.length == 1 && (payload[0] & 0xff) == GEODE_NULL_CODE) {
+            return null;
+        }
+
+        /*
+         * Empty payload is valid for real-client byte[].
+         */
+        if (payload.length == 0) {
+            return Arrays.copyOf(payload, payload.length);
+        }
+
+        /*
+         * Do not steal known typed Geode payloads from their dedicated decoders.
+         */
+        int first = payload[0] & 0xff;
+
+        if (first == GEODE_BYTE_ARRAY_CODE
+                || first == GEODE_BOOLEAN_CODE
+                || first == GEODE_CHARACTER_CODE
+                || first == GEODE_BYTE_CODE
+                || first == GEODE_SHORT_CODE
+                || first == GEODE_INTEGER_CODE
+                || first == GEODE_LONG_CODE
+                || first == GEODE_FLOAT_CODE
+                || first == GEODE_DOUBLE_CODE
+                || first == GEODE_DATE_CODE
+                || first == GEODE_STRING_CODE) {
+            return null;
+        }
+
+        /*
+         * Avoid converting ordinary text fallback payloads into byte[].
+         */
+        if (isLikelyUtf8Text(payload)) {
+            return null;
+        }
+
+        return Arrays.copyOf(payload, payload.length);
     }
 
     public static Boolean decodeBooleanValue(byte[] payload) {
@@ -308,9 +399,13 @@ public final class ValueDecoding {
         }
 
         /*
-         * Do not allow typed primitive Geode payloads to fall through into the
-         * plain UTF-8 fallback.
+         * Do not allow typed primitive or binary Geode payloads to fall through
+         * into the plain UTF-8 fallback.
          */
+        if (decodeByteArrayValue(payload) != null) {
+            return null;
+        }
+
         if (decodeBooleanValue(payload) != null) {
             return null;
         }
@@ -381,6 +476,38 @@ public final class ValueDecoding {
 
         String value = new String(payload, start, length, StandardCharsets.UTF_8);
         return value.isBlank() ? null : value;
+    }
+
+    private static boolean isLikelyUtf8Text(byte[] payload) {
+        CharsetDecoder decoder = StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+
+        String text;
+
+        try {
+            text = decoder.decode(ByteBuffer.wrap(payload)).toString();
+        } catch (CharacterCodingException e) {
+            return false;
+        }
+
+        if (text.isBlank()) {
+            return false;
+        }
+
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+
+            if (Character.isISOControl(c)
+                    && c != '\t'
+                    && c != '\n'
+                    && c != '\r') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static boolean isLikelyGeodeToken(int value) {

@@ -2,20 +2,36 @@
 
 ## Current Build Verification
 
-The project successfully completed a full clean verification after adding `java.util.Date` support.
+The project successfully completed a full clean verification after adding `byte[]` support.
 
 ```text
 mvn clean verify
 BUILD SUCCESS
 ```
 
-Visible unit/focused test phase from the latest verification stream:
+Latest full Docker-backed verification result:
 
 ```text
-Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+
+Total integration tests:
+Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
 ```
 
-The full Docker-backed verification was also confirmed successful locally after Docker was running.
+Latest focused byte-array unit verification:
+
+```text
+mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+
+Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
 
 The verification lifecycle includes:
 
@@ -43,6 +59,7 @@ String
 Boolean
 Character
 Byte
+byte[]
 Short
 Integer
 Long
@@ -67,9 +84,76 @@ Docker-backed serialization integration coverage
 
 ---
 
-## Newly Added Date Support
+## Newly Added byte[] Support
 
-Date support was added and verified across the full runtime path.
+`byte[]` support was added and verified across the full runtime path.
+
+### Supported byte[] Input Shapes
+
+Two byte-array shapes are supported.
+
+#### DataSerializer byte-array shape
+
+Shape observed from `DataSerializer.writeObject(byte[])`:
+
+```text
+0x2e + compact length + bytes
+```
+
+Verified examples:
+
+```text
+new byte[] {}                         -> 2e00
+new byte[] {0x01}                     -> 2e0101
+new byte[] {0x01,0x02,0x03,0x04,0x05} -> 2e050102030405
+new byte[] {0x00,0x01,0x7f,0x80,0xff} -> 2e0500017f80ff
+```
+
+#### Real Geode client raw byte-array shape
+
+Real `Region.put(key, byte[])` was observed to send `byte[]` as the raw value payload rather than the `0x2e` wrapper.
+
+Verified examples:
+
+```text
+new byte[] {}                         -> empty payload
+new byte[] {0x01,0x02,0x03,0x04,0x05} -> 0102030405
+new byte[] {0x00,0x01,0x02,0x03}      -> 00010203
+```
+
+The runtime now logs these as:
+
+```text
+encoding=geode-byte-array
+encoding=raw-byte-array
+```
+
+### byte[] Runtime Support
+
+| Component | Status |
+|---|---:|
+| `ByteArrayShapeTest.java` | Complete |
+| `ValueDecoding.decodeByteArrayValue(...)` | Complete |
+| `ValueDecoding.decodeRawByteArrayValue(...)` | Complete |
+| `StoredValue.Type.BYTE_ARRAY` | Complete |
+| `StoredValue.byteArrayValue(...)` | Complete |
+| `StoredValue.asByteArray()` | Complete |
+| `GemResponseWriter.buildByteArrayGetResponse(...)` | Complete |
+| `GemResponseWriter` GET_ALL byte-array encoding | Complete |
+| `PutHandler` byte-array decode/store | Complete |
+| `PutAllHandler` byte-array decode/store | Complete |
+| `GetHandler` byte-array response path | Complete |
+| `GetAllHandler` byte-array response path | Complete |
+| `CouchbaseRepository` byte-array persistence/hydration | Complete |
+| `ProtoGemCouchSerializationIntegrationTest` byte-array end-to-end coverage | Complete |
+| Focused handler tests | Complete |
+| Full `mvn clean verify` | Passing |
+
+---
+
+## Date Support
+
+Date support remains fully validated.
 
 ### Geode Date Marker
 
@@ -123,14 +207,35 @@ The focused handler tests validate typed paths across `PUT`, `GET`, `PUT_ALL`, a
 Representative command:
 
 ```powershell
-mvn test "-Dtest=GetAllHandlerTest,GetHandlerTest,DateShapeTest,GemResponseWriterTest"
+mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
 ```
 
-Representative successful result:
+Successful result:
 
 ```text
-Tests run: 45, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
+```
+
+Validated byte-array paths:
+
+```text
+PUT:
+encoding=geode-byte-array valueType=BYTE_ARRAY
+encoding=raw-byte-array valueType=BYTE_ARRAY
+
+PUT_ALL:
+encoding=geode-byte-array key=byte-array-key valueType=BYTE_ARRAY
+encoding=geode-byte-array key=byte-array-key-1 valueType=BYTE_ARRAY
+encoding=geode-byte-array key=byte-array-key-2 valueType=BYTE_ARRAY
+
+GET:
+key=my-byte-array-key
+docId=/helloWorld::my-byte-array-key
+
+GET_ALL:
+keys="[byte-array-key-1, byte-array-key-2]"
+keys="[string-key, character-key, byte-key, byte-array-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
 ```
 
 Validated Date paths:
@@ -153,12 +258,47 @@ encoding=geode-date key=date-key-2 valueType=DATE
 
 GET_ALL:
 keys="[date-key-1, date-key-2]"
-keys="[string-key, character-key, byte-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
+keys="[string-key, character-key, byte-key, byte-array-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
 ```
 
 ---
 
 ## Shape Test Results
+
+### ByteArrayShapeTest
+
+Command:
+
+```powershell
+mvn test "-Dtest=ByteArrayShapeTest"
+```
+
+Representative result:
+
+```text
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Captured byte-array output:
+
+```text
+BYTE_ARRAY_EMPTY_HEX_START
+2e00
+BYTE_ARRAY_EMPTY_HEX_END
+
+BYTE_ARRAY_MIXED_HEX_START
+2e0500017f80ff
+BYTE_ARRAY_MIXED_HEX_END
+
+BYTE_ARRAY_ONE_HEX_START
+2e0101
+BYTE_ARRAY_ONE_HEX_END
+
+BYTE_ARRAY_FIVE_HEX_START
+2e050102030405
+BYTE_ARRAY_FIVE_HEX_END
+```
 
 ### DateShapeTest
 
@@ -203,6 +343,7 @@ The validated shape suite now includes:
 BooleanShapeTest
 CharacterShapeTest
 ByteShapeTest
+ByteArrayShapeTest
 ShortShapeTest
 IntegerShapeTest
 LongShapeTest
@@ -215,7 +356,16 @@ DateShapeTest
 
 ## Serialization Integration Results
 
-The serialization integration suite now includes Date end-to-end coverage.
+The serialization integration suite now includes Date and byte-array end-to-end coverage.
+
+Added / updated byte-array scenarios:
+
+```text
+byteArrayValueShouldRoundTripThroughShimAndCouchbase
+putAllWithByteArrayValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithByteArrayValuesShouldReturnByteArrays
+mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+```
 
 Added / updated Date scenarios:
 
@@ -223,17 +373,17 @@ Added / updated Date scenarios:
 dateValueShouldRoundTripThroughShimAndCouchbase
 putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet
 getAllWithDateValuesShouldReturnDates
-mixedStringCharacterByteShortIntegerBooleanLongFloatDoubleAndDatePutAllAndGetAllShouldPreserveTypes
+mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 Verified integration behavior:
 
 ```text
-Geode client PUT Date -> shim decodes Date -> Couchbase stores typed date document
-Geode client GET Date -> shim reads typed date document -> returns Geode Date payload
-Geode client PUT_ALL Date values -> shim decodes and stores all Date values
-Geode client GET_ALL Date values -> shim returns VersionedObjectList-compatible Date values
-Mixed typed PUT_ALL / GET_ALL preserves Date alongside String, Character, Byte, Short, Integer, Boolean, Long, Float, and Double
+Geode client PUT byte[] -> shim decodes byte[] -> Couchbase stores typed byteArray document
+Geode client GET byte[] -> shim reads typed byteArray document -> returns Geode-compatible byte[] payload
+Geode client PUT_ALL byte[] values -> shim decodes and stores all byte[] values
+Geode client GET_ALL byte[] values -> shim returns VersionedObjectList-compatible byte[] values
+Mixed typed PUT_ALL / GET_ALL preserves byte[] and Date alongside String, Character, Byte, Short, Integer, Boolean, Long, Float, and Double
 ```
 
 ---
@@ -273,6 +423,16 @@ Mixed typed PUT_ALL / GET_ALL preserves Date alongside String, Character, Byte, 
 {
   "type": "byte",
   "value": 7
+}
+```
+
+### Byte Array
+
+```json
+{
+  "type": "byteArray",
+  "valueBase64": "AQIDBAU=",
+  "length": 5
 }
 ```
 
@@ -341,10 +501,10 @@ Command:
 mvn test
 ```
 
-Latest visible result:
+Latest focused byte-array path result:
 
 ```text
-Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -395,6 +555,7 @@ String
 Boolean
 Character
 Byte
+byte[]
 Short
 Integer
 Long
@@ -422,13 +583,27 @@ keySet
 
 1. Start the environment with Docker Compose.
 2. Show the Java Geode client using standard `Region.put`, `Region.get`, `Region.putAll`, and `Region.getAll`.
-3. Demonstrate a Date round trip:
+3. Demonstrate a byte-array round trip:
+   ```java
+   byte[] expected = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
+   region.put("byte-array-demo-key", expected);
+   Object actual = region.get("byte-array-demo-key");
+   ```
+4. Show the Couchbase document:
+   ```json
+   {
+     "type": "byteArray",
+     "valueBase64": "AQIDBAU=",
+     "length": 5
+   }
+   ```
+5. Demonstrate a Date round trip:
    ```java
    Date expected = new Date(1_000L);
    region.put("date-demo-key", expected);
    Object actual = region.get("date-demo-key");
    ```
-4. Show the Couchbase document:
+6. Show the Couchbase document:
    ```json
    {
      "type": "date",
@@ -436,8 +611,8 @@ keySet
      "epochMillis": 1000
    }
    ```
-5. Demonstrate mixed typed `putAll` / `getAll` preserving all validated types.
-6. Run or reference:
+7. Demonstrate mixed typed `putAll` / `getAll` preserving all validated types.
+8. Run or reference:
    ```powershell
    mvn clean verify
    ```
@@ -456,7 +631,7 @@ The shim can parse supported Geode protocol operations.
 The shim can translate those operations into Couchbase KV operations.
 The shim can encode Geode-compatible responses.
 Couchbase can act as the persistence backend for the tested region operations.
-Typed Java wrapper values and Date values preserve type fidelity across PUT/GET and PUT_ALL/GET_ALL.
+Typed Java wrapper values, byte arrays, and Date values preserve type fidelity across PUT/GET and PUT_ALL/GET_ALL.
 Automated Docker-based integration tests can validate the whole stack.
 ```
 
@@ -470,7 +645,7 @@ Validated:
 Java Geode client
 Proxy region behavior
 Core region operations
-Typed wrapper and Date values
+Typed wrapper, byte[], and Date values
 Couchbase KV persistence
 Single bucket/scope/collection backend
 Manual VersionedObjectList-compatible GET_ALL responses
@@ -480,7 +655,6 @@ Docker Compose based integration environment
 Not yet fully validated:
 
 ```text
-byte[]
 String[]
 ArrayList<String>
 HashMap<String, Object>
@@ -509,17 +683,17 @@ This demo phase is successful.
 The current milestone is:
 
 ```text
-date-support-complete
+byte-array-support-complete
 ```
 
 Suggested commit:
 
 ```text
-Add Date serialization support
+Add byte-array serialization support
 ```
 
 Suggested next target:
 
 ```text
-byte[]
+String[] or ArrayList<String>
 ```

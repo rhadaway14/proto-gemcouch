@@ -131,6 +131,37 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_byte_array_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("byte-array-key-1", StoredValue.byteArrayValue(new byte[] {
+                0x01, 0x02, 0x03, 0x04, 0x05
+        }));
+        repoResult.put("byte-array-key-2", StoredValue.byteArrayValue(new byte[] {
+                0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff
+        }));
+
+        when(repository.getAll("/helloWorld", List.of("byte-array-key-1", "byte-array-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("byte-array-key-1", "byte-array-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("byte-array-key-1", "byte-array-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_short_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -301,6 +332,9 @@ class GetAllHandlerTest {
         repoResult.put("string-key", StoredValue.stringValue("value-1"));
         repoResult.put("character-key", StoredValue.characterValue(Character.valueOf('A')));
         repoResult.put("byte-key", StoredValue.byteValue(Byte.valueOf((byte) 7)));
+        repoResult.put("byte-array-key", StoredValue.byteArrayValue(new byte[] {
+                0x01, 0x02, 0x03, 0x04, 0x05
+        }));
         repoResult.put("short-key", StoredValue.shortValue(Short.valueOf((short) 7)));
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
@@ -314,6 +348,7 @@ class GetAllHandlerTest {
                 "string-key",
                 "character-key",
                 "byte-key",
+                "byte-array-key",
                 "short-key",
                 "integer-key",
                 "boolean-key",

@@ -130,6 +130,38 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_byte_array_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("byte-array-key-1", geodeByteArray(new byte[] {
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                })),
+                entry("byte-array-key-2", geodeByteArray(new byte[] {
+                        0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff
+                }))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::byte-array-key-1"),
+                eq(StoredValue.byteArrayValue(new byte[] {
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::byte-array-key-2"),
+                eq(StoredValue.byteArrayValue(new byte[] {
+                        0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff
+                }))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_short_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -277,11 +309,14 @@ class PutAllHandlerTest {
     void handle_parses_mixed_primitive_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                10,
+                11,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
                 entry("byte-key", geodeByte((byte) 7)),
+                entry("byte-array-key", geodeByteArray(new byte[] {
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                })),
                 entry("short-key", geodeShort((short) 7)),
                 entry("integer-key", geodeInteger(12345)),
                 entry("long-key", geodeLong(9_876_543_210L)),
@@ -310,6 +345,13 @@ class PutAllHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::byte-key"),
                 eq(StoredValue.byteValue(Byte.valueOf((byte) 7)))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::byte-array-key"),
+                eq(StoredValue.byteArrayValue(new byte[] {
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                }))
         );
 
         verify(repository).put(
@@ -492,6 +534,25 @@ class PutAllHandlerTest {
                 0x37,
                 value
         };
+    }
+
+    private static byte[] geodeByteArray(byte[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("byte[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports byte[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[value.length + 2];
+        out[0] = 0x2e;
+        out[1] = (byte) value.length;
+        System.arraycopy(value, 0, out, 2, value.length);
+
+        return out;
     }
 
     private static byte[] geodeShort(short value) {

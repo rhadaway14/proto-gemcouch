@@ -62,6 +62,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asByte()
             );
+        } else if (value.type() == StoredValue.Type.BYTE_ARRAY) {
+            response = GemResponseWriter.buildByteArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asByteArray()
+            );
         } else if (value.type() == StoredValue.Type.SHORT) {
             response = GemResponseWriter.buildShortGetResponse(
                     frame.getTransactionId(),

@@ -141,6 +141,72 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_byte_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-byte-array-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x2e,
+                        0x05,
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-byte-array-key"),
+                eq(StoredValue.byteArrayValue(new byte[]{
+                        0x01, 0x02, 0x03, 0x04, 0x05
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_raw_byte_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-raw-byte-array-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x00, 0x01, 0x02, 0x03
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-raw-byte-array-key"),
+                eq(StoredValue.byteArrayValue(new byte[]{
+                        0x00, 0x01, 0x02, 0x03
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_short_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -394,7 +460,7 @@ class PutHandlerTest {
                 intPart(0),
                 stringPart("my-key"),
                 objectPart("5"),
-                part(new byte[]{0x00, 0x01, 0x02, 0x03}),
+                part(new byte[]{0x29}),
                 part(new byte[]{0x02, 0x00, 0x01})
         );
 

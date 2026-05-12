@@ -44,6 +44,18 @@ public final class GemResponseWriter {
     };
 
     /*
+     * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
+     *
+     *   new byte[] {}                         -> 2e 00
+     *   new byte[] {0x01}                     -> 2e 01 01
+     *   new byte[] {0x01,2,3,4,5}             -> 2e 05 01 02 03 04 05
+     *   new byte[] {0,1,0x7f,0x80,0xff}       -> 2e 05 00 01 7f 80 ff
+     *
+     * This implementation supports the currently validated compact/small-length shape.
+     */
+    private static final byte GEODE_BYTE_ARRAY_CODE = 0x2e;
+
+    /*
      * Geode DataSerializer boolean marker:
      *
      *   Boolean.TRUE  -> 35 01
@@ -195,6 +207,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedByte(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildByteArrayGetResponse(int txId, byte[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedByteArray(value), (byte) 1))
         );
     }
 
@@ -414,6 +434,10 @@ public final class GemResponseWriter {
             return storedValue;
         }
 
+        if (rawValue instanceof byte[] byteArrayValue) {
+            return StoredValue.byteArrayValue(byteArrayValue);
+        }
+
         if (rawValue instanceof Boolean bool) {
             return StoredValue.booleanValue(bool);
         }
@@ -464,6 +488,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.BYTE) {
             return geodeSerializedByte(value.asByte());
+        }
+
+        if (value.type() == StoredValue.Type.BYTE_ARRAY) {
+            return geodeSerializedByteArray(value.asByteArray());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -524,6 +552,32 @@ public final class GemResponseWriter {
         }
 
         buf.writeByte((byte) count);
+    }
+
+    private static byte[] geodeSerializedByteArray(byte[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("byte[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated byte[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_BYTE_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+            buf.writeBytes(value);
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
     }
 
     private static byte[] geodeSerializedBoolean(boolean value) {

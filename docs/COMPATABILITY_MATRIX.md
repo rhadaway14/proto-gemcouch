@@ -2,22 +2,38 @@
 
 ## Current Validation Status
 
-Last updated after successful full verification for `java.util.Date` support.
+Last updated after successful full verification for `byte[]` support.
 
 ```text
 mvn clean verify
 BUILD SUCCESS
 ```
 
-The latest verification completed successfully after Date support was added across the runtime path, focused unit tests, Couchbase persistence/hydration, and Docker-backed integration tests.
+The latest full Docker-backed verification completed successfully after `byte[]` support was added across the runtime path, focused unit tests, Couchbase persistence/hydration, and Docker-backed integration tests.
 
-Known visible unit-test result from the final verification stream:
+Latest full integration result:
 
 ```text
-Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+
+Total integration tests:
+Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
 ```
 
-Full Docker/Failsafe integration was also confirmed successful locally after Docker was running.
+Latest focused byte-array unit path result:
+
+```text
+mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+
+Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
 
 ---
 
@@ -33,27 +49,28 @@ Full Docker/Failsafe integration was also confirmed successful locally after Doc
 | `getAll` | Supported | Supports VersionedObjectList-compatible response payloads for validated types. |
 | `remove` | Supported | Removes mapped Couchbase document. |
 | `containsKey` / contains-style checks | Supported | Repository-backed key/value existence checks. |
-| `sizeOnServer` | Supported | Region-size query path covered by unit tests. |
+| `sizeOnServer` | Supported | Region-size query path covered by unit tests and integration coverage. |
 | `keySetOnServer` | Supported | Returns region keys using Geode-compatible list payload. |
+| `GET_CLIENT_PARTITION_ATTRIBUTES` | Observed / acknowledged | Opcode is observed and logged; explicit partition metadata behavior is not implemented yet. |
 | Unknown opcode handling | Supported | Logs unknown frame details and does not crash. |
 
 ---
 
 ## Supported Value Types
 
-| Java / Geode Type | Geode DataSerializer Marker | Example Shape | Runtime Support | Unit Coverage | Integration Coverage |
+| Java / Geode Type | Geode DataSerializer Marker / Shape | Example Shape | Runtime Support | Unit Coverage | Integration Coverage |
 |---|---:|---|---|---|---|
 | `String` | `0x57` | `57 00 <len> <utf8>` | Yes | Yes | Yes |
 | `Boolean` | `0x35` | `true -> 3501`, `false -> 3500` | Yes | Yes | Yes |
 | `Character` | `0x36` | `'A' -> 360041` | Yes | Yes | Yes |
 | `Byte` | `0x37` | `7 -> 3707` | Yes | Yes | Yes |
+| `byte[]` | `0x2e` or raw payload | `2e050102030405` or `0102030405` | Yes | Yes | Yes |
 | `Short` | `0x38` | `7 -> 380007` | Yes | Yes | Yes |
 | `Integer` | `0x39` | `7 -> 3900000007` | Yes | Yes | Yes |
 | `Long` | `0x3a` | `7 -> 3a0000000000000007` | Yes | Yes | Yes |
 | `Float` | `0x3b` | `7.25f -> 3b40e80000` | Yes | Yes | Yes |
 | `Double` | `0x3c` | `7.25d -> 3c401d000000000000` | Yes | Yes | Yes |
 | `java.util.Date` | `0x3d` | `new Date(1000L) -> 3d00000000000003e8` | Yes | Yes | Yes |
-| `byte[]` | TBD | TBD | Not yet | Not yet | Not yet |
 | `String[]` | TBD | TBD | Not yet | Not yet | Not yet |
 | `ArrayList<String>` | TBD | TBD | Not yet | Not yet | Not yet |
 | `HashMap<String, Object>` | TBD | TBD | Not yet | Not yet | Not yet |
@@ -112,6 +129,44 @@ String: key-1
 | `Byte.valueOf((byte) -7)` | `37f9` |
 | `Byte.MAX_VALUE` | `377f` |
 | `Byte.MIN_VALUE` | `3780` |
+
+---
+
+### Byte Array
+
+Two byte-array shapes are now supported.
+
+#### DataSerializer byte-array shape
+
+`DataSerializer.writeObject(byte[])` produces:
+
+```text
+0x2e + compact length + bytes
+```
+
+| Value | Hex |
+|---:|---|
+| `new byte[] {}` | `2e00` |
+| `new byte[] {0x01}` | `2e0101` |
+| `new byte[] {0x01,0x02,0x03,0x04,0x05}` | `2e050102030405` |
+| `new byte[] {0x00,0x01,0x7f,0x80,0xff}` | `2e0500017f80ff` |
+
+#### Real Geode client raw byte-array shape
+
+Real `Region.put(key, byte[])` and related real-client paths were observed to send `byte[]` as the raw value part payload rather than the DataSerializer wrapper.
+
+| Value | Hex |
+|---:|---|
+| `new byte[] {}` | empty payload |
+| `new byte[] {0x01,0x02,0x03,0x04,0x05}` | `0102030405` |
+| `new byte[] {0x00,0x01,0x02,0x03}` | `00010203` |
+
+The runtime supports both shapes:
+
+```text
+encoding=geode-byte-array
+encoding=raw-byte-array
+```
 
 ---
 
@@ -224,6 +279,18 @@ Validated typed values are persisted as JSON objects with a `type` field and val
 }
 ```
 
+### Byte Array
+
+```json
+{
+  "type": "byteArray",
+  "valueBase64": "AQIDBAU=",
+  "length": 5
+}
+```
+
+`valueBase64` stores the exact binary payload, and `length` is persisted as a validation/debug aid during hydration.
+
 ### Short
 
 ```json
@@ -279,23 +346,25 @@ Validated typed values are persisted as JSON objects with a `type` field and val
 }
 ```
 
+The Date envelope intentionally stores both a readable ISO-8601 timestamp and the exact epoch-millis value needed for lossless Geode round-tripping.
+
 ---
 
 ## Runtime Coverage by Component
 
-| Component | String | Boolean | Character | Byte | Short | Integer | Long | Float | Double | Date |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | String | Boolean | Character | Byte | byte[] | Short | Integer | Long | Float | Double | Date |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ---
 
@@ -340,15 +409,25 @@ PUT_ALL typed values
 GET_ALL typed values
 Mixed typed PUT_ALL / GET_ALL preservation
 Date round trips through Couchbase
+byte[] round trips through Couchbase
 ```
 
-Date-specific scenarios added:
+Date-specific scenarios:
 
 ```text
 dateValueShouldRoundTripThroughShimAndCouchbase
 putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet
 getAllWithDateValuesShouldReturnDates
-mixedStringCharacterByteShortIntegerBooleanLongFloatDoubleAndDatePutAllAndGetAllShouldPreserveTypes
+mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+```
+
+Byte-array-specific scenarios:
+
+```text
+byteArrayValueShouldRoundTripThroughShimAndCouchbase
+putAllWithByteArrayValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithByteArrayValuesShouldReturnByteArrays
+mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 ---
@@ -358,7 +437,6 @@ mixedStringCharacterByteShortIntegerBooleanLongFloatDoubleAndDatePutAllAndGetAll
 Not yet fully implemented or validated:
 
 ```text
-byte[]
 String[]
 ArrayList<String>
 HashMap<String, Object>
@@ -382,54 +460,45 @@ High-concurrency load and soak testing
 
 ## Current Milestone
 
-Date support is the current completed milestone.
+Byte-array support is the current completed milestone.
 
 Suggested commit:
 
 ```text
-Add Date serialization support
+Add byte-array serialization support
 ```
 
 Suggested tag:
 
 ```text
-date-support-complete
+byte-array-support-complete
 ```
 
 ---
 
 ## Recommended Next Target
 
-The next compatibility target should be:
+The next compatibility target should be one of:
 
 ```text
-byte[]
+String[]
+ArrayList<String>
+HashMap<String, Object>
 ```
 
-Suggested implementation path:
+Suggested implementation path for the next type:
 
 ```text
-ByteArrayShapeTest
-ValueDecoding.decodeByteArrayValue(...)
-StoredValue.Type.BYTE_ARRAY
-StoredValue.byteArrayValue(...)
-StoredValue.asByteArray()
-GemResponseWriter.buildByteArrayGetResponse(...)
-PutHandler byte[] decode/store
-PutAllHandler byte[] decode/store
-GetHandler byte[] response
-GetAllHandler byte[] response
-CouchbaseRepository byte[] persistence using Base64
-ProtoGemCouchSerializationIntegrationTest byte[] round trip
+Shape test
+ValueDecoding support
+StoredValue representation
+GemResponseWriter GET support
+GemResponseWriter GET_ALL support
+PutHandler decode/store
+PutAllHandler decode/store
+GetHandler response
+GetAllHandler response
+CouchbaseRepository persistence/hydration
+ProtoGemCouchSerializationIntegrationTest round trip
 Docs update
-```
-
-Suggested Couchbase envelope:
-
-```json
-{
-  "type": "byteArray",
-  "valueBase64": "AQIDBAU=",
-  "length": 5
-}
 ```

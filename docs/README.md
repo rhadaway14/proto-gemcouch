@@ -11,7 +11,7 @@ The goal is to let an existing Java Geode client application change only its con
 Current milestone:
 
 ```text
-date-support-complete
+byte-array-support-complete
 ```
 
 Latest full verification:
@@ -21,13 +21,27 @@ mvn clean verify
 BUILD SUCCESS
 ```
 
-Latest visible unit/focused test result from the verification stream:
+Latest full Docker-backed integration verification:
 
 ```text
-Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
+
+Total integration tests:
+Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
 ```
 
-Docker-backed integration verification was also confirmed successful locally.
+Latest focused byte-array unit/focused test result:
+
+```text
+mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+
+Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
 
 ---
 
@@ -86,6 +100,7 @@ String
 Boolean
 Character
 Byte
+byte[]
 Short
 Integer
 Long
@@ -217,6 +232,7 @@ Responsibilities:
 
 ```text
 Decode typed Geode DataSerializer values
+Decode real-client raw byte[] payloads
 Represent typed values internally
 Fallback to Geode DataSerializer deserialization where useful
 Avoid accidental primitive-to-string fallback
@@ -303,6 +319,18 @@ Typed values are persisted as JSON envelopes.
   "value": 7
 }
 ```
+
+### Byte Array
+
+```json
+{
+  "type": "byteArray",
+  "valueBase64": "AQIDBAU=",
+  "length": 5
+}
+```
+
+`valueBase64` stores the exact binary payload. `length` is included as a validation/debug aid when hydrating the value back from Couchbase.
 
 ### Short
 
@@ -395,6 +423,34 @@ Boolean.FALSE -> 3500
 -7            -> 37f9
 Byte.MAX      -> 377f
 Byte.MIN      -> 3780
+```
+
+### Byte Array
+
+Two byte-array shapes are supported.
+
+DataSerializer byte-array shape:
+
+```text
+new byte[] {}                         -> 2e00
+new byte[] {0x01}                     -> 2e0101
+new byte[] {0x01,0x02,0x03,0x04,0x05} -> 2e050102030405
+new byte[] {0x00,0x01,0x7f,0x80,0xff} -> 2e0500017f80ff
+```
+
+Real Geode client raw byte-array payload shape:
+
+```text
+new byte[] {}                         -> empty payload
+new byte[] {0x01,0x02,0x03,0x04,0x05} -> 0102030405
+new byte[] {0x00,0x01,0x02,0x03}      -> 00010203
+```
+
+Runtime decode labels:
+
+```text
+encoding=geode-byte-array
+encoding=raw-byte-array
 ```
 
 ### Short
@@ -501,10 +557,22 @@ mvn test
 mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
 ```
 
+### Byte Array Focused Path
+
+```powershell
+mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+```
+
 ### Date Shape Test
 
 ```powershell
 mvn test "-Dtest=DateShapeTest"
+```
+
+### Byte Array Shape Test
+
+```powershell
+mvn test "-Dtest=ByteArrayShapeTest"
 ```
 
 ### Full Verification
@@ -575,6 +643,9 @@ Object stringValue = region.get("string-key");
 region.put("integer-key", Integer.valueOf(12345));
 Object integerValue = region.get("integer-key");
 
+region.put("byte-array-key", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
+Object byteArrayValue = region.get("byte-array-key");
+
 region.put("date-key", new Date(1_000L));
 Object dateValue = region.get("date-key");
 ```
@@ -586,6 +657,7 @@ Map<String, Object> entries = new LinkedHashMap<>();
 entries.put("string-key", "value-1");
 entries.put("character-key", Character.valueOf('A'));
 entries.put("byte-key", Byte.valueOf((byte) 7));
+entries.put("byte-array-key", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
 entries.put("short-key", Short.valueOf((short) 7));
 entries.put("integer-key", Integer.valueOf(12345));
 entries.put("boolean-key", Boolean.TRUE);
@@ -602,7 +674,7 @@ Map<String, Object> results = region.getAll(entries.keySet());
 Expected result:
 
 ```text
-Each returned value keeps its original Java wrapper/date type.
+Each returned value keeps its original Java wrapper/date/binary type.
 ```
 
 ---
@@ -613,6 +685,7 @@ Currently validated:
 
 ```text
 Primitive wrapper value round-tripping
+byte[] round-tripping
 java.util.Date round-tripping
 Typed Couchbase persistence envelopes
 Manual VersionedObjectList-compatible GET_ALL responses
@@ -623,7 +696,6 @@ Docker-based integration verification
 Not yet fully implemented or validated:
 
 ```text
-byte[]
 String[]
 ArrayList<String>
 HashMap<String, Object>
@@ -660,38 +732,29 @@ BUILD SUCCESS
 
 ## Suggested Next Development Target
 
-The next recommended compatibility target is:
+The next recommended compatibility target is one of:
 
 ```text
-byte[]
+String[]
+ArrayList<String>
+HashMap<String, Object>
 ```
 
 Recommended implementation path:
 
 ```text
-ByteArrayShapeTest
-ValueDecoding.decodeByteArrayValue(...)
-StoredValue.Type.BYTE_ARRAY
-StoredValue.byteArrayValue(...)
-StoredValue.asByteArray()
-GemResponseWriter.buildByteArrayGetResponse(...)
-PutHandler byte[] decode/store
-PutAllHandler byte[] decode/store
-GetHandler byte[] response
-GetAllHandler byte[] response
-CouchbaseRepository byte[] persistence using Base64
-ProtoGemCouchSerializationIntegrationTest byte[] round trip
+Shape test
+ValueDecoding support
+StoredValue representation
+GemResponseWriter GET support
+GemResponseWriter GET_ALL support
+PutHandler decode/store
+PutAllHandler decode/store
+GetHandler response
+GetAllHandler response
+CouchbaseRepository persistence/hydration
+ProtoGemCouchSerializationIntegrationTest round trip
 Docs update
-```
-
-Suggested Couchbase envelope:
-
-```json
-{
-  "type": "byteArray",
-  "valueBase64": "AQIDBAU=",
-  "length": 5
-}
 ```
 
 ---
@@ -701,17 +764,17 @@ Suggested Couchbase envelope:
 Current stable checkpoint:
 
 ```text
-date-support-complete
+byte-array-support-complete
 ```
 
 Suggested commit:
 
 ```text
-Add Date serialization support
+Add byte-array serialization support
 ```
 
 Suggested tag:
 
 ```text
-date-support-complete
+byte-array-support-complete
 ```

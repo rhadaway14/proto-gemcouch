@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +32,8 @@ public class CouchbaseRepository implements Repository {
     private static final Logger log = LoggerFactory.getLogger(CouchbaseRepository.class);
 
     private static final String FIELD_VALUE = "value";
+    private static final String FIELD_VALUE_BASE64 = "valueBase64";
+    private static final String FIELD_LENGTH = "length";
     private static final String FIELD_TYPE = "type";
     private static final String FIELD_EPOCH_MILLIS = "epochMillis";
 
@@ -38,6 +41,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_BOOLEAN = "boolean";
     private static final String TYPE_CHARACTER = "character";
     private static final String TYPE_BYTE = "byte";
+    private static final String TYPE_BYTE_ARRAY = "byteArray";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -347,6 +351,15 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.BYTE_ARRAY) {
+            byte[] byteArray = value.asByteArray();
+
+            body.put(FIELD_TYPE, TYPE_BYTE_ARRAY);
+            body.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(byteArray));
+            body.put(FIELD_LENGTH, byteArray.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -391,8 +404,10 @@ public class CouchbaseRepository implements Repository {
     }
 
     private static StoredValue decodeStoredValue(JsonObject content) {
-        if (content == null || !content.containsKey(FIELD_VALUE)) {
-            return null;
+        if (content == null || !content.containsKey(FIELD_TYPE)) {
+            if (content == null || !content.containsKey(FIELD_VALUE)) {
+                return null;
+            }
         }
 
         String type = content.containsKey(FIELD_TYPE)
@@ -451,6 +466,10 @@ public class CouchbaseRepository implements Repository {
             }
 
             return null;
+        }
+
+        if (TYPE_BYTE_ARRAY.equalsIgnoreCase(type)) {
+            return decodeByteArrayStoredValue(content, rawValue);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -542,6 +561,47 @@ public class CouchbaseRepository implements Repository {
         }
 
         return StoredValue.stringValue(String.valueOf(rawValue));
+    }
+
+    private static StoredValue decodeByteArrayStoredValue(JsonObject content, Object rawValue) {
+        Object rawBase64 = content.get(FIELD_VALUE_BASE64);
+
+        if (rawBase64 instanceof String base64Text) {
+            try {
+                byte[] decoded = Base64.getDecoder().decode(base64Text);
+
+                Object rawLength = content.get(FIELD_LENGTH);
+                if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+                    log.warn(StructuredLog.event(
+                            "repository_byte_array_length_mismatch",
+                            "expectedLength", number.intValue(),
+                            "actualLength", decoded.length
+                    ));
+                }
+
+                return StoredValue.byteArrayValue(decoded);
+            } catch (IllegalArgumentException e) {
+                log.warn(StructuredLog.event(
+                        "repository_byte_array_decode_failed",
+                        "error", e.getMessage()
+                ));
+                return null;
+            }
+        }
+
+        /*
+         * Compatibility fallback if a hand-written document used "value" instead
+         * of "valueBase64" for the Base64 payload.
+         */
+        if (rawValue instanceof String text) {
+            try {
+                return StoredValue.byteArrayValue(Base64.getDecoder().decode(text));
+            } catch (IllegalArgumentException e) {
+                return StoredValue.stringValue(text);
+            }
+        }
+
+        return null;
     }
 
     private static StoredValue decodeDateStoredValue(JsonObject content, Object rawValue) {
