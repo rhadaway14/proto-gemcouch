@@ -67,6 +67,26 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asByteArray()
             );
+        } else if (value.type() == StoredValue.Type.STRING_ARRAY) {
+            response = GemResponseWriter.buildStringArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asStringArray()
+            );
+        } else if (value.type() == StoredValue.Type.STRING_ARRAY_LIST) {
+            response = GemResponseWriter.buildStringArrayListGetResponse(
+                    frame.getTransactionId(),
+                    value.asStringArrayList()
+            );
+        } else if (value.type() == StoredValue.Type.STRING_HASH_MAP) {
+            response = GemResponseWriter.buildStringHashMapGetResponse(
+                    frame.getTransactionId(),
+                    value.asStringHashMap()
+            );
+        } else if (value.type() == StoredValue.Type.STRING_OBJECT_HASH_MAP) {
+            response = GemResponseWriter.buildStringObjectHashMapGetResponse(
+                    frame.getTransactionId(),
+                    value.asStringObjectHashMap()
+            );
         } else if (value.type() == StoredValue.Type.SHORT) {
             response = GemResponseWriter.buildShortGetResponse(
                     frame.getTransactionId(),

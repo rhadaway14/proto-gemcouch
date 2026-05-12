@@ -11,35 +11,29 @@ The goal is to let an existing Java Geode client application change only its con
 Current milestone:
 
 ```text
-byte-array-support-complete
+string-object-map-support-complete
 ```
 
-Latest full verification:
+Latest Docker-backed serialization verification:
 
 ```text
-mvn clean verify
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 BUILD SUCCESS
 ```
 
-Latest full Docker-backed integration verification:
+Latest serialization integration result:
 
 ```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
-
-Total integration tests:
-Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
 ```
 
-Latest focused byte-array unit/focused test result:
+Latest focused typed-path verification:
 
 ```text
-mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
 
-Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -101,12 +95,35 @@ Boolean
 Character
 Byte
 byte[]
+String[]
+ArrayList<String>
+HashMap<String,String>
+HashMap<String,Object>
 Short
 Integer
 Long
 Float
 Double
 java.util.Date
+```
+
+`HashMap<String,Object>` / `LinkedHashMap<String,Object>` supports the following nested value types:
+
+```text
+null
+String
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+String[]
+ArrayList<String>
 ```
 
 These are supported across:
@@ -233,9 +250,10 @@ Responsibilities:
 ```text
 Decode typed Geode DataSerializer values
 Decode real-client raw byte[] payloads
+Decode Geode Java-serialized map payloads
 Represent typed values internally
 Fallback to Geode DataSerializer deserialization where useful
-Avoid accidental primitive-to-string fallback
+Avoid accidental primitive/map-to-string fallback
 ```
 
 Important classes include:
@@ -331,6 +349,85 @@ Typed values are persisted as JSON envelopes.
 ```
 
 `valueBase64` stores the exact binary payload. `length` is included as a validation/debug aid when hydrating the value back from Couchbase.
+
+### String Array
+
+```json
+{
+  "type": "stringArray",
+  "value": ["one", null, "three"],
+  "length": 3
+}
+```
+
+### ArrayList<String>
+
+```json
+{
+  "type": "stringArrayList",
+  "value": ["one", null, "three"],
+  "length": 3
+}
+```
+
+### HashMap<String,String>
+
+```json
+{
+  "type": "stringHashMap",
+  "value": {
+    "one": "value-1",
+    "two": null,
+    "three": "value-3"
+  },
+  "length": 3
+}
+```
+
+### HashMap<String,Object>
+
+```json
+{
+  "type": "stringObjectHashMap",
+  "value": {
+    "name": {
+      "type": "string",
+      "value": "rob"
+    },
+    "age": {
+      "type": "integer",
+      "value": 42
+    },
+    "active": {
+      "type": "boolean",
+      "value": true
+    },
+    "createdAt": {
+      "type": "date",
+      "value": "1970-01-01T00:00:01Z",
+      "epochMillis": 1000
+    },
+    "payload": {
+      "type": "byteArray",
+      "valueBase64": "AQID",
+      "length": 3
+    },
+    "items": {
+      "type": "stringArray",
+      "value": ["one", null, "three"],
+      "length": 3
+    },
+    "list": {
+      "type": "stringArrayList",
+      "value": ["one", null, "three"],
+      "length": 3
+    }
+  },
+  "length": 7
+}
+```
+
+The `stringObjectHashMap` envelope intentionally stores each nested value as a typed envelope to preserve Java type fidelity across JSON storage.
 
 ### Short
 
@@ -453,6 +550,38 @@ encoding=geode-byte-array
 encoding=raw-byte-array
 ```
 
+### String Array
+
+```text
+new String[] {}                   -> 4000
+new String[] {"one"}              -> 40015700036f6e65
+new String[] {"one",null,"three"} -> 40035700036f6e65455700057468726565
+```
+
+### ArrayList<String>
+
+```text
+new ArrayList<>()                 -> 4100
+["one"]                           -> 41015700036f6e65
+["one",null,"three"]              -> 41035700036f6e65295700057468726565
+```
+
+### HashMap<String,String>
+
+```text
+empty map      -> 4300
+non-empty map  -> 2caced0005...
+```
+
+### HashMap<String,Object>
+
+```text
+empty map      -> 4300
+non-empty map  -> 2caced0005...
+```
+
+Non-empty map payloads are encoded as `0x2c + Java ObjectOutputStream bytes`.
+
 ### Short
 
 ```text
@@ -472,18 +601,18 @@ Short.MIN     -> 388000
 ### Long
 
 ```text
-7L          -> 3a0000000000000007
--7L         -> 3afffffffffffffff9
-9876543210L -> 3a000000024cb016ea
+7L           -> 3a0000000000000007
+-7L          -> 3afffffffffffffff9
+9876543210L  -> 3a000000024cb016ea
 ```
 
 ### Float
 
 ```text
-0.0f      -> 3b00000000
-7.25f     -> 3b40e80000
--7.25f    -> 3bc0e80000
-987654.25 -> 3b49712064
+0.0f       -> 3b00000000
+7.25f      -> 3b40e80000
+-7.25f     -> 3bc0e80000
+987654.25f -> 3b49712064
 ```
 
 ### Double
@@ -557,30 +686,18 @@ mvn test
 mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
 ```
 
-### Byte Array Focused Path
+### String Object Map Focused Path
 
 ```powershell
-mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
 ```
 
-### Date Shape Test
-
-```powershell
-mvn test "-Dtest=DateShapeTest"
-```
-
-### Byte Array Shape Test
-
-```powershell
-mvn test "-Dtest=ByteArrayShapeTest"
-```
-
-### Full Verification
+### Full Serialization Integration Verification
 
 Requires Docker Desktop / Docker daemon to be running.
 
 ```powershell
-mvn clean verify
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 ```
 
 This runs:
@@ -610,7 +727,7 @@ Before running:
 mvn clean verify
 ```
 
-Confirm Docker is available:
+confirm Docker is available:
 
 ```powershell
 docker ps
@@ -648,16 +765,50 @@ Object byteArrayValue = region.get("byte-array-key");
 
 region.put("date-key", new Date(1_000L));
 Object dateValue = region.get("date-key");
+
+LinkedHashMap<String, Object> profile = new LinkedHashMap<>();
+profile.put("name", "rob");
+profile.put("age", Integer.valueOf(42));
+profile.put("active", Boolean.TRUE);
+profile.put("createdAt", new Date(1_000L));
+profile.put("payload", new byte[] {0x01, 0x02, 0x03});
+profile.put("items", new String[] {"one", null, "three"});
+
+region.put("profile-key", profile);
+Object profileValue = region.get("profile-key");
 ```
 
 Mixed bulk example:
 
 ```java
+ArrayList<String> tags = new ArrayList<>();
+tags.add("one");
+tags.add(null);
+tags.add("three");
+
+LinkedHashMap<String, String> stringMap = new LinkedHashMap<>();
+stringMap.put("one", "value-1");
+stringMap.put("two", null);
+stringMap.put("three", "value-3");
+
+LinkedHashMap<String, Object> objectMap = new LinkedHashMap<>();
+objectMap.put("name", "rob");
+objectMap.put("age", Integer.valueOf(42));
+objectMap.put("active", Boolean.TRUE);
+objectMap.put("createdAt", new Date(1_000L));
+objectMap.put("payload", new byte[] {0x01, 0x02, 0x03});
+objectMap.put("items", new String[] {"one", null, "three"});
+objectMap.put("list", tags);
+
 Map<String, Object> entries = new LinkedHashMap<>();
 entries.put("string-key", "value-1");
 entries.put("character-key", Character.valueOf('A'));
 entries.put("byte-key", Byte.valueOf((byte) 7));
 entries.put("byte-array-key", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
+entries.put("string-array-key", new String[] {"one", null, "three"});
+entries.put("string-array-list-key", tags);
+entries.put("string-hash-map-key", stringMap);
+entries.put("string-object-hash-map-key", objectMap);
 entries.put("short-key", Short.valueOf((short) 7));
 entries.put("integer-key", Integer.valueOf(12345));
 entries.put("boolean-key", Boolean.TRUE);
@@ -674,7 +825,7 @@ Map<String, Object> results = region.getAll(entries.keySet());
 Expected result:
 
 ```text
-Each returned value keeps its original Java wrapper/date/binary type.
+Each returned value keeps its original Java wrapper/date/binary/array/list/map type.
 ```
 
 ---
@@ -686,6 +837,10 @@ Currently validated:
 ```text
 Primitive wrapper value round-tripping
 byte[] round-tripping
+String[] round-tripping
+ArrayList<String> round-tripping
+HashMap<String,String> round-tripping
+HashMap<String,Object> round-tripping
 java.util.Date round-tripping
 Typed Couchbase persistence envelopes
 Manual VersionedObjectList-compatible GET_ALL responses
@@ -696,11 +851,9 @@ Docker-based integration verification
 Not yet fully implemented or validated:
 
 ```text
-String[]
-ArrayList<String>
-HashMap<String, Object>
 Arbitrary Java object graph serialization
 Complex POJO round-tripping
+Nested Map<String,Object> beyond explicitly tested supported value types
 PDX object support
 JSON object values
 Expiration / TTL behavior
@@ -732,12 +885,18 @@ BUILD SUCCESS
 
 ## Suggested Next Development Target
 
-The next recommended compatibility target is one of:
+The next recommended compatibility target is:
 
 ```text
-String[]
-ArrayList<String>
-HashMap<String, Object>
+Simple Serializable POJO
+```
+
+Alternative next targets:
+
+```text
+Nested Map<String,Object>
+PDX object support
+JSON object value support
 ```
 
 Recommended implementation path:
@@ -764,17 +923,17 @@ Docs update
 Current stable checkpoint:
 
 ```text
-byte-array-support-complete
+string-object-map-support-complete
 ```
 
 Suggested commit:
 
 ```text
-Add byte-array serialization support
+Add string object map serialization support
 ```
 
 Suggested tag:
 
 ```text
-byte-array-support-complete
+string-object-map-support-complete
 ```

@@ -2,36 +2,42 @@
 
 ## Current Validation Status
 
-Last updated after successful full verification for `byte[]` support.
+Last updated after successful full verification for `HashMap<String,Object>` / `LinkedHashMap<String,Object>` support.
 
 ```text
-mvn clean verify
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 BUILD SUCCESS
 ```
 
-The latest full Docker-backed verification completed successfully after `byte[]` support was added across the runtime path, focused unit tests, Couchbase persistence/hydration, and Docker-backed integration tests.
+Latest Docker-backed serialization integration result:
 
-Latest full integration result:
+```text
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
+```
+
+The latest full Docker-backed verification completed successfully after `HashMap<String,Object>` support was added across the runtime path, focused unit tests, Couchbase persistence/hydration, and Docker-backed integration tests.
+
+Previously validated full integration baseline:
 
 ```text
 ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
-
-Total integration tests:
 Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
 
-Latest focused byte-array unit path result:
+Latest focused typed-path unit result:
 
 ```text
-mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
 
-Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -65,16 +71,43 @@ BUILD SUCCESS
 | `Character` | `0x36` | `'A' -> 360041` | Yes | Yes | Yes |
 | `Byte` | `0x37` | `7 -> 3707` | Yes | Yes | Yes |
 | `byte[]` | `0x2e` or raw payload | `2e050102030405` or `0102030405` | Yes | Yes | Yes |
+| `String[]` | `0x40` | `40035700036f6e65455700057468726565` | Yes | Yes | Yes |
+| `ArrayList<String>` | `0x41` | `41035700036f6e65295700057468726565` | Yes | Yes | Yes |
+| `HashMap<String,String>` / `LinkedHashMap<String,String>` | `0x43` empty, `0x2c + Java serialization` non-empty | `4300`, `2caced0005...` | Yes | Yes | Yes |
+| `HashMap<String,Object>` / `LinkedHashMap<String,Object>` | `0x43` empty, `0x2c + Java serialization` non-empty | `4300`, `2caced0005...` | Yes | Yes | Yes |
 | `Short` | `0x38` | `7 -> 380007` | Yes | Yes | Yes |
 | `Integer` | `0x39` | `7 -> 3900000007` | Yes | Yes | Yes |
 | `Long` | `0x3a` | `7 -> 3a0000000000000007` | Yes | Yes | Yes |
 | `Float` | `0x3b` | `7.25f -> 3b40e80000` | Yes | Yes | Yes |
 | `Double` | `0x3c` | `7.25d -> 3c401d000000000000` | Yes | Yes | Yes |
 | `java.util.Date` | `0x3d` | `new Date(1000L) -> 3d00000000000003e8` | Yes | Yes | Yes |
-| `String[]` | TBD | TBD | Not yet | Not yet | Not yet |
-| `ArrayList<String>` | TBD | TBD | Not yet | Not yet | Not yet |
-| `HashMap<String, Object>` | TBD | TBD | Not yet | Not yet | Not yet |
 | Simple Serializable POJO | TBD | TBD | Not yet | Not yet | Not yet |
+| PDX object | TBD | TBD | Not yet | Not yet | Not yet |
+
+---
+
+## Supported `HashMap<String,Object>` Nested Value Types
+
+`HashMap<String,Object>` / `LinkedHashMap<String,Object>` currently supports the following nested value types:
+
+```text
+null
+String
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+String[]
+ArrayList<String>
+```
+
+Nested `byte[]` and `String[]` values require array-aware equality checks in tests because Java array equality is identity-based by default.
 
 ---
 
@@ -134,7 +167,7 @@ String: key-1
 
 ### Byte Array
 
-Two byte-array shapes are now supported.
+Two byte-array shapes are supported.
 
 #### DataSerializer byte-array shape
 
@@ -161,12 +194,102 @@ Real `Region.put(key, byte[])` and related real-client paths were observed to se
 | `new byte[] {0x01,0x02,0x03,0x04,0x05}` | `0102030405` |
 | `new byte[] {0x00,0x01,0x02,0x03}` | `00010203` |
 
-The runtime supports both shapes:
+Runtime decode labels:
 
 ```text
 encoding=geode-byte-array
 encoding=raw-byte-array
 ```
+
+---
+
+### String Array
+
+`DataSerializer.writeObject(String[])` produces:
+
+```text
+0x40 + compact length + element payloads
+```
+
+Observed shapes:
+
+| Value | Hex |
+|---:|---|
+| `new String[] {}` | `4000` |
+| `new String[] {"one"}` | `40015700036f6e65` |
+| `new String[] {"one","two","three"}` | `40035700036f6e6557000374776f5700057468726565` |
+| `new String[] {"one",null,"three"}` | `40035700036f6e65455700057468726565` |
+
+Null element marker observed in `String[]`:
+
+```text
+0x45
+```
+
+---
+
+### ArrayList<String>
+
+`DataSerializer.writeObject(ArrayList<String>)` produces:
+
+```text
+0x41 + compact length + element payloads
+```
+
+Observed shapes:
+
+| Value | Hex |
+|---:|---|
+| `new ArrayList<>()` | `4100` |
+| `["one"]` | `41015700036f6e65` |
+| `["one","two","three"]` | `41035700036f6e6557000374776f5700057468726565` |
+| `["one",null,"three"]` | `41035700036f6e65295700057468726565` |
+
+Null element marker observed in `ArrayList<String>`:
+
+```text
+0x29
+```
+
+---
+
+### HashMap<String,String>
+
+Observed shapes:
+
+```text
+empty map      -> 43 00
+non-empty map  -> 2c + Java ObjectOutputStream bytes
+```
+
+Examples:
+
+| Value | Shape |
+|---|---|
+| empty map | `4300` |
+| non-empty `LinkedHashMap<String,String>` | `2caced0005...` |
+
+The runtime decodes non-empty maps with `ObjectInputStream` over the bytes after the `0x2c` marker.
+
+---
+
+### HashMap<String,Object>
+
+Observed shapes:
+
+```text
+empty map      -> 43 00
+non-empty map  -> 2c + Java ObjectOutputStream bytes
+```
+
+Examples:
+
+| Value | Shape |
+|---|---|
+| empty map | `4300` |
+| non-empty `LinkedHashMap<String,Object>` | `2caced0005...` |
+
+Supported nested value types are listed above.
 
 ---
 
@@ -289,7 +412,84 @@ Validated typed values are persisted as JSON objects with a `type` field and val
 }
 ```
 
-`valueBase64` stores the exact binary payload, and `length` is persisted as a validation/debug aid during hydration.
+### String Array
+
+```json
+{
+  "type": "stringArray",
+  "value": ["one", null, "three"],
+  "length": 3
+}
+```
+
+### ArrayList<String>
+
+```json
+{
+  "type": "stringArrayList",
+  "value": ["one", null, "three"],
+  "length": 3
+}
+```
+
+### HashMap<String,String>
+
+```json
+{
+  "type": "stringHashMap",
+  "value": {
+    "one": "value-1",
+    "two": null,
+    "three": "value-3"
+  },
+  "length": 3
+}
+```
+
+### HashMap<String,Object>
+
+```json
+{
+  "type": "stringObjectHashMap",
+  "value": {
+    "name": {
+      "type": "string",
+      "value": "rob"
+    },
+    "age": {
+      "type": "integer",
+      "value": 42
+    },
+    "active": {
+      "type": "boolean",
+      "value": true
+    },
+    "createdAt": {
+      "type": "date",
+      "value": "1970-01-01T00:00:01Z",
+      "epochMillis": 1000
+    },
+    "payload": {
+      "type": "byteArray",
+      "valueBase64": "AQID",
+      "length": 3
+    },
+    "items": {
+      "type": "stringArray",
+      "value": ["one", null, "three"],
+      "length": 3
+    },
+    "list": {
+      "type": "stringArrayList",
+      "value": ["one", null, "three"],
+      "length": 3
+    }
+  },
+  "length": 7
+}
+```
+
+The `stringObjectHashMap` envelope intentionally stores each value as a nested typed envelope to preserve Java type fidelity across JSON storage.
 
 ### Short
 
@@ -346,25 +546,23 @@ Validated typed values are persisted as JSON objects with a `type` field and val
 }
 ```
 
-The Date envelope intentionally stores both a readable ISO-8601 timestamp and the exact epoch-millis value needed for lossless Geode round-tripping.
-
 ---
 
 ## Runtime Coverage by Component
 
-| Component | String | Boolean | Character | Byte | byte[] | Short | Integer | Long | Float | Double | Date |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | String | Boolean | Character | Byte | byte[] | String[] | ArrayList<String> | Map<String,String> | Map<String,Object> | Short | Integer | Long | Float | Double | Date |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ---
 
@@ -410,24 +608,25 @@ GET_ALL typed values
 Mixed typed PUT_ALL / GET_ALL preservation
 Date round trips through Couchbase
 byte[] round trips through Couchbase
+String[] round trips through Couchbase
+ArrayList<String> round trips through Couchbase
+HashMap<String,String> round trips through Couchbase
+HashMap<String,Object> round trips through Couchbase
 ```
 
-Date-specific scenarios:
+Map-specific scenarios:
 
 ```text
-dateValueShouldRoundTripThroughShimAndCouchbase
-putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithDateValuesShouldReturnDates
-mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
-```
+stringHashMapValueShouldRoundTripThroughShimAndCouchbase
+emptyStringHashMapValueShouldRoundTripThroughShimAndCouchbase
+putAllWithStringHashMapValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithStringHashMapValuesShouldReturnLinkedHashMaps
 
-Byte-array-specific scenarios:
-
-```text
-byteArrayValueShouldRoundTripThroughShimAndCouchbase
-putAllWithByteArrayValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithByteArrayValuesShouldReturnByteArrays
-mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+stringObjectHashMapValueShouldRoundTripThroughShimAndCouchbase
+stringObjectHashMapWithArrayValuesShouldRoundTripThroughShimAndCouchbase
+putAllWithStringObjectHashMapValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithStringObjectHashMapValuesShouldReturnMaps
+mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 ---
@@ -437,11 +636,9 @@ mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAnd
 Not yet fully implemented or validated:
 
 ```text
-String[]
-ArrayList<String>
-HashMap<String, Object>
 Arbitrary Java object graph serialization
 Complex POJO round-tripping
+Nested Map<String,Object> beyond explicitly tested supported value types
 PDX object support
 JSON object value support
 Expiration / TTL behavior
@@ -460,18 +657,18 @@ High-concurrency load and soak testing
 
 ## Current Milestone
 
-Byte-array support is the current completed milestone.
+`HashMap<String,Object>` support is the current completed milestone.
 
 Suggested commit:
 
 ```text
-Add byte-array serialization support
+Add string object map serialization support
 ```
 
 Suggested tag:
 
 ```text
-byte-array-support-complete
+string-object-map-support-complete
 ```
 
 ---
@@ -481,9 +678,9 @@ byte-array-support-complete
 The next compatibility target should be one of:
 
 ```text
-String[]
-ArrayList<String>
-HashMap<String, Object>
+Simple Serializable POJO
+Nested Map<String,Object>
+PDX object support
 ```
 
 Suggested implementation path for the next type:

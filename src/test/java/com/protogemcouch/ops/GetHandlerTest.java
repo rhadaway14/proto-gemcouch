@@ -6,7 +6,9 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 
 import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
 import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
@@ -129,6 +131,116 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-byte-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_string_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-string-array-key"))
+                .thenReturn(StoredValue.stringArrayValue(new String[] {
+                        "one", null, "three"
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-string-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-string-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_string_array_list_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        ArrayList<String> value = new ArrayList<>();
+        value.add("one");
+        value.add(null);
+        value.add("three");
+
+        when(repository.get("/helloWorld::my-string-array-list-key"))
+                .thenReturn(StoredValue.stringArrayListValue(value));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-string-array-list-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-string-array-list-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_string_hash_map_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        LinkedHashMap<String, String> value = new LinkedHashMap<>();
+        value.put("one", "value-1");
+        value.put("two", null);
+        value.put("three", "value-3");
+
+        when(repository.get("/helloWorld::my-string-hash-map-key"))
+                .thenReturn(StoredValue.stringHashMapValue(value));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-string-hash-map-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-string-hash-map-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_string_object_hash_map_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put("name", "rob");
+        value.put("age", Integer.valueOf(42));
+        value.put("active", Boolean.TRUE);
+        value.put("createdAt", new Date(1_000L));
+
+        when(repository.get("/helloWorld::my-string-object-hash-map-key"))
+                .thenReturn(StoredValue.stringObjectHashMapValue(value));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-string-object-hash-map-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-string-object-hash-map-key");
         verify(ctx).writeAndFlush(any());
     }
 

@@ -6,6 +6,7 @@ import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.Collection;
 import com.couchbase.client.java.Scope;
 import com.couchbase.client.java.env.ClusterEnvironment;
+import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.GetResult;
 import com.couchbase.client.java.query.QueryOptions;
@@ -42,6 +43,10 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_CHARACTER = "character";
     private static final String TYPE_BYTE = "byte";
     private static final String TYPE_BYTE_ARRAY = "byteArray";
+    private static final String TYPE_STRING_ARRAY = "stringArray";
+    private static final String TYPE_STRING_ARRAY_LIST = "stringArrayList";
+    private static final String TYPE_STRING_HASH_MAP = "stringHashMap";
+    private static final String TYPE_STRING_OBJECT_HASH_MAP = "stringObjectHashMap";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -360,6 +365,73 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.STRING_ARRAY) {
+            String[] stringArray = value.asStringArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (String item : stringArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_STRING_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, stringArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.STRING_ARRAY_LIST) {
+            ArrayList<String> stringArrayList = value.asStringArrayList();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (String item : stringArrayList) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_STRING_ARRAY_LIST);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, stringArrayList.size());
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.STRING_HASH_MAP) {
+            LinkedHashMap<String, String> stringHashMap = value.asStringHashMap();
+            JsonObject jsonMap = JsonObject.create();
+
+            for (Map.Entry<String, String> entry : stringHashMap.entrySet()) {
+                /*
+                 * JSON object field names cannot be null. A null Java map key is
+                 * valid in HashMap/LinkedHashMap, but it cannot be represented
+                 * safely as a normal JSON object field without inventing an
+                 * escape protocol. For the supported Couchbase envelope we
+                 * preserve String keys and null String values.
+                 */
+                if (entry.getKey() != null) {
+                    jsonMap.put(entry.getKey(), entry.getValue());
+                }
+            }
+
+            body.put(FIELD_TYPE, TYPE_STRING_HASH_MAP);
+            body.put(FIELD_VALUE, jsonMap);
+            body.put(FIELD_LENGTH, stringHashMap.size());
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.STRING_OBJECT_HASH_MAP) {
+            LinkedHashMap<String, Object> stringObjectHashMap = value.asStringObjectHashMap();
+            JsonObject jsonMap = JsonObject.create();
+
+            for (Map.Entry<String, Object> entry : stringObjectHashMap.entrySet()) {
+                if (entry.getKey() != null) {
+                    jsonMap.put(entry.getKey(), encodeMapObjectValue(entry.getValue()));
+                }
+            }
+
+            body.put(FIELD_TYPE, TYPE_STRING_OBJECT_HASH_MAP);
+            body.put(FIELD_VALUE, jsonMap);
+            body.put(FIELD_LENGTH, stringObjectHashMap.size());
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -470,6 +542,22 @@ public class CouchbaseRepository implements Repository {
 
         if (TYPE_BYTE_ARRAY.equalsIgnoreCase(type)) {
             return decodeByteArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_STRING_ARRAY.equalsIgnoreCase(type)) {
+            return decodeStringArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_STRING_ARRAY_LIST.equalsIgnoreCase(type)) {
+            return decodeStringArrayListStoredValue(content, rawValue);
+        }
+
+        if (TYPE_STRING_HASH_MAP.equalsIgnoreCase(type)) {
+            return decodeStringHashMapStoredValue(content, rawValue);
+        }
+
+        if (TYPE_STRING_OBJECT_HASH_MAP.equalsIgnoreCase(type)) {
+            return decodeStringObjectHashMapStoredValue(content, rawValue);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -602,6 +690,522 @@ public class CouchbaseRepository implements Repository {
         }
 
         return null;
+    }
+
+    private static StoredValue decodeStringArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = null;
+
+        if (rawValue instanceof JsonArray jsonArray) {
+            rawList = jsonArray.toList();
+        } else if (rawValue instanceof List<?> list) {
+            rawList = list;
+        }
+
+        if (rawList == null) {
+            return null;
+        }
+
+        String[] decoded = new String[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item == null) {
+                decoded[i] = null;
+            } else if (item instanceof String text) {
+                decoded[i] = text;
+            } else {
+                decoded[i] = String.valueOf(item);
+            }
+        }
+
+        Object rawLength = content.get(FIELD_LENGTH);
+        if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+            log.warn(StructuredLog.event(
+                    "repository_string_array_length_mismatch",
+                    "expectedLength", number.intValue(),
+                    "actualLength", decoded.length
+            ));
+        }
+
+        return StoredValue.stringArrayValue(decoded);
+    }
+
+    private static StoredValue decodeStringArrayListStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = null;
+
+        if (rawValue instanceof JsonArray jsonArray) {
+            rawList = jsonArray.toList();
+        } else if (rawValue instanceof List<?> list) {
+            rawList = list;
+        }
+
+        if (rawList == null) {
+            return null;
+        }
+
+        ArrayList<String> decoded = new ArrayList<>(rawList.size());
+
+        for (Object item : rawList) {
+            if (item == null) {
+                decoded.add(null);
+            } else if (item instanceof String text) {
+                decoded.add(text);
+            } else {
+                decoded.add(String.valueOf(item));
+            }
+        }
+
+        Object rawLength = content.get(FIELD_LENGTH);
+        if (rawLength instanceof Number number && number.intValue() != decoded.size()) {
+            log.warn(StructuredLog.event(
+                    "repository_string_array_list_length_mismatch",
+                    "expectedLength", number.intValue(),
+                    "actualLength", decoded.size()
+            ));
+        }
+
+        return StoredValue.stringArrayListValue(decoded);
+    }
+
+    private static StoredValue decodeStringHashMapStoredValue(JsonObject content, Object rawValue) {
+        LinkedHashMap<String, String> decoded = new LinkedHashMap<>();
+
+        if (rawValue instanceof JsonObject jsonObject) {
+            for (String fieldName : jsonObject.getNames()) {
+                Object item = jsonObject.get(fieldName);
+
+                if (item == null) {
+                    decoded.put(fieldName, null);
+                } else if (item instanceof String text) {
+                    decoded.put(fieldName, text);
+                } else {
+                    decoded.put(fieldName, String.valueOf(item));
+                }
+            }
+        } else if (rawValue instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Object key = entry.getKey();
+                Object item = entry.getValue();
+
+                decoded.put(
+                        key == null ? null : String.valueOf(key),
+                        item == null ? null : String.valueOf(item)
+                );
+            }
+        } else {
+            return null;
+        }
+
+        Object rawLength = content.get(FIELD_LENGTH);
+        if (rawLength instanceof Number number && number.intValue() != decoded.size()) {
+            log.warn(StructuredLog.event(
+                    "repository_string_hash_map_length_mismatch",
+                    "expectedLength", number.intValue(),
+                    "actualLength", decoded.size()
+            ));
+        }
+
+        return StoredValue.stringHashMapValue(decoded);
+    }
+
+
+    private static StoredValue decodeStringObjectHashMapStoredValue(JsonObject content, Object rawValue) {
+        LinkedHashMap<String, Object> decoded = new LinkedHashMap<>();
+
+        if (rawValue instanceof JsonObject jsonObject) {
+            for (String fieldName : jsonObject.getNames()) {
+                decoded.put(fieldName, decodeMapObjectValue(jsonObject.get(fieldName)));
+            }
+        } else if (rawValue instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Object key = entry.getKey();
+
+                decoded.put(
+                        key == null ? null : String.valueOf(key),
+                        decodeMapObjectValue(entry.getValue())
+                );
+            }
+        } else {
+            return null;
+        }
+
+        Object rawLength = content.get(FIELD_LENGTH);
+        if (rawLength instanceof Number number && number.intValue() != decoded.size()) {
+            log.warn(StructuredLog.event(
+                    "repository_string_object_hash_map_length_mismatch",
+                    "expectedLength", number.intValue(),
+                    "actualLength", decoded.size()
+            ));
+        }
+
+        return StoredValue.stringObjectHashMapValue(decoded);
+    }
+
+    private static JsonObject encodeMapObjectValue(Object value) {
+        JsonObject out = JsonObject.create();
+
+        if (value == null) {
+            out.put(FIELD_TYPE, "null");
+            return out;
+        }
+
+        if (value instanceof String text) {
+            out.put(FIELD_TYPE, TYPE_STRING);
+            out.put(FIELD_VALUE, text);
+            return out;
+        }
+
+        if (value instanceof Boolean bool) {
+            out.put(FIELD_TYPE, TYPE_BOOLEAN);
+            out.put(FIELD_VALUE, bool);
+            return out;
+        }
+
+        if (value instanceof Character character) {
+            out.put(FIELD_TYPE, TYPE_CHARACTER);
+            out.put(FIELD_VALUE, String.valueOf(character));
+            return out;
+        }
+
+        if (value instanceof Byte byteValue) {
+            out.put(FIELD_TYPE, TYPE_BYTE);
+            out.put(FIELD_VALUE, byteValue);
+            return out;
+        }
+
+        if (value instanceof Short shortValue) {
+            out.put(FIELD_TYPE, TYPE_SHORT);
+            out.put(FIELD_VALUE, shortValue);
+            return out;
+        }
+
+        if (value instanceof Integer integerValue) {
+            out.put(FIELD_TYPE, TYPE_INTEGER);
+            out.put(FIELD_VALUE, integerValue);
+            return out;
+        }
+
+        if (value instanceof Long longValue) {
+            out.put(FIELD_TYPE, TYPE_LONG);
+            out.put(FIELD_VALUE, longValue);
+            return out;
+        }
+
+        if (value instanceof Float floatValue) {
+            out.put(FIELD_TYPE, TYPE_FLOAT);
+            out.put(FIELD_VALUE, floatValue);
+            return out;
+        }
+
+        if (value instanceof Double doubleValue) {
+            out.put(FIELD_TYPE, TYPE_DOUBLE);
+            out.put(FIELD_VALUE, doubleValue);
+            return out;
+        }
+
+        if (value instanceof Date date) {
+            out.put(FIELD_TYPE, TYPE_DATE);
+            out.put(FIELD_VALUE, date.toInstant().toString());
+            out.put(FIELD_EPOCH_MILLIS, date.getTime());
+            return out;
+        }
+
+        if (value instanceof byte[] bytes) {
+            out.put(FIELD_TYPE, TYPE_BYTE_ARRAY);
+            out.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(bytes));
+            out.put(FIELD_LENGTH, bytes.length);
+            return out;
+        }
+
+        if (value instanceof String[] strings) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (String item : strings) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_STRING_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, strings.length);
+            return out;
+        }
+
+        if (value instanceof ArrayList<?> list) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (Object item : list) {
+                jsonArray.add(item == null ? null : String.valueOf(item));
+            }
+
+            out.put(FIELD_TYPE, TYPE_STRING_ARRAY_LIST);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, list.size());
+            return out;
+        }
+
+        out.put(FIELD_TYPE, TYPE_STRING);
+        out.put(FIELD_VALUE, String.valueOf(value));
+        return out;
+    }
+
+    private static Object decodeMapObjectValue(Object rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+
+        JsonObject typedValue = null;
+
+        if (rawValue instanceof JsonObject jsonObject) {
+            typedValue = jsonObject;
+        } else if (rawValue instanceof Map<?, ?> map) {
+            typedValue = JsonObject.create();
+
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Object key = entry.getKey();
+
+                if (key != null) {
+                    typedValue.put(String.valueOf(key), entry.getValue());
+                }
+            }
+        }
+
+        if (typedValue == null) {
+            return rawValue;
+        }
+
+        String type = typedValue.containsKey(FIELD_TYPE)
+                ? typedValue.getString(FIELD_TYPE)
+                : TYPE_STRING;
+
+        Object value = typedValue.get(FIELD_VALUE);
+
+        if ("null".equalsIgnoreCase(type)) {
+            return null;
+        }
+
+        if (TYPE_STRING.equalsIgnoreCase(type)) {
+            return value == null ? null : String.valueOf(value);
+        }
+
+        if (TYPE_BOOLEAN.equalsIgnoreCase(type)) {
+            if (value instanceof Boolean bool) {
+                return bool;
+            }
+
+            if (value instanceof String text) {
+                return Boolean.valueOf(text);
+            }
+
+            return null;
+        }
+
+        if (TYPE_CHARACTER.equalsIgnoreCase(type)) {
+            if (value instanceof String text && text.length() == 1) {
+                return Character.valueOf(text.charAt(0));
+            }
+
+            return null;
+        }
+
+        if (TYPE_BYTE.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Byte.valueOf(number.byteValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Byte.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_SHORT.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Short.valueOf(number.shortValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Short.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_INTEGER.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Integer.valueOf(number.intValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Integer.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_LONG.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Long.valueOf(number.longValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Long.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_FLOAT.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Float.valueOf(number.floatValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Float.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_DOUBLE.equalsIgnoreCase(type)) {
+            if (value instanceof Number number) {
+                return Double.valueOf(number.doubleValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Double.valueOf(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_DATE.equalsIgnoreCase(type)) {
+            Object rawEpochMillis = typedValue.get(FIELD_EPOCH_MILLIS);
+
+            if (rawEpochMillis instanceof Number number) {
+                return new Date(number.longValue());
+            }
+
+            if (rawEpochMillis instanceof String text) {
+                try {
+                    return new Date(Long.parseLong(text));
+                } catch (NumberFormatException e) {
+                    // Fall through and try value below.
+                }
+            }
+
+            if (value instanceof Number number) {
+                return new Date(number.longValue());
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Date.from(Instant.parse(text));
+                } catch (DateTimeParseException e) {
+                    try {
+                        return new Date(Long.parseLong(text));
+                    } catch (NumberFormatException ignored) {
+                        return text;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_BYTE_ARRAY.equalsIgnoreCase(type)) {
+            Object rawBase64 = typedValue.get(FIELD_VALUE_BASE64);
+
+            if (rawBase64 instanceof String base64Text) {
+                try {
+                    return Base64.getDecoder().decode(base64Text);
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+            }
+
+            if (value instanceof String text) {
+                try {
+                    return Base64.getDecoder().decode(text);
+                } catch (IllegalArgumentException e) {
+                    return text;
+                }
+            }
+
+            return null;
+        }
+
+        if (TYPE_STRING_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = null;
+
+            if (value instanceof JsonArray jsonArray) {
+                rawList = jsonArray.toList();
+            } else if (value instanceof List<?> list) {
+                rawList = list;
+            }
+
+            if (rawList == null) {
+                return null;
+            }
+
+            String[] decoded = new String[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+                decoded[i] = item == null ? null : String.valueOf(item);
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_STRING_ARRAY_LIST.equalsIgnoreCase(type)) {
+            List<?> rawList = null;
+
+            if (value instanceof JsonArray jsonArray) {
+                rawList = jsonArray.toList();
+            } else if (value instanceof List<?> list) {
+                rawList = list;
+            }
+
+            if (rawList == null) {
+                return null;
+            }
+
+            ArrayList<String> decoded = new ArrayList<>(rawList.size());
+
+            for (Object item : rawList) {
+                decoded.add(item == null ? null : String.valueOf(item));
+            }
+
+            return decoded;
+        }
+
+        return value == null ? null : String.valueOf(value);
     }
 
     private static StoredValue decodeDateStoredValue(JsonObject content, Object rawValue) {

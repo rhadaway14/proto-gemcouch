@@ -1,17 +1,64 @@
 package com.protogemcouch.serialization;
 
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputStream;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public final class ValueDecoding {
 
     private static final int GEODE_STRING_CODE = 0x57;
     private static final int GEODE_NULL_CODE = 0x29;
+
+    /*
+     * Geode DataSerializer String[] marker observed from StringArrayShapeTest:
+     *
+     *   new String[] {}                         -> 40 00
+     *   new String[] {"one"}                    -> 40 01 57 00 03 6f 6e 65
+     *   new String[] {"one","two","three"}     -> 40 03 57 00 03 6f 6e 65 57 00 03 74 77 6f 57 00 05 74 68 72 65 65
+     *   new String[] {"","A","hello"}          -> 40 03 57 00 00 57 00 01 41 57 00 05 68 65 6c 6c 6f
+     *   new String[] {"one",null,"three"}      -> 40 03 57 00 03 6f 6e 65 45 57 00 05 74 68 72 65 65
+     *
+     * String elements use the normal Geode string marker 0x57.
+     * Null string-array elements use marker 0x45.
+     */
+    private static final int GEODE_STRING_ARRAY_CODE = 0x40;
+    private static final int GEODE_NULL_STRING_ARRAY_ELEMENT_CODE = 0x45;
+
+    /*
+     * Geode DataSerializer ArrayList marker observed from StringArrayListShapeTest:
+     *
+     *   new ArrayList<>()                         -> 41 00
+     *   ["one"]                                   -> 41 01 57 00 03 6f 6e 65
+     *   ["one","two","three"]                    -> 41 03 57 00 03 6f 6e 65 57 00 03 74 77 6f 57 00 05 74 68 72 65 65
+     *   ["","A","hello"]                         -> 41 03 57 00 00 57 00 01 41 57 00 05 68 65 6c 6c 6f
+     *   ["one",null,"three"]                     -> 41 03 57 00 03 6f 6e 65 29 57 00 05 74 68 72 65 65
+     *
+     * String elements use the normal Geode string marker 0x57.
+     * Null ArrayList elements use the normal Geode null marker 0x29.
+     */
+    private static final int GEODE_STRING_ARRAY_LIST_CODE = 0x41;
+
+    /*
+     * Geode DataSerializer HashMap/LinkedHashMap observations from HashMapStringStringShapeTest:
+     *
+     *   new HashMap<>()                         -> 43 00
+     *   non-empty LinkedHashMap<String,String>  -> 2c ac ed 00 05 ...
+     *
+     * Empty maps use compact marker 0x43 + size 0.
+     * Non-empty LinkedHashMap payloads are Java-serialized behind marker 0x2c.
+     */
+    private static final int GEODE_HASH_MAP_CODE = 0x43;
+    private static final int GEODE_JAVA_SERIALIZED_CODE = 0x2c;
 
     /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
@@ -25,94 +72,233 @@ public final class ValueDecoding {
      */
     private static final int GEODE_BYTE_ARRAY_CODE = 0x2e;
 
-    /*
-     * Geode DataSerializer boolean marker:
-     *
-     *   Boolean.TRUE  -> 35 01
-     *   Boolean.FALSE -> 35 00
-     */
     private static final int GEODE_BOOLEAN_CODE = 0x35;
-
-    /*
-     * Geode DataSerializer character marker observed from CharacterShapeTest:
-     *
-     *   Character.valueOf('A') -> 36 00 41
-     *   Character.valueOf('Z') -> 36 00 5a
-     *   Character.valueOf('0') -> 36 00 30
-     *   Character.valueOf(' ') -> 36 00 20
-     */
     private static final int GEODE_CHARACTER_CODE = 0x36;
-
-    /*
-     * Geode DataSerializer byte marker observed from ByteShapeTest:
-     *
-     *   Byte.valueOf((byte) 0)    -> 37 00
-     *   Byte.valueOf((byte) 7)    -> 37 07
-     *   Byte.valueOf((byte) -7)   -> 37 f9
-     *   Byte.MAX_VALUE            -> 37 7f
-     *   Byte.MIN_VALUE            -> 37 80
-     */
     private static final int GEODE_BYTE_CODE = 0x37;
-
-    /*
-     * Geode DataSerializer short marker observed from ShortShapeTest:
-     *
-     *   Short.valueOf((short) 7)  -> 38 00 07
-     *   Short.valueOf((short) -7) -> 38 ff f9
-     *   Short.valueOf((short) 0)  -> 38 00 00
-     *   Short.MAX_VALUE           -> 38 7f ff
-     *   Short.MIN_VALUE           -> 38 80 00
-     */
     private static final int GEODE_SHORT_CODE = 0x38;
-
-    /*
-     * Geode DataSerializer integer marker observed from IntegerShapeTest:
-     *
-     *   Integer.valueOf(7) -> 39 00 00 00 07
-     */
     private static final int GEODE_INTEGER_CODE = 0x39;
-
-    /*
-     * Geode DataSerializer long marker observed from LongShapeTest:
-     *
-     *   Long.valueOf(7L)           -> 3a 00 00 00 00 00 00 00 07
-     *   Long.valueOf(-7L)          -> 3a ff ff ff ff ff ff ff f9
-     *   Long.valueOf(9876543210L)  -> 3a 00 00 00 02 4c b0 16 ea
-     */
     private static final int GEODE_LONG_CODE = 0x3a;
-
-    /*
-     * Geode DataSerializer float marker observed from FloatShapeTest:
-     *
-     *   Float.valueOf(7.25f)      -> 3b 40 e8 00 00
-     *   Float.valueOf(-7.25f)     -> 3b c0 e8 00 00
-     *   Float.valueOf(987654.25f) -> 3b 49 71 20 64
-     *   Float.valueOf(0.0f)       -> 3b 00 00 00 00
-     */
     private static final int GEODE_FLOAT_CODE = 0x3b;
-
-    /*
-     * Geode DataSerializer double marker observed from DoubleShapeTest:
-     *
-     *   Double.valueOf(7.25d)        -> 3c 40 1d 00 00 00 00 00 00
-     *   Double.valueOf(-7.25d)       -> 3c c0 1d 00 00 00 00 00 00
-     *   Double.valueOf(9876543.210d) -> 3c 41 62 d6 87 e6 b8 51 ec
-     *   Double.valueOf(0.0d)         -> 3c 00 00 00 00 00 00 00 00
-     */
     private static final int GEODE_DOUBLE_CODE = 0x3c;
-
-    /*
-     * Geode DataSerializer Date marker observed from DateShapeTest:
-     *
-     *   new Date(0L)                 -> 3d 00 00 00 00 00 00 00 00
-     *   new Date(1_000L)             -> 3d 00 00 00 00 00 00 03 e8
-     *   new Date(1_778_265_266_000L) -> 3d 00 00 01 9e 08 de 97 50
-     *   new Date(-1_000L)            -> 3d ff ff ff ff ff ff fc 18
-     */
     private static final int GEODE_DATE_CODE = 0x3d;
 
     private ValueDecoding() {
     }
+
+    public static String[] decodeStringArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_STRING_ARRAY_CODE) {
+            return null;
+        }
+
+        int count = payload[1] & 0xff;
+        String[] values = new String[count];
+
+        int offset = 2;
+
+        for (int i = 0; i < count; i++) {
+            if (offset >= payload.length) {
+                return null;
+            }
+
+            int marker = payload[offset] & 0xff;
+
+            if (marker == GEODE_NULL_STRING_ARRAY_ELEMENT_CODE) {
+                values[i] = null;
+                offset++;
+                continue;
+            }
+
+            if (marker != GEODE_STRING_CODE) {
+                return null;
+            }
+
+            DecodedString decoded = decodeLengthPrefixedGeodeStringAt(payload, offset);
+
+            if (decoded == null) {
+                return null;
+            }
+
+            values[i] = decoded.value();
+            offset = decoded.nextOffset();
+        }
+
+        if (offset != payload.length) {
+            return null;
+        }
+
+        return values;
+    }
+
+    public static ArrayList<String> decodeStringArrayListValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_STRING_ARRAY_LIST_CODE) {
+            return null;
+        }
+
+        int count = payload[1] & 0xff;
+        ArrayList<String> values = new ArrayList<>(count);
+
+        int offset = 2;
+
+        for (int i = 0; i < count; i++) {
+            if (offset >= payload.length) {
+                return null;
+            }
+
+            int marker = payload[offset] & 0xff;
+
+            if (marker == GEODE_NULL_CODE) {
+                values.add(null);
+                offset++;
+                continue;
+            }
+
+            if (marker != GEODE_STRING_CODE) {
+                return null;
+            }
+
+            DecodedString decoded = decodeLengthPrefixedGeodeStringAt(payload, offset);
+
+            if (decoded == null) {
+                return null;
+            }
+
+            values.add(decoded.value());
+            offset = decoded.nextOffset();
+        }
+
+        if (offset != payload.length) {
+            return null;
+        }
+
+        return values;
+    }
+
+    public static LinkedHashMap<String, String> decodeStringHashMapValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        int first = payload[0] & 0xff;
+
+        /*
+         * Empty HashMap compact shape observed from Geode:
+         *
+         *   43 00
+         */
+        if (first == GEODE_HASH_MAP_CODE) {
+            if (payload.length == 2 && (payload[1] & 0xff) == 0x00) {
+                return new LinkedHashMap<>();
+            }
+
+            return null;
+        }
+
+        /*
+         * Non-empty LinkedHashMap<String,String> shape observed from real Geode:
+         *
+         *   2c ac ed 00 05 ...
+         *
+         * The leading 0x2c is Geode's "Java serialized object" marker.
+         * The bytes after 0x2c are a normal Java ObjectOutputStream payload.
+         *
+         * Do NOT use Geode DataSerializer here. In the shim container this can fail
+         * with:
+         *
+         *   Could not initialize class org.apache.geode.DataSerializer
+         *
+         * Plain ObjectInputStream is sufficient for this specific shape and avoids
+         * coupling map support to Geode's static serializer initialization.
+         */
+        if (first == GEODE_JAVA_SERIALIZED_CODE) {
+            Object rawValue = deserializeJavaObjectAfterMarker(payload);
+
+            if (rawValue instanceof Map<?, ?> rawMap && isStringStringMap(rawMap)) {
+                return toStringStringLinkedHashMap(rawMap);
+            }
+
+            return null;
+        }
+
+        /*
+         * Defensive fallback for cases where a test or future decoder hands us raw
+         * Java serialization bytes without the Geode 0x2c marker.
+         */
+        if (payload.length >= 2
+                && (payload[0] & 0xff) == 0xac
+                && (payload[1] & 0xff) == 0xed) {
+            Object rawValue = deserializeJavaObject(payload, 0, payload.length);
+
+            if (rawValue instanceof Map<?, ?> rawMap && isStringStringMap(rawMap)) {
+                return toStringStringLinkedHashMap(rawMap);
+            }
+        }
+
+        return null;
+    }
+
+
+
+    public static LinkedHashMap<String, Object> decodeStringObjectHashMapValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        int first = payload[0] & 0xff;
+
+        /*
+         * Empty HashMap compact shape observed from Geode:
+         *
+         *   43 00
+         */
+        if (first == GEODE_HASH_MAP_CODE) {
+            if (payload.length == 2 && (payload[1] & 0xff) == 0x00) {
+                return new LinkedHashMap<>();
+            }
+
+            return null;
+        }
+
+        /*
+         * Non-empty LinkedHashMap<String,Object> shape observed from Geode:
+         *
+         *   2c ac ed 00 05 ...
+         *
+         * The leading 0x2c is Geode's Java-serialized object marker.
+         * The bytes after 0x2c are normal Java ObjectOutputStream bytes.
+         */
+        if (first == GEODE_JAVA_SERIALIZED_CODE) {
+            Object rawValue = deserializeJavaObjectAfterMarker(payload);
+
+            if (rawValue instanceof Map<?, ?> rawMap && isSupportedStringObjectMap(rawMap)) {
+                return toStringObjectLinkedHashMap(rawMap);
+            }
+
+            return null;
+        }
+
+        /*
+         * Defensive fallback for raw Java serialization bytes without the
+         * Geode 0x2c marker.
+         */
+        if (looksLikeJavaSerializationStream(payload)) {
+            Object rawValue = deserializeJavaObject(payload, 0, payload.length);
+
+            if (rawValue instanceof Map<?, ?> rawMap && isSupportedStringObjectMap(rawMap)) {
+                return toStringObjectLinkedHashMap(rawMap);
+            }
+        }
+
+        return null;
+    }
+
 
     public static byte[] decodeByteArrayValue(byte[] payload) {
         if (payload == null || payload.length < 2) {
@@ -137,34 +323,21 @@ public final class ValueDecoding {
             return null;
         }
 
-        /*
-         * Real Geode client Region.put(key, byte[]) sends the byte[] value part as
-         * the raw payload, not as DataSerializer.writeObject(byte[]).
-         *
-         * Examples observed from integration logs:
-         *
-         *   new byte[] {}                         -> ""
-         *   new byte[] {1,2,3,4,5}                -> 0102030405
-         *
-         * Do not treat Geode NULL as an empty byte array.
-         */
         if (payload.length == 1 && (payload[0] & 0xff) == GEODE_NULL_CODE) {
             return null;
         }
 
-        /*
-         * Empty payload is valid for real-client byte[].
-         */
         if (payload.length == 0) {
             return Arrays.copyOf(payload, payload.length);
         }
 
-        /*
-         * Do not steal known typed Geode payloads from their dedicated decoders.
-         */
         int first = payload[0] & 0xff;
 
-        if (first == GEODE_BYTE_ARRAY_CODE
+        if (first == GEODE_STRING_ARRAY_CODE
+                || first == GEODE_STRING_ARRAY_LIST_CODE
+                || first == GEODE_HASH_MAP_CODE
+                || first == GEODE_JAVA_SERIALIZED_CODE
+                || first == GEODE_BYTE_ARRAY_CODE
                 || first == GEODE_BOOLEAN_CODE
                 || first == GEODE_CHARACTER_CODE
                 || first == GEODE_BYTE_CODE
@@ -178,9 +351,6 @@ public final class ValueDecoding {
             return null;
         }
 
-        /*
-         * Avoid converting ordinary text fallback payloads into byte[].
-         */
         if (isLikelyUtf8Text(payload)) {
             return null;
         }
@@ -350,38 +520,22 @@ public final class ValueDecoding {
             return null;
         }
 
-        /*
-         * Geode NULL / absent-ish marker.
-         *
-         * Do not let this fall through to raw UTF-8, otherwise it becomes ")"
-         * and gets stored as a real document value.
-         */
         if (payload.length == 1 && (payload[0] & 0xff) == GEODE_NULL_CODE) {
             return null;
         }
 
-        /*
-         * Preferred/current Geode string shape:
-         *
-         *   0x57
-         *   2-byte unsigned UTF-8 length
-         *   UTF-8 bytes
-         */
-        if ((payload[0] & 0xff) == GEODE_STRING_CODE) {
+        int first = payload[0] & 0xff;
+
+        if (first == GEODE_HASH_MAP_CODE || first == GEODE_JAVA_SERIALIZED_CODE || looksLikeJavaSerializationStream(payload)) {
+            return null;
+        }
+
+        if (first == GEODE_STRING_CODE) {
             String decoded = decodeLengthPrefixedGeodeString(payload);
             if (decoded != null) {
                 return decoded;
             }
 
-            /*
-             * Legacy/unit-test fixture shape:
-             *
-             *   0x57
-             *   UTF-8 bytes
-             *
-             * Several existing PutAllHandler tests use this shape. Preserve support
-             * for it, but only after the proper length-prefixed parse fails.
-             */
             if (payload.length > 1) {
                 String markerStripped = new String(
                         payload,
@@ -398,10 +552,22 @@ public final class ValueDecoding {
             return null;
         }
 
-        /*
-         * Do not allow typed primitive or binary Geode payloads to fall through
-         * into the plain UTF-8 fallback.
-         */
+        if (decodeStringArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeStringArrayListValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeStringHashMapValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeStringObjectHashMapValue(payload) != null) {
+            return null;
+        }
+
         if (decodeByteArrayValue(payload) != null) {
             return null;
         }
@@ -442,12 +608,6 @@ public final class ValueDecoding {
             return null;
         }
 
-        /*
-         * Plain UTF-8 fallback for older/local fixtures and non-Geode payloads.
-         *
-         * Keep this conservative. Single-byte control/token-like values should not
-         * become persisted strings.
-         */
         if (payload.length == 1 && isLikelyGeodeToken(payload[0] & 0xff)) {
             return null;
         }
@@ -460,14 +620,27 @@ public final class ValueDecoding {
     }
 
     private static String decodeLengthPrefixedGeodeString(byte[] payload) {
-        if (payload.length < 3) {
+        DecodedString decoded = decodeLengthPrefixedGeodeStringAt(payload, 0);
+        return decoded == null ? null : decoded.value();
+    }
+
+    private static DecodedString decodeLengthPrefixedGeodeStringAt(byte[] payload, int offset) {
+        if (payload == null || offset < 0 || offset >= payload.length) {
             return null;
         }
 
-        int length = ((payload[1] & 0xff) << 8)
-                | (payload[2] & 0xff);
+        if ((payload[offset] & 0xff) != GEODE_STRING_CODE) {
+            return null;
+        }
 
-        int start = 3;
+        if (payload.length < offset + 3) {
+            return null;
+        }
+
+        int length = ((payload[offset + 1] & 0xff) << 8)
+                | (payload[offset + 2] & 0xff);
+
+        int start = offset + 3;
         int end = start + length;
 
         if (length < 0 || end > payload.length) {
@@ -475,7 +648,171 @@ public final class ValueDecoding {
         }
 
         String value = new String(payload, start, length, StandardCharsets.UTF_8);
-        return value.isBlank() ? null : value;
+        return new DecodedString(value, end);
+    }
+
+    private static LinkedHashMap<String, String> tryDeserializeStringStringMap(byte[] payload) {
+        try {
+            Object rawValue = GeodeSerialization.deserializeObject(payload);
+
+            if (!(rawValue instanceof Map<?, ?> rawMap)) {
+                return null;
+            }
+
+            if (!isStringStringMap(rawMap)) {
+                return null;
+            }
+
+            return toStringStringLinkedHashMap(rawMap);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Object deserializeJavaObjectAfterMarker(byte[] payload) {
+        if (payload == null || payload.length <= 1) {
+            return null;
+        }
+
+        return deserializeJavaObject(payload, 1, payload.length - 1);
+    }
+
+    private static Object deserializeJavaObject(byte[] payload, int offset, int length) {
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(payload, offset, length))) {
+            return in.readObject();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isSupportedStringObjectMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (!isSupportedMapObjectValue(mapValue)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean isSupportedMapObjectValue(Object value) {
+        return value == null
+                || value instanceof String
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof Date
+                || value instanceof byte[]
+                || value instanceof String[]
+                || isSupportedStringArrayListObject(value);
+    }
+
+    private static boolean isSupportedStringArrayListObject(Object value) {
+        if (!(value instanceof ArrayList<?> list)) {
+            return false;
+        }
+
+        for (Object item : list) {
+            if (item != null && !(item instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, Object> toStringObjectLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    copySupportedMapObjectValue(mapValue)
+            );
+        }
+
+        return out;
+    }
+
+    private static Object copySupportedMapObjectValue(Object value) {
+        if (value instanceof byte[] bytes) {
+            return Arrays.copyOf(bytes, bytes.length);
+        }
+
+        if (value instanceof String[] strings) {
+            return Arrays.copyOf(strings, strings.length);
+        }
+
+        if (value instanceof ArrayList<?> list) {
+            ArrayList<String> copy = new ArrayList<>(list.size());
+
+            for (Object item : list) {
+                copy.add(item == null ? null : String.valueOf(item));
+            }
+
+            return copy;
+        }
+
+        if (value instanceof Date date) {
+            return new Date(date.getTime());
+        }
+
+        return value;
+    }
+
+    private static boolean isStringStringMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (mapValue != null && !(mapValue instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, String> toStringStringLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    mapValue == null ? null : String.valueOf(mapValue)
+            );
+        }
+
+        return out;
+    }
+
+    private static boolean looksLikeJavaSerializationStream(byte[] payload) {
+        return payload != null
+                && payload.length >= 2
+                && (payload[0] & 0xff) == 0xac
+                && (payload[1] & 0xff) == 0xed;
     }
 
     private static boolean isLikelyUtf8Text(byte[] payload) {
@@ -511,10 +848,9 @@ public final class ValueDecoding {
     }
 
     private static boolean isLikelyGeodeToken(int value) {
-        /*
-         * Geode/DataSerializable token space. For this validated string-value path,
-         * single-byte values in this range should not become user strings.
-         */
         return value >= 0x00 && value <= 0x7f;
+    }
+
+    private record DecodedString(String value, int nextOffset) {
     }
 }

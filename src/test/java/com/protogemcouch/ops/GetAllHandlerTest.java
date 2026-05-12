@@ -6,6 +6,7 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -158,6 +159,192 @@ class GetAllHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).getAll("/helloWorld", List.of("byte-array-key-1", "byte-array-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_string_array_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("string-array-key-1", StoredValue.stringArrayValue(new String[] {
+                "one",
+                "two",
+                "three"
+        }));
+        repoResult.put("string-array-key-2", StoredValue.stringArrayValue(new String[] {
+                "one",
+                null,
+                "three"
+        }));
+
+        when(repository.getAll("/helloWorld", List.of("string-array-key-1", "string-array-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("string-array-key-1", "string-array-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("string-array-key-1", "string-array-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_string_array_list_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        ArrayList<String> list1 = new ArrayList<>();
+        list1.add("one");
+        list1.add("two");
+        list1.add("three");
+
+        ArrayList<String> list2 = new ArrayList<>();
+        list2.add("one");
+        list2.add(null);
+        list2.add("three");
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("string-array-list-key-1", StoredValue.stringArrayListValue(list1));
+        repoResult.put("string-array-list-key-2", StoredValue.stringArrayListValue(list2));
+
+        when(repository.getAll("/helloWorld", List.of("string-array-list-key-1", "string-array-list-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("string-array-list-key-1", "string-array-list-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("string-array-list-key-1", "string-array-list-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_string_hash_map_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        LinkedHashMap<String, String> map1 = new LinkedHashMap<>();
+        map1.put("one", "value-1");
+        map1.put("two", "value-2");
+        map1.put("three", "value-3");
+
+        LinkedHashMap<String, String> map2 = new LinkedHashMap<>();
+        map2.put("one", "value-1");
+        map2.put("two", null);
+        map2.put("three", "value-3");
+
+        LinkedHashMap<String, String> map3 = new LinkedHashMap<>();
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("string-hash-map-key-1", StoredValue.stringHashMapValue(map1));
+        repoResult.put("string-hash-map-key-2", StoredValue.stringHashMapValue(map2));
+        repoResult.put("string-hash-map-key-3", StoredValue.stringHashMapValue(map3));
+
+        when(repository.getAll(
+                "/helloWorld",
+                List.of("string-hash-map-key-1", "string-hash-map-key-2", "string-hash-map-key-3")
+        )).thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("string-hash-map-key-1", "string-hash-map-key-2", "string-hash-map-key-3")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll(
+                "/helloWorld",
+                List.of("string-hash-map-key-1", "string-hash-map-key-2", "string-hash-map-key-3")
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_string_object_hash_map_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        LinkedHashMap<String, Object> map1 = new LinkedHashMap<>();
+        map1.put("name", "rob");
+        map1.put("age", Integer.valueOf(42));
+        map1.put("active", Boolean.TRUE);
+
+        LinkedHashMap<String, Object> map2 = new LinkedHashMap<>();
+        map2.put("name", "rob");
+        map2.put("middleName", null);
+        map2.put("createdAt", new Date(1_000L));
+
+        ArrayList<String> list = new ArrayList<>();
+        list.add("one");
+        list.add(null);
+        list.add("three");
+
+        LinkedHashMap<String, Object> map3 = new LinkedHashMap<>();
+        map3.put("payload", new byte[] {
+                0x01, 0x02, 0x03, 0x04, 0x05
+        });
+        map3.put("items", new String[] {
+                "one", null, "three"
+        });
+        map3.put("list", list);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("string-object-hash-map-key-1", StoredValue.stringObjectHashMapValue(map1));
+        repoResult.put("string-object-hash-map-key-2", StoredValue.stringObjectHashMapValue(map2));
+        repoResult.put("string-object-hash-map-key-3", StoredValue.stringObjectHashMapValue(map3));
+
+        when(repository.getAll(
+                "/helloWorld",
+                List.of(
+                        "string-object-hash-map-key-1",
+                        "string-object-hash-map-key-2",
+                        "string-object-hash-map-key-3"
+                )
+        )).thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of(
+                        "string-object-hash-map-key-1",
+                        "string-object-hash-map-key-2",
+                        "string-object-hash-map-key-3"
+                )),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll(
+                "/helloWorld",
+                List.of(
+                        "string-object-hash-map-key-1",
+                        "string-object-hash-map-key-2",
+                        "string-object-hash-map-key-3"
+                )
+        );
         verify(ctx).writeAndFlush(any());
     }
 
@@ -328,6 +515,22 @@ class GetAllHandlerTest {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
 
+        ArrayList<String> arrayList = new ArrayList<>();
+        arrayList.add("one");
+        arrayList.add(null);
+        arrayList.add("three");
+
+        LinkedHashMap<String, String> stringHashMap = new LinkedHashMap<>();
+        stringHashMap.put("one", "value-1");
+        stringHashMap.put("two", null);
+        stringHashMap.put("three", "value-3");
+
+        LinkedHashMap<String, Object> stringObjectHashMap = new LinkedHashMap<>();
+        stringObjectHashMap.put("name", "rob");
+        stringObjectHashMap.put("age", Integer.valueOf(42));
+        stringObjectHashMap.put("active", Boolean.TRUE);
+        stringObjectHashMap.put("createdAt", new Date(1_000L));
+
         Map<String, StoredValue> repoResult = new LinkedHashMap<>();
         repoResult.put("string-key", StoredValue.stringValue("value-1"));
         repoResult.put("character-key", StoredValue.characterValue(Character.valueOf('A')));
@@ -335,6 +538,14 @@ class GetAllHandlerTest {
         repoResult.put("byte-array-key", StoredValue.byteArrayValue(new byte[] {
                 0x01, 0x02, 0x03, 0x04, 0x05
         }));
+        repoResult.put("string-array-key", StoredValue.stringArrayValue(new String[] {
+                "one",
+                null,
+                "three"
+        }));
+        repoResult.put("string-array-list-key", StoredValue.stringArrayListValue(arrayList));
+        repoResult.put("string-hash-map-key", StoredValue.stringHashMapValue(stringHashMap));
+        repoResult.put("string-object-hash-map-key", StoredValue.stringObjectHashMapValue(stringObjectHashMap));
         repoResult.put("short-key", StoredValue.shortValue(Short.valueOf((short) 7)));
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
@@ -349,6 +560,10 @@ class GetAllHandlerTest {
                 "character-key",
                 "byte-key",
                 "byte-array-key",
+                "string-array-key",
+                "string-array-list-key",
+                "string-hash-map-key",
+                "string-object-hash-map-key",
                 "short-key",
                 "integer-key",
                 "boolean-key",

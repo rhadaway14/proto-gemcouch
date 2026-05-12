@@ -11,7 +11,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -156,6 +158,200 @@ class PutAllHandlerTest {
                 eq(StoredValue.byteArrayValue(new byte[] {
                         0x00, 0x01, 0x7f, (byte) 0x80, (byte) 0xff
                 }))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_array_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("string-array-key-1", geodeStringArray(new String[] {
+                        "one",
+                        "two",
+                        "three"
+                })),
+                entry("string-array-key-2", geodeStringArray(new String[] {
+                        "one",
+                        null,
+                        "three"
+                }))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-key-1"),
+                eq(StoredValue.stringArrayValue(new String[] {
+                        "one",
+                        "two",
+                        "three"
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-key-2"),
+                eq(StoredValue.stringArrayValue(new String[] {
+                        "one",
+                        null,
+                        "three"
+                }))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_array_list_values_and_stores_them() {
+        ArrayList<String> expected1 = new ArrayList<>();
+        expected1.add("one");
+        expected1.add("two");
+        expected1.add("three");
+
+        ArrayList<String> expected2 = new ArrayList<>();
+        expected2.add("one");
+        expected2.add(null);
+        expected2.add("three");
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("string-array-list-key-1", geodeStringArrayList(expected1)),
+                entry("string-array-list-key-2", geodeStringArrayList(expected2))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-list-key-1"),
+                eq(StoredValue.stringArrayListValue(expected1))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-list-key-2"),
+                eq(StoredValue.stringArrayListValue(expected2))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_empty_string_hash_map_value_and_stores_it() {
+        LinkedHashMap<String, String> expected = new LinkedHashMap<>();
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                1,
+                entry("empty-string-hash-map-key", geodeEmptyStringHashMap())
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::empty-string-hash-map-key"),
+                eq(StoredValue.stringHashMapValue(expected))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_hash_map_values_and_stores_them() {
+        LinkedHashMap<String, String> expected1 = new LinkedHashMap<>();
+        expected1.put("one", "value-1");
+        expected1.put("two", "value-2");
+        expected1.put("three", "value-3");
+
+        LinkedHashMap<String, String> expected2 = new LinkedHashMap<>();
+        expected2.put("one", "value-1");
+        expected2.put("two", null);
+        expected2.put("three", "value-3");
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("string-hash-map-key-1", geodeStringHashMapThree()),
+                entry("string-hash-map-key-2", geodeStringHashMapWithNullValue())
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-hash-map-key-1"),
+                eq(StoredValue.stringHashMapValue(expected1))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-hash-map-key-2"),
+                eq(StoredValue.stringHashMapValue(expected2))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_object_hash_map_values_and_stores_them() {
+        LinkedHashMap<String, Object> expected1 = new LinkedHashMap<>();
+        expected1.put("name", "rob");
+        expected1.put("age", Integer.valueOf(42));
+        expected1.put("active", Boolean.TRUE);
+
+        LinkedHashMap<String, Object> expected2 = new LinkedHashMap<>();
+        expected2.put("name", "rob");
+        expected2.put("middleName", null);
+        expected2.put("createdAt", new Date(1_000L));
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("string-object-hash-map-key-1", geodeStringObjectHashMapStringIntegerBoolean()),
+                entry("string-object-hash-map-key-2", geodeStringObjectHashMapStringNullDate())
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-object-hash-map-key-1"),
+                eq(StoredValue.stringObjectHashMapValue(expected1))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-object-hash-map-key-2"),
+                eq(StoredValue.stringObjectHashMapValue(expected2))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_object_hash_map_with_array_values_and_stores_it() {
+        ArrayList<String> expectedList = new ArrayList<>();
+        expectedList.add("one");
+        expectedList.add(null);
+        expectedList.add("three");
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("payload", new byte[] {
+                0x01, 0x02, 0x03, 0x04, 0x05
+        });
+        expected.put("items", new String[] {
+                "one", null, "three"
+        });
+        expected.put("list", expectedList);
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                1,
+                entry("string-object-hash-map-array-key", geodeStringObjectHashMapArrays())
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::string-object-hash-map-array-key"),
+                eq(StoredValue.stringObjectHashMapValue(expected))
         );
 
         verify(ctx).writeAndFlush(any());
@@ -307,9 +503,24 @@ class PutAllHandlerTest {
 
     @Test
     void handle_parses_mixed_primitive_values_and_stores_them() {
+        ArrayList<String> expectedStringArrayList = new ArrayList<>();
+        expectedStringArrayList.add("one");
+        expectedStringArrayList.add(null);
+        expectedStringArrayList.add("three");
+
+        LinkedHashMap<String, String> expectedStringHashMap = new LinkedHashMap<>();
+        expectedStringHashMap.put("one", "value-1");
+        expectedStringHashMap.put("two", null);
+        expectedStringHashMap.put("three", "value-3");
+
+        LinkedHashMap<String, Object> expectedStringObjectHashMap = new LinkedHashMap<>();
+        expectedStringObjectHashMap.put("name", "rob");
+        expectedStringObjectHashMap.put("age", Integer.valueOf(42));
+        expectedStringObjectHashMap.put("active", Boolean.TRUE);
+
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                11,
+                15,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
@@ -317,6 +528,14 @@ class PutAllHandlerTest {
                 entry("byte-array-key", geodeByteArray(new byte[] {
                         0x01, 0x02, 0x03, 0x04, 0x05
                 })),
+                entry("string-array-key", geodeStringArray(new String[] {
+                        "one",
+                        null,
+                        "three"
+                })),
+                entry("string-array-list-key", geodeStringArrayList(expectedStringArrayList)),
+                entry("string-hash-map-key", geodeStringHashMapWithNullValue()),
+                entry("string-object-hash-map-key", geodeStringObjectHashMapStringIntegerBoolean()),
                 entry("short-key", geodeShort((short) 7)),
                 entry("integer-key", geodeInteger(12345)),
                 entry("long-key", geodeLong(9_876_543_210L)),
@@ -352,6 +571,30 @@ class PutAllHandlerTest {
                 eq(StoredValue.byteArrayValue(new byte[] {
                         0x01, 0x02, 0x03, 0x04, 0x05
                 }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-key"),
+                eq(StoredValue.stringArrayValue(new String[] {
+                        "one",
+                        null,
+                        "three"
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-array-list-key"),
+                eq(StoredValue.stringArrayListValue(expectedStringArrayList))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-hash-map-key"),
+                eq(StoredValue.stringHashMapValue(expectedStringHashMap))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::string-object-hash-map-key"),
+                eq(StoredValue.stringObjectHashMapValue(expectedStringObjectHashMap))
         );
 
         verify(repository).put(
@@ -555,6 +798,152 @@ class PutAllHandlerTest {
         return out;
     }
 
+    private static byte[] geodeStringArray(String[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("String[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports String[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+
+        out.write(0x40);
+        out.write(value.length);
+
+        for (String item : value) {
+            if (item == null) {
+                out.write(0x45);
+            } else {
+                byte[] encoded = ValueEncoding.encodeGeodeStringValue(item);
+                out.write(encoded, 0, encoded.length);
+            }
+        }
+
+        return out.toByteArray();
+    }
+
+    private static byte[] geodeStringArrayList(ArrayList<String> value) {
+        if (value == null) {
+            throw new IllegalArgumentException("ArrayList<String> value must not be null");
+        }
+
+        if (value.size() > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports ArrayList<String> sizes from 0 to 127. Actual: " + value.size()
+            );
+        }
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+
+        out.write(0x41);
+        out.write(value.size());
+
+        for (String item : value) {
+            if (item == null) {
+                out.write(0x29);
+            } else {
+                byte[] encoded = ValueEncoding.encodeGeodeStringValue(item);
+                out.write(encoded, 0, encoded.length);
+            }
+        }
+
+        return out.toByteArray();
+    }
+
+    private static byte[] geodeEmptyStringHashMap() {
+        return new byte[] {
+                0x43,
+                0x00
+        };
+    }
+
+    private static byte[] geodeStringHashMapThree() {
+        return hexToBytes(
+                "2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400036f6e6574000776616c75652d3174000374776f74000776616c75652d32740005746872656574000776616c75652d337800"
+        );
+    }
+
+    private static byte[] geodeStringHashMapWithNullValue() {
+        return hexToBytes(
+                "2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400036f6e6574000776616c75652d3174000374776f70740005746872656574000776616c75652d337800"
+        );
+    }
+
+    private static byte[] geodeStringObjectHashMapStringIntegerBoolean() {
+        return hexToBytes(
+                "2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400046e616d65740003726f62740003616765737200116a6176612e6c616e672e496e746567657212e2a0a4f781873802000149000576616c7565787200106a6176612e6c616e672e4e756d62657286ac951d0b94e08b02000078700000002a740006616374697665737200116a6176612e6c616e672e426f6f6c65616ecd207280d59cfaee0200015a000576616c75657870017800"
+        );
+    }
+
+    private static byte[] geodeStringObjectHashMapStringNullDate() {
+        return hexToBytes(
+                "2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400046e616d65740003726f6274000a6d6964646c654e616d65707400096372656174656441747372000e6a6176612e7574696c2e44617465686a81014b5974190300007870770800000000000003e8787800"
+        );
+    }
+
+    private static byte[] geodeStringObjectHashMapArrays() {
+        /*
+         * Shape generated by Java serialization for:
+         *
+         * LinkedHashMap<String,Object> value = new LinkedHashMap<>();
+         * value.put("payload", new byte[] {1,2,3,4,5});
+         * value.put("items", new String[] {"one", null, "three"});
+         * value.put("list", new ArrayList<>(List.of("one", null, "three")));
+         *
+         * This is not one of the raw discovery cases because we want all three
+         * array/list value families in one PUT_ALL unit test.
+         */
+        return javaSerializedLinkedHashMap(
+                "payload", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05},
+                "items", new String[] {"one", null, "three"},
+                "list", arrayList("one", null, "three")
+        );
+    }
+
+    private static byte[] javaSerializedLinkedHashMap(
+            String key1,
+            Object value1,
+            String key2,
+            Object value2,
+            String key3,
+            Object value3
+    ) {
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put(key1, value1);
+        value.put(key2, value2);
+        value.put(key3, value3);
+
+        try {
+            java.io.ByteArrayOutputStream javaBytes = new java.io.ByteArrayOutputStream();
+
+            try (java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(javaBytes)) {
+                out.writeObject(value);
+            }
+
+            byte[] serialized = javaBytes.toByteArray();
+            byte[] framed = new byte[serialized.length + 1];
+
+            framed[0] = 0x2c;
+            System.arraycopy(serialized, 0, framed, 1, serialized.length);
+
+            return framed;
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to serialize LinkedHashMap test fixture", e);
+        }
+    }
+
+    private static ArrayList<String> arrayList(String one, String two, String three) {
+        ArrayList<String> out = new ArrayList<>();
+        out.add(one);
+        out.add(two);
+        out.add(three);
+        return out;
+    }
+
     private static byte[] geodeShort(short value) {
         return new byte[] {
                 0x38,
@@ -627,6 +1016,20 @@ class PutAllHandlerTest {
                 (byte) ((epochMillis >>> 8) & 0xff),
                 (byte) (epochMillis & 0xff)
         };
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        if (hex == null || hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Hex string must be non-null and have an even length");
+        }
+
+        byte[] out = new byte[hex.length() / 2];
+
+        for (int i = 0; i < hex.length(); i += 2) {
+            out[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+        }
+
+        return out;
     }
 
     private static GemFrame frame(GemPart... parts) {

@@ -18,7 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class PutHandler implements OperationHandler {
 
@@ -110,19 +113,71 @@ public class PutHandler implements OperationHandler {
          *
          * Otherwise payloads such as:
          *
-         *   byte[] {1,2,3} via DataSerializer -> 2e 03 01 02 03
-         *   Boolean.TRUE                      -> 35 01
-         *   Character 'A'                     -> 36 00 41
-         *   Byte 7                            -> 37 07
-         *   Short 7                           -> 38 00 07
-         *   Integer 100                       -> 39 00 00 00 64
-         *   Long 100L                         -> 3a 00 00 00 00 00 00 00 64
-         *   Float 7.25f                       -> 3b 40 e8 00 00
-         *   Double 7.25d                      -> 3c 40 1d 00 00 00 00 00 00
-         *   Date(1000L)                       -> 3d 00 00 00 00 00 00 03 e8
+         *   String[] {"one"}                       -> 40 01 57 00 03 6f 6e 65
+         *   ArrayList<String> ["one"]              -> 41 01 57 00 03 6f 6e 65
+         *   Empty HashMap                          -> 43 00
+         *   Non-empty LinkedHashMap                -> 2c ac ed 00 05 ...
+         *   byte[] {1,2,3} via DataSerializer      -> 2e 03 01 02 03
+         *   Boolean.TRUE                           -> 35 01
+         *   Character 'A'                          -> 36 00 41
+         *   Byte 7                                 -> 37 07
+         *   Short 7                                -> 38 00 07
+         *   Integer 100                            -> 39 00 00 00 64
+         *   Long 100L                              -> 3a 00 00 00 00 00 00 00 64
+         *   Float 7.25f                            -> 3b 40 e8 00 00
+         *   Double 7.25d                           -> 3c 40 1d 00 00 00 00 00 00
+         *   Date(1000L)                            -> 3d 00 00 00 00 00 00 03 e8
          *
-         * can be incorrectly treated as text.
+         * can be incorrectly treated as text or raw binary.
          */
+        String[] stringArrayValue = ValueDecoding.decodeStringArrayValue(valuePayload);
+
+        if (stringArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-string-array",
+                    "valueType", "STRING_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.stringArrayValue(stringArrayValue);
+        }
+
+        ArrayList<String> stringArrayListValue = ValueDecoding.decodeStringArrayListValue(valuePayload);
+
+        if (stringArrayListValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-string-array-list",
+                    "valueType", "STRING_ARRAY_LIST",
+                    "txId", txId
+            ));
+            return StoredValue.stringArrayListValue(stringArrayListValue);
+        }
+
+        LinkedHashMap<String, String> stringHashMapValue = ValueDecoding.decodeStringHashMapValue(valuePayload);
+
+        if (stringHashMapValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-string-hash-map",
+                    "valueType", "STRING_HASH_MAP",
+                    "txId", txId
+            ));
+            return StoredValue.stringHashMapValue(stringHashMapValue);
+        }
+
+        LinkedHashMap<String, Object> stringObjectHashMapValue = ValueDecoding.decodeStringObjectHashMapValue(valuePayload);
+
+        if (stringObjectHashMapValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-string-object-hash-map",
+                    "valueType", "STRING_OBJECT_HASH_MAP",
+                    "txId", txId
+            ));
+            return StoredValue.stringObjectHashMapValue(stringObjectHashMapValue);
+        }
+
         byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
 
         if (byteArrayValue != null) {
@@ -277,6 +332,50 @@ public class PutHandler implements OperationHandler {
         try {
             Object rawValue = GeodeSerialization.deserializeObject(valuePayload);
 
+            if (rawValue instanceof String[] stringArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "STRING_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.stringArrayValue(stringArrayObject);
+            }
+
+            if (rawValue instanceof ArrayList<?> arrayListObject && isStringArrayList(arrayListObject)) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "STRING_ARRAY_LIST",
+                        "txId", txId
+                ));
+                return StoredValue.stringArrayListValue(toStringArrayList(arrayListObject));
+            }
+
+            if (rawValue instanceof Map<?, ?> mapObject && isStringStringMap(mapObject)) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "STRING_HASH_MAP",
+                        "txId", txId
+                ));
+                return StoredValue.stringHashMapValue(toStringStringLinkedHashMap(mapObject));
+            }
+
+            if (rawValue instanceof Map<?, ?> mapObject && isSupportedStringObjectMap(mapObject)) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "STRING_OBJECT_HASH_MAP",
+                        "txId", txId
+                ));
+                return StoredValue.stringObjectHashMapValue(toStringObjectLinkedHashMap(mapObject));
+            }
+
             if (rawValue instanceof byte[] byteArrayObject) {
                 log.info(StructuredLog.event(
                         "handler_put_value_decode_ok",
@@ -413,5 +512,151 @@ public class PutHandler implements OperationHandler {
         ));
 
         return null;
+    }
+
+    private static boolean isStringArrayList(ArrayList<?> value) {
+        for (Object item : value) {
+            if (item != null && !(item instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ArrayList<String> toStringArrayList(ArrayList<?> value) {
+        ArrayList<String> out = new ArrayList<>(value.size());
+
+        for (Object item : value) {
+            out.add(item == null ? null : String.valueOf(item));
+        }
+
+        return out;
+    }
+
+    private static boolean isStringStringMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (mapValue != null && !(mapValue instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, String> toStringStringLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    mapValue == null ? null : String.valueOf(mapValue)
+            );
+        }
+
+        return out;
+    }
+
+    private static boolean isSupportedStringObjectMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (!isSupportedMapObjectValue(mapValue)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean isSupportedMapObjectValue(Object value) {
+        return value == null
+                || value instanceof String
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof Date
+                || value instanceof byte[]
+                || value instanceof String[]
+                || isSupportedStringArrayListObject(value);
+    }
+
+    private static boolean isSupportedStringArrayListObject(Object value) {
+        if (!(value instanceof ArrayList<?> list)) {
+            return false;
+        }
+
+        for (Object item : list) {
+            if (item != null && !(item instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, Object> toStringObjectLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    copySupportedMapObjectValue(entry.getValue())
+            );
+        }
+
+        return out;
+    }
+
+    private static Object copySupportedMapObjectValue(Object value) {
+        if (value instanceof byte[] bytes) {
+            byte[] copy = new byte[bytes.length];
+            System.arraycopy(bytes, 0, copy, 0, bytes.length);
+            return copy;
+        }
+
+        if (value instanceof String[] strings) {
+            String[] copy = new String[strings.length];
+            System.arraycopy(strings, 0, copy, 0, strings.length);
+            return copy;
+        }
+
+        if (value instanceof ArrayList<?> list) {
+            ArrayList<String> copy = new ArrayList<>(list.size());
+
+            for (Object item : list) {
+                copy.add(item == null ? null : String.valueOf(item));
+            }
+
+            return copy;
+        }
+
+        if (value instanceof Date date) {
+            return new Date(date.getTime());
+        }
+
+        return value;
     }
 }

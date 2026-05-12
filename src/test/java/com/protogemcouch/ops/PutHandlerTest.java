@@ -6,7 +6,9 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 
 import static com.protogemcouch.testsupport.FrameTestUtil.intPart;
 import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
@@ -170,6 +172,223 @@ class PutHandlerTest {
                 eq(StoredValue.byteArrayValue(new byte[]{
                         0x01, 0x02, 0x03, 0x04, 0x05
                 }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-string-array-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x40,
+                        0x03,
+
+                        0x57, 0x00, 0x03,
+                        0x6f, 0x6e, 0x65,
+
+                        0x45,
+
+                        0x57, 0x00, 0x05,
+                        0x74, 0x68, 0x72, 0x65, 0x65
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-string-array-key"),
+                eq(StoredValue.stringArrayValue(new String[]{
+                        "one", null, "three"
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_array_list_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        ArrayList<String> expected = new ArrayList<>();
+        expected.add("one");
+        expected.add(null);
+        expected.add("three");
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-string-array-list-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x41,
+                        0x03,
+
+                        0x57, 0x00, 0x03,
+                        0x6f, 0x6e, 0x65,
+
+                        0x29,
+
+                        0x57, 0x00, 0x05,
+                        0x74, 0x68, 0x72, 0x65, 0x65
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-string-array-list-key"),
+                eq(StoredValue.stringArrayListValue(expected))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_empty_string_hash_map_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        LinkedHashMap<String, String> expected = new LinkedHashMap<>();
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-empty-string-hash-map-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x43,
+                        0x00
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-empty-string-hash-map-key"),
+                eq(StoredValue.stringHashMapValue(expected))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_hash_map_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        LinkedHashMap<String, String> expected = new LinkedHashMap<>();
+        expected.put("one", "value-1");
+        expected.put("two", null);
+        expected.put("three", "value-3");
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-string-hash-map-key"),
+                objectPart("5"),
+                part(hexToBytes("2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400036f6e6574000776616c75652d3174000374776f70740005746872656574000776616c75652d337800")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-string-hash-map-key"),
+                eq(StoredValue.stringHashMapValue(expected))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_object_hash_map_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "rob");
+        expected.put("age", Integer.valueOf(42));
+        expected.put("active", Boolean.TRUE);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-string-object-hash-map-key"),
+                objectPart("5"),
+                part(hexToBytes("2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400046e616d65740003726f62740003616765737200116a6176612e6c616e672e496e746567657212e2a0a4f781873802000149000576616c7565787200106a6176612e6c616e672e4e756d62657286ac951d0b94e08b02000078700000002a740006616374697665737200116a6176612e6c616e672e426f6f6c65616ecd207280d59cfaee0200015a000576616c75657870017800")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-string-object-hash-map-key"),
+                eq(StoredValue.stringObjectHashMapValue(expected))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_string_object_hash_map_with_null_and_date_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "rob");
+        expected.put("middleName", null);
+        expected.put("createdAt", new Date(1_000L));
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-string-object-hash-map-date-key"),
+                objectPart("5"),
+                part(hexToBytes("2caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000037400046e616d65740003726f6274000a6d6964646c654e616d65707400096372656174656441747372000e6a6176612e7574696c2e44617465686a81014b5974190300007870770800000000000003e8787800")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-string-object-hash-map-date-key"),
+                eq(StoredValue.stringObjectHashMapValue(expected))
         );
         verify(ctx).writeAndFlush(any());
     }
@@ -488,4 +707,19 @@ class PutHandlerTest {
         verify(repository, never()).put(any(), any(StoredValue.class));
         verify(ctx).writeAndFlush(any());
     }
+
+    private static byte[] hexToBytes(String hex) {
+        if (hex == null || hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Hex string must be non-null and have an even length");
+        }
+
+        byte[] out = new byte[hex.length() / 2];
+
+        for (int i = 0; i < hex.length(); i += 2) {
+            out[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+        }
+
+        return out;
+    }
+
 }

@@ -2,34 +2,28 @@
 
 ## Current Build Verification
 
-The project successfully completed a full clean verification after adding `byte[]` support.
+The project successfully completed Docker-backed verification after adding `HashMap<String,Object>` / `LinkedHashMap<String,Object>` support.
 
 ```text
-mvn clean verify
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 BUILD SUCCESS
 ```
 
-Latest full Docker-backed verification result:
+Latest Docker-backed serialization integration result:
 
 ```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
-
-Total integration tests:
-Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
 
-Latest focused byte-array unit verification:
+Latest focused typed-path unit verification:
 
 ```text
-mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
 
-Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -48,6 +42,8 @@ docker-compose-down
 failsafe verify
 ```
 
+The latest run built the shaded jar, started Couchbase and the ProtoGemCouch shim with Docker Compose, ran all 53 serialization integration tests, and cleaned up the Docker network, containers, and volume successfully.
+
 ---
 
 ## Summary
@@ -60,6 +56,10 @@ Boolean
 Character
 Byte
 byte[]
+String[]
+ArrayList<String>
+HashMap<String,String>
+HashMap<String,Object>
 Short
 Integer
 Long
@@ -84,17 +84,118 @@ Docker-backed serialization integration coverage
 
 ---
 
-## Newly Added byte[] Support
+## Newly Added HashMap<String,Object> Support
 
-`byte[]` support was added and verified across the full runtime path.
+`HashMap<String,Object>` / `LinkedHashMap<String,Object>` support was added and verified across the full runtime path.
+
+### Supported Map Shapes
+
+Observed Geode shapes:
+
+```text
+empty map      -> 43 00
+non-empty map  -> 2c + Java ObjectOutputStream bytes
+```
+
+For non-empty maps, the runtime decodes using `ObjectInputStream` over the bytes after the `0x2c` Geode Java-serialized-object marker.
+
+### Supported Nested Map Values
+
+Currently validated nested values:
+
+```text
+null
+String
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+String[]
+ArrayList<String>
+```
+
+### HashMap<String,Object> Runtime Support
+
+| Component | Status |
+|---|---:|
+| `HashMapStringObjectShapeTest.java` | Complete |
+| `ValueDecoding.decodeStringObjectHashMapValue(...)` | Complete |
+| `StoredValue.Type.STRING_OBJECT_HASH_MAP` | Complete |
+| `StoredValue.stringObjectHashMapValue(...)` | Complete |
+| `StoredValue.asStringObjectHashMap()` | Complete |
+| `GemResponseWriter.buildStringObjectHashMapGetResponse(...)` | Complete |
+| `GemResponseWriter` GET_ALL string-object-map encoding | Complete |
+| `PutHandler` string-object-map decode/store | Complete |
+| `PutAllHandler` string-object-map decode/store | Complete |
+| `GetHandler` string-object-map response path | Complete |
+| `GetAllHandler` string-object-map response path | Complete |
+| `CouchbaseRepository` string-object-map persistence/hydration | Complete |
+| `ProtoGemCouchSerializationIntegrationTest` string-object-map end-to-end coverage | Complete |
+| Focused handler tests | Complete |
+| Docker-backed integration verification | Passing |
+
+---
+
+## String Collection and Map Support
+
+The previous milestones are also fully validated.
+
+### String[]
+
+Shape:
+
+```text
+0x40 + compact length + element payloads
+```
+
+Representative examples:
+
+```text
+new String[] {}                    -> 4000
+new String[] {"one"}               -> 40015700036f6e65
+new String[] {"one",null,"three"}  -> 40035700036f6e65455700057468726565
+```
+
+### ArrayList<String>
+
+Shape:
+
+```text
+0x41 + compact length + element payloads
+```
+
+Representative examples:
+
+```text
+new ArrayList<>()                  -> 4100
+["one"]                            -> 41015700036f6e65
+["one",null,"three"]               -> 41035700036f6e65295700057468726565
+```
+
+### HashMap<String,String>
+
+Shape:
+
+```text
+empty map      -> 4300
+non-empty map  -> 2caced0005...
+```
+
+---
+
+## byte[] Support
+
+`byte[]` support remains fully validated across both observed input shapes.
 
 ### Supported byte[] Input Shapes
 
-Two byte-array shapes are supported.
-
 #### DataSerializer byte-array shape
-
-Shape observed from `DataSerializer.writeObject(byte[])`:
 
 ```text
 0x2e + compact length + bytes
@@ -121,33 +222,12 @@ new byte[] {0x01,0x02,0x03,0x04,0x05} -> 0102030405
 new byte[] {0x00,0x01,0x02,0x03}      -> 00010203
 ```
 
-The runtime now logs these as:
+Runtime labels:
 
 ```text
 encoding=geode-byte-array
 encoding=raw-byte-array
 ```
-
-### byte[] Runtime Support
-
-| Component | Status |
-|---|---:|
-| `ByteArrayShapeTest.java` | Complete |
-| `ValueDecoding.decodeByteArrayValue(...)` | Complete |
-| `ValueDecoding.decodeRawByteArrayValue(...)` | Complete |
-| `StoredValue.Type.BYTE_ARRAY` | Complete |
-| `StoredValue.byteArrayValue(...)` | Complete |
-| `StoredValue.asByteArray()` | Complete |
-| `GemResponseWriter.buildByteArrayGetResponse(...)` | Complete |
-| `GemResponseWriter` GET_ALL byte-array encoding | Complete |
-| `PutHandler` byte-array decode/store | Complete |
-| `PutAllHandler` byte-array decode/store | Complete |
-| `GetHandler` byte-array response path | Complete |
-| `GetAllHandler` byte-array response path | Complete |
-| `CouchbaseRepository` byte-array persistence/hydration | Complete |
-| `ProtoGemCouchSerializationIntegrationTest` byte-array end-to-end coverage | Complete |
-| Focused handler tests | Complete |
-| Full `mvn clean verify` | Passing |
 
 ---
 
@@ -178,161 +258,90 @@ new Date(1_778_265_266_000L) -> 3d0000019e08de9750
 new Date(-1_000L)            -> 3dfffffffffffffc18
 ```
 
-### Date Runtime Support
-
-| Component | Status |
-|---|---:|
-| `DateShapeTest.java` | Complete |
-| `ValueDecoding.decodeDateValue(...)` | Complete |
-| `StoredValue.Type.DATE` | Complete |
-| `StoredValue.dateValue(...)` | Complete |
-| `StoredValue.asDate()` | Complete |
-| `GemResponseWriter.buildDateGetResponse(...)` | Complete |
-| `GemResponseWriter` GET_ALL Date encoding | Complete |
-| `PutHandler` Date decode/store | Complete |
-| `PutAllHandler` Date decode/store | Complete |
-| `GetHandler` Date response path | Complete |
-| `GetAllHandler` Date response path | Complete |
-| `CouchbaseRepository` Date persistence/hydration | Complete |
-| `ProtoGemCouchSerializationIntegrationTest` Date end-to-end coverage | Complete |
-| Focused handler tests | Complete |
-| Full `mvn clean verify` | Passing |
-
 ---
 
 ## Focused Handler Test Results
 
-The focused handler tests validate typed paths across `PUT`, `GET`, `PUT_ALL`, and `GET_ALL`.
-
 Representative command:
 
 ```powershell
-mvn test "-Dtest=ByteArrayShapeTest,PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest"
+mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
 ```
 
 Successful result:
 
 ```text
-Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-Validated byte-array paths:
+Validated string-object-map paths include:
 
 ```text
 PUT:
-encoding=geode-byte-array valueType=BYTE_ARRAY
-encoding=raw-byte-array valueType=BYTE_ARRAY
+encoding=geode-string-object-hash-map
+valueType=STRING_OBJECT_HASH_MAP
 
 PUT_ALL:
-encoding=geode-byte-array key=byte-array-key valueType=BYTE_ARRAY
-encoding=geode-byte-array key=byte-array-key-1 valueType=BYTE_ARRAY
-encoding=geode-byte-array key=byte-array-key-2 valueType=BYTE_ARRAY
+encoding=geode-string-object-hash-map
+valueType=STRING_OBJECT_HASH_MAP
 
 GET:
-key=my-byte-array-key
-docId=/helloWorld::my-byte-array-key
+StoredValue.Type.STRING_OBJECT_HASH_MAP -> buildStringObjectHashMapGetResponse(...)
 
 GET_ALL:
-keys="[byte-array-key-1, byte-array-key-2]"
-keys="[string-key, character-key, byte-key, byte-array-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
-```
-
-Validated Date paths:
-
-```text
-GET:
-key=my-date-key
-docId=/helloWorld::my-date-key
-
-PUT:
-encoding=geode-date
-valueType=DATE
-key=my-date-key
-docId=/helloWorld::my-date-key
-
-PUT_ALL:
-encoding=geode-date key=date-key valueType=DATE
-encoding=geode-date key=date-key-1 valueType=DATE
-encoding=geode-date key=date-key-2 valueType=DATE
-
-GET_ALL:
-keys="[date-key-1, date-key-2]"
-keys="[string-key, character-key, byte-key, byte-array-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
+StoredValue.Type.STRING_OBJECT_HASH_MAP -> VersionedObjectList-compatible map payload
 ```
 
 ---
 
 ## Shape Test Results
 
-### ByteArrayShapeTest
+### HashMapStringObjectShapeTest
 
 Command:
 
 ```powershell
-mvn test "-Dtest=ByteArrayShapeTest"
+mvn test "-Dtest=HashMapStringObjectShapeTest"
 ```
 
 Representative result:
 
 ```text
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 9, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-Captured byte-array output:
+Captured shape families:
 
 ```text
-BYTE_ARRAY_EMPTY_HEX_START
-2e00
-BYTE_ARRAY_EMPTY_HEX_END
+HASH_MAP_STRING_OBJECT_EMPTY_HEX_START
+4300
+HASH_MAP_STRING_OBJECT_EMPTY_HEX_END
 
-BYTE_ARRAY_MIXED_HEX_START
-2e0500017f80ff
-BYTE_ARRAY_MIXED_HEX_END
+HASH_MAP_STRING_OBJECT_ONE_STRING_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_ONE_STRING_HEX_END
 
-BYTE_ARRAY_ONE_HEX_START
-2e0101
-BYTE_ARRAY_ONE_HEX_END
+HASH_MAP_STRING_OBJECT_STRING_INTEGER_BOOLEAN_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_STRING_INTEGER_BOOLEAN_HEX_END
 
-BYTE_ARRAY_FIVE_HEX_START
-2e050102030405
-BYTE_ARRAY_FIVE_HEX_END
-```
+HASH_MAP_STRING_OBJECT_STRING_NULL_DATE_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_STRING_NULL_DATE_HEX_END
 
-### DateShapeTest
+HASH_MAP_STRING_OBJECT_BYTE_ARRAY_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_BYTE_ARRAY_HEX_END
 
-Command:
+HASH_MAP_STRING_OBJECT_STRING_ARRAY_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_STRING_ARRAY_HEX_END
 
-```powershell
-mvn test "-Dtest=DateShapeTest"
-```
-
-Representative result:
-
-```text
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
-BUILD SUCCESS
-```
-
-Captured Date output:
-
-```text
-DATE_KNOWN_FUTURE_HEX_START
-3d0000019e08de9750
-DATE_KNOWN_FUTURE_HEX_END
-
-DATE_ONE_SECOND_HEX_START
-3d00000000000003e8
-DATE_ONE_SECOND_HEX_END
-
-DATE_NEGATIVE_HEX_START
-3dfffffffffffffc18
-DATE_NEGATIVE_HEX_END
-
-DATE_EPOCH_HEX_START
-3d0000000000000000
-DATE_EPOCH_HEX_END
+HASH_MAP_STRING_OBJECT_STRING_ARRAY_LIST_HEX_START
+2caced0005...
+HASH_MAP_STRING_OBJECT_STRING_ARRAY_LIST_HEX_END
 ```
 
 ### Validated Shape Suite
@@ -344,6 +353,10 @@ BooleanShapeTest
 CharacterShapeTest
 ByteShapeTest
 ByteArrayShapeTest
+StringArrayShapeTest
+StringArrayListShapeTest
+HashMapStringStringShapeTest
+HashMapStringObjectShapeTest
 ShortShapeTest
 IntegerShapeTest
 LongShapeTest
@@ -356,171 +369,98 @@ DateShapeTest
 
 ## Serialization Integration Results
 
-The serialization integration suite now includes Date and byte-array end-to-end coverage.
+The serialization integration suite now includes `HashMap<String,Object>` end-to-end coverage.
 
-Added / updated byte-array scenarios:
-
-```text
-byteArrayValueShouldRoundTripThroughShimAndCouchbase
-putAllWithByteArrayValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithByteArrayValuesShouldReturnByteArrays
-mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
-```
-
-Added / updated Date scenarios:
+Added / updated map scenarios:
 
 ```text
-dateValueShouldRoundTripThroughShimAndCouchbase
-putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithDateValuesShouldReturnDates
-mixedStringCharacterByteByteArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+stringObjectHashMapValueShouldRoundTripThroughShimAndCouchbase
+stringObjectHashMapWithArrayValuesShouldRoundTripThroughShimAndCouchbase
+putAllWithStringObjectHashMapValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithStringObjectHashMapValuesShouldReturnMaps
+mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 Verified integration behavior:
 
 ```text
-Geode client PUT byte[] -> shim decodes byte[] -> Couchbase stores typed byteArray document
-Geode client GET byte[] -> shim reads typed byteArray document -> returns Geode-compatible byte[] payload
-Geode client PUT_ALL byte[] values -> shim decodes and stores all byte[] values
-Geode client GET_ALL byte[] values -> shim returns VersionedObjectList-compatible byte[] values
-Mixed typed PUT_ALL / GET_ALL preserves byte[] and Date alongside String, Character, Byte, Short, Integer, Boolean, Long, Float, and Double
+Geode client PUT Map<String,Object>
+  -> shim decodes STRING_OBJECT_HASH_MAP
+  -> Couchbase stores typed stringObjectHashMap document
+  -> shim hydrates typed nested values from Couchbase
+  -> Geode client GET receives Map-compatible value
+
+Geode client PUT_ALL Map<String,Object> values
+  -> shim decodes and stores all map values
+
+Geode client GET_ALL Map<String,Object> values
+  -> shim returns VersionedObjectList-compatible map values
+
+Mixed typed PUT_ALL / GET_ALL preserves Map<String,Object> alongside:
+  String
+  Character
+  Byte
+  byte[]
+  String[]
+  ArrayList<String>
+  HashMap<String,String>
+  Short
+  Integer
+  Boolean
+  Long
+  Float
+  Double
+  Date
 ```
 
 ---
 
 ## Couchbase Document Examples
 
-### String
+### String Object Hash Map
 
 ```json
 {
-  "type": "string",
-  "value": "value-1"
+  "type": "stringObjectHashMap",
+  "value": {
+    "name": {
+      "type": "string",
+      "value": "rob"
+    },
+    "age": {
+      "type": "integer",
+      "value": 42
+    },
+    "active": {
+      "type": "boolean",
+      "value": true
+    },
+    "createdAt": {
+      "type": "date",
+      "value": "1970-01-01T00:00:01Z",
+      "epochMillis": 1000
+    },
+    "payload": {
+      "type": "byteArray",
+      "valueBase64": "AQID",
+      "length": 3
+    },
+    "items": {
+      "type": "stringArray",
+      "value": ["one", null, "three"],
+      "length": 3
+    },
+    "list": {
+      "type": "stringArrayList",
+      "value": ["one", null, "three"],
+      "length": 3
+    }
+  },
+  "length": 7
 }
 ```
 
-### Boolean
-
-```json
-{
-  "type": "boolean",
-  "value": true
-}
-```
-
-### Character
-
-```json
-{
-  "type": "character",
-  "value": "A"
-}
-```
-
-### Byte
-
-```json
-{
-  "type": "byte",
-  "value": 7
-}
-```
-
-### Byte Array
-
-```json
-{
-  "type": "byteArray",
-  "valueBase64": "AQIDBAU=",
-  "length": 5
-}
-```
-
-### Short
-
-```json
-{
-  "type": "short",
-  "value": 7
-}
-```
-
-### Integer
-
-```json
-{
-  "type": "integer",
-  "value": 12345
-}
-```
-
-### Long
-
-```json
-{
-  "type": "long",
-  "value": 9876543210
-}
-```
-
-### Float
-
-```json
-{
-  "type": "float",
-  "value": 7.25
-}
-```
-
-### Double
-
-```json
-{
-  "type": "double",
-  "value": 7.25
-}
-```
-
-### Date
-
-```json
-{
-  "type": "date",
-  "value": "1970-01-01T00:00:01Z",
-  "epochMillis": 1000
-}
-```
-
----
-
-## Full Unit Verification
-
-Command:
-
-```powershell
-mvn test
-```
-
-Latest focused byte-array path result:
-
-```text
-Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
-BUILD SUCCESS
-```
-
-Included passing test categories:
-
-```text
-Configuration tests
-Repository factory tests
-Handler tests
-Serialization tests
-Utility tests
-Wire shape tests
-Golden-wire response tests
-VersionedObjectList shape tests
-Mixed typed response tests
-```
+The nested value envelopes preserve Java type fidelity that would otherwise be lost in generic JSON.
 
 ---
 
@@ -529,12 +469,13 @@ Mixed typed response tests
 Command:
 
 ```powershell
-mvn clean verify
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 ```
 
 Result:
 
 ```text
+Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -556,6 +497,10 @@ Boolean
 Character
 Byte
 byte[]
+String[]
+ArrayList<String>
+HashMap<String,String>
+HashMap<String,Object>
 Short
 Integer
 Long
@@ -583,38 +528,24 @@ keySet
 
 1. Start the environment with Docker Compose.
 2. Show the Java Geode client using standard `Region.put`, `Region.get`, `Region.putAll`, and `Region.getAll`.
-3. Demonstrate a byte-array round trip:
+3. Demonstrate a `HashMap<String,Object>` round trip:
    ```java
-   byte[] expected = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
-   region.put("byte-array-demo-key", expected);
-   Object actual = region.get("byte-array-demo-key");
+   LinkedHashMap<String, Object> profile = new LinkedHashMap<>();
+   profile.put("name", "rob");
+   profile.put("age", Integer.valueOf(42));
+   profile.put("active", Boolean.TRUE);
+   profile.put("createdAt", new Date(1_000L));
+   profile.put("payload", new byte[] {0x01, 0x02, 0x03});
+   profile.put("items", new String[] {"one", null, "three"});
+
+   region.put("profile-demo-key", profile);
+   Object actual = region.get("profile-demo-key");
    ```
-4. Show the Couchbase document:
-   ```json
-   {
-     "type": "byteArray",
-     "valueBase64": "AQIDBAU=",
-     "length": 5
-   }
-   ```
-5. Demonstrate a Date round trip:
-   ```java
-   Date expected = new Date(1_000L);
-   region.put("date-demo-key", expected);
-   Object actual = region.get("date-demo-key");
-   ```
-6. Show the Couchbase document:
-   ```json
-   {
-     "type": "date",
-     "value": "1970-01-01T00:00:01Z",
-     "epochMillis": 1000
-   }
-   ```
-7. Demonstrate mixed typed `putAll` / `getAll` preserving all validated types.
-8. Run or reference:
+4. Show the Couchbase document with nested typed envelopes.
+5. Demonstrate mixed typed `putAll` / `getAll` preserving all validated types.
+6. Run or reference:
    ```powershell
-   mvn clean verify
+   mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
    ```
 
 ---
@@ -631,7 +562,7 @@ The shim can parse supported Geode protocol operations.
 The shim can translate those operations into Couchbase KV operations.
 The shim can encode Geode-compatible responses.
 Couchbase can act as the persistence backend for the tested region operations.
-Typed Java wrapper values, byte arrays, and Date values preserve type fidelity across PUT/GET and PUT_ALL/GET_ALL.
+Typed Java wrapper values, arrays, lists, maps, byte arrays, and Date values preserve type fidelity across PUT/GET and PUT_ALL/GET_ALL.
 Automated Docker-based integration tests can validate the whole stack.
 ```
 
@@ -645,7 +576,7 @@ Validated:
 Java Geode client
 Proxy region behavior
 Core region operations
-Typed wrapper, byte[], and Date values
+Typed wrapper, array/list/map, byte[], and Date values
 Couchbase KV persistence
 Single bucket/scope/collection backend
 Manual VersionedObjectList-compatible GET_ALL responses
@@ -655,10 +586,9 @@ Docker Compose based integration environment
 Not yet fully validated:
 
 ```text
-String[]
-ArrayList<String>
-HashMap<String, Object>
+Arbitrary Java object graph serialization
 Complex POJO values
+Nested Map<String,Object> beyond explicitly tested supported value types
 PDX values
 JSON object values
 Transactions
@@ -683,17 +613,17 @@ This demo phase is successful.
 The current milestone is:
 
 ```text
-byte-array-support-complete
+string-object-map-support-complete
 ```
 
 Suggested commit:
 
 ```text
-Add byte-array serialization support
+Add string object map serialization support
 ```
 
 Suggested next target:
 
 ```text
-String[] or ArrayList<String>
+Simple Serializable POJO
 ```

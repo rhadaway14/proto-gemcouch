@@ -5,7 +5,13 @@ import com.protogemcouch.serialization.ValueEncoding;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -54,6 +60,21 @@ public final class GemResponseWriter {
      * This implementation supports the currently validated compact/small-length shape.
      */
     private static final byte GEODE_BYTE_ARRAY_CODE = 0x2e;
+
+    /*
+     * Geode DataSerializer String[] marker observed from StringArrayShapeTest:
+     *
+     *   new String[] {}                         -> 40 00
+     *   new String[] {"one"}                    -> 40 01 57 00 03 6f 6e 65
+     *   new String[] {"one","two","three"}     -> 40 03 57 00 03 6f 6e 65 57 00 03 74 77 6f 57 00 05 74 68 72 65 65
+     *   new String[] {"","A","hello"}          -> 40 03 57 00 00 57 00 01 41 57 00 05 68 65 6c 6c 6f
+     *   new String[] {"one",null,"three"}      -> 40 03 57 00 03 6f 6e 65 45 57 00 05 74 68 72 65 65
+     *
+     * String elements use the normal Geode string marker 0x57.
+     * Null string-array elements use marker 0x45.
+     */
+    private static final byte GEODE_STRING_ARRAY_CODE = 0x40;
+    private static final byte GEODE_NULL_STRING_ARRAY_ELEMENT_CODE = 0x45;
 
     /*
      * Geode DataSerializer boolean marker:
@@ -142,16 +163,32 @@ public final class GemResponseWriter {
     private static final byte GEODE_DATE_CODE = 0x3d;
 
     /*
-     * Geode DataSerializer List marker observed from ListShapeTest:
+     * Geode DataSerializer ArrayList/List marker observed from StringArrayListShapeTest
+     * and key-set response testing:
      *
-     *   List.of("key-1", "key-2", "key-3")
+     *   new ArrayList<>()                         -> 41 00
+     *   ["one"]                                   -> 41 01 57 00 03 6f 6e 65
+     *   ["one","two","three"]                    -> 41 03 57 00 03 6f 6e 65 57 00 03 74 77 6f 57 00 05 74 68 72 65 65
+     *   ["","A","hello"]                         -> 41 03 57 00 00 57 00 01 41 57 00 05 68 65 6c 6c 6f
+     *   ["one",null,"three"]                     -> 41 03 57 00 03 6f 6e 65 29 57 00 05 74 68 72 65 65
      *
-     *   41 03
-     *   57 00 05 6b65792d31
-     *   57 00 05 6b65792d32
-     *   57 00 05 6b65792d33
+     * String elements use the normal Geode string marker 0x57.
+     * Null ArrayList elements use the normal Geode null marker 0x29.
      */
     private static final byte GEODE_LIST_CODE = 0x41;
+    private static final byte GEODE_NULL_CODE = 0x29;
+
+    /*
+     * Geode DataSerializer HashMap/LinkedHashMap observations from
+     * HashMapStringStringShapeTest:
+     *
+     *   new HashMap<>()                         -> 43 00
+     *   non-empty LinkedHashMap<String,String>  -> 2c ac ed 00 05 ...
+     *
+     * Empty maps use compact marker 0x43 + size 0.
+     * Non-empty LinkedHashMap payloads are Java-serialized behind marker 0x2c.
+     */
+    private static final byte GEODE_HASH_MAP_CODE = 0x43;
 
     /*
      * Full Geode DataSerializer object header for VersionedObjectList.
@@ -215,6 +252,38 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedByteArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildStringArrayGetResponse(int txId, String[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedStringArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildStringArrayListGetResponse(int txId, ArrayList<String> value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedStringArrayList(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildStringHashMapGetResponse(int txId, LinkedHashMap<String, String> value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedStringHashMap(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildStringObjectHashMapGetResponse(int txId, LinkedHashMap<String, Object> value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedStringObjectHashMap(value), (byte) 1))
         );
     }
 
@@ -438,6 +507,22 @@ public final class GemResponseWriter {
             return StoredValue.byteArrayValue(byteArrayValue);
         }
 
+        if (rawValue instanceof String[] stringArrayValue) {
+            return StoredValue.stringArrayValue(stringArrayValue);
+        }
+
+        if (rawValue instanceof ArrayList<?> arrayListValue && isStringArrayList(arrayListValue)) {
+            return StoredValue.stringArrayListValue(toStringArrayList(arrayListValue));
+        }
+
+        if (rawValue instanceof Map<?, ?> mapValue && isStringStringMap(mapValue)) {
+            return StoredValue.stringHashMapValue(toStringStringLinkedHashMap(mapValue));
+        }
+
+        if (rawValue instanceof Map<?, ?> mapValue && isSupportedStringObjectMap(mapValue)) {
+            return StoredValue.stringObjectHashMapValue(toStringObjectLinkedHashMap(mapValue));
+        }
+
         if (rawValue instanceof Boolean bool) {
             return StoredValue.booleanValue(bool);
         }
@@ -492,6 +577,22 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.BYTE_ARRAY) {
             return geodeSerializedByteArray(value.asByteArray());
+        }
+
+        if (value.type() == StoredValue.Type.STRING_ARRAY) {
+            return geodeSerializedStringArray(value.asStringArray());
+        }
+
+        if (value.type() == StoredValue.Type.STRING_ARRAY_LIST) {
+            return geodeSerializedStringArrayList(value.asStringArrayList());
+        }
+
+        if (value.type() == StoredValue.Type.STRING_HASH_MAP) {
+            return geodeSerializedStringHashMap(value.asStringHashMap());
+        }
+
+        if (value.type() == StoredValue.Type.STRING_OBJECT_HASH_MAP) {
+            return geodeSerializedStringObjectHashMap(value.asStringObjectHashMap());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -578,6 +679,325 @@ public final class GemResponseWriter {
         } finally {
             buf.release();
         }
+    }
+
+    private static byte[] geodeSerializedStringArray(String[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("String[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated String[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_STRING_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (String item : value) {
+                if (item == null) {
+                    buf.writeByte(GEODE_NULL_STRING_ARRAY_ELEMENT_CODE);
+                } else {
+                    buf.writeBytes(ValueEncoding.encodeGeodeStringValue(item));
+                }
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedStringArrayList(ArrayList<String> value) {
+        if (value == null) {
+            throw new IllegalArgumentException("ArrayList<String> value must not be null");
+        }
+
+        if (value.size() > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated ArrayList<String> writer currently supports sizes from 0 to 127. Actual: " + value.size()
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_LIST_CODE);
+            buf.writeByte((byte) value.size());
+
+            for (String item : value) {
+                if (item == null) {
+                    buf.writeByte(GEODE_NULL_CODE);
+                } else {
+                    buf.writeBytes(ValueEncoding.encodeGeodeStringValue(item));
+                }
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedStringHashMap(LinkedHashMap<String, String> value) {
+        if (value == null) {
+            throw new IllegalArgumentException("LinkedHashMap<String, String> value must not be null");
+        }
+
+        if (value.size() > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated LinkedHashMap<String,String> writer currently supports sizes from 0 to 127. Actual: "
+                            + value.size()
+            );
+        }
+
+        /*
+         * Match the compact empty HashMap shape observed from Geode:
+         *
+         *   new HashMap<>() -> 43 00
+         */
+        if (value.isEmpty()) {
+            return new byte[] {
+                    GEODE_HASH_MAP_CODE,
+                    0x00
+            };
+        }
+
+        /*
+         * Match Geode's non-empty LinkedHashMap shape without invoking Geode
+         * DataSerializer in the shim process:
+         *
+         *   2c + Java ObjectOutputStream bytes
+         *
+         * This avoids DataSerializer static initialization failures while still
+         * producing the same wire shape the Geode client expects.
+         */
+        try {
+            ByteArrayOutputStream javaBytes = new ByteArrayOutputStream();
+
+            try (ObjectOutputStream out = new ObjectOutputStream(javaBytes)) {
+                out.writeObject(value);
+            }
+
+            byte[] serialized = javaBytes.toByteArray();
+            byte[] framed = new byte[serialized.length + 1];
+
+            framed[0] = 0x2c;
+            System.arraycopy(serialized, 0, framed, 1, serialized.length);
+
+            return framed;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to serialize LinkedHashMap<String,String>", e);
+        }
+    }
+
+    private static byte[] geodeSerializedStringObjectHashMap(LinkedHashMap<String, Object> value) {
+        if (value == null) {
+            throw new IllegalArgumentException("LinkedHashMap<String, Object> value must not be null");
+        }
+
+        if (value.size() > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated LinkedHashMap<String,Object> writer currently supports sizes from 0 to 127. Actual: "
+                            + value.size()
+            );
+        }
+
+        if (!isSupportedStringObjectMap(value)) {
+            throw new IllegalArgumentException("LinkedHashMap<String,Object> contains unsupported key/value types");
+        }
+
+        /*
+         * Match the compact empty HashMap shape observed from Geode:
+         *
+         *   new HashMap<>() -> 43 00
+         */
+        if (value.isEmpty()) {
+            return new byte[] {
+                    GEODE_HASH_MAP_CODE,
+                    0x00
+            };
+        }
+
+        /*
+         * Match Geode's non-empty LinkedHashMap<String,Object> shape:
+         *
+         *   2c + Java ObjectOutputStream bytes
+         */
+        try {
+            ByteArrayOutputStream javaBytes = new ByteArrayOutputStream();
+
+            try (ObjectOutputStream out = new ObjectOutputStream(javaBytes)) {
+                out.writeObject(value);
+            }
+
+            byte[] serialized = javaBytes.toByteArray();
+            byte[] framed = new byte[serialized.length + 1];
+
+            framed[0] = 0x2c;
+            System.arraycopy(serialized, 0, framed, 1, serialized.length);
+
+            return framed;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to serialize LinkedHashMap<String,Object>", e);
+        }
+    }
+
+
+
+
+    private static boolean isStringArrayList(ArrayList<?> value) {
+        for (Object item : value) {
+            if (item != null && !(item instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ArrayList<String> toStringArrayList(ArrayList<?> value) {
+        ArrayList<String> out = new ArrayList<>(value.size());
+
+        for (Object item : value) {
+            out.add(item == null ? null : String.valueOf(item));
+        }
+
+        return out;
+    }
+
+    private static boolean isStringStringMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (mapValue != null && !(mapValue instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, String> toStringStringLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    mapValue == null ? null : String.valueOf(mapValue)
+            );
+        }
+
+        return out;
+    }
+
+    private static boolean isSupportedStringObjectMap(Map<?, ?> value) {
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+            Object mapValue = entry.getValue();
+
+            if (key != null && !(key instanceof String)) {
+                return false;
+            }
+
+            if (!isSupportedMapObjectValue(mapValue)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean isSupportedMapObjectValue(Object value) {
+        return value == null
+                || value instanceof String
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof Date
+                || value instanceof byte[]
+                || value instanceof String[]
+                || isSupportedStringArrayListObject(value);
+    }
+
+    private static boolean isSupportedStringArrayListObject(Object value) {
+        if (!(value instanceof ArrayList<?> list)) {
+            return false;
+        }
+
+        for (Object item : list) {
+            if (item != null && !(item instanceof String)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static LinkedHashMap<String, Object> toStringObjectLinkedHashMap(Map<?, ?> value) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            Object key = entry.getKey();
+
+            out.put(
+                    key == null ? null : String.valueOf(key),
+                    copySupportedMapObjectValue(entry.getValue())
+            );
+        }
+
+        return out;
+    }
+
+    private static Object copySupportedMapObjectValue(Object value) {
+        if (value instanceof byte[] bytes) {
+            byte[] copy = new byte[bytes.length];
+            System.arraycopy(bytes, 0, copy, 0, bytes.length);
+            return copy;
+        }
+
+        if (value instanceof String[] strings) {
+            String[] copy = new String[strings.length];
+            System.arraycopy(strings, 0, copy, 0, strings.length);
+            return copy;
+        }
+
+        if (value instanceof ArrayList<?> list) {
+            ArrayList<String> copy = new ArrayList<>(list.size());
+
+            for (Object item : list) {
+                copy.add(item == null ? null : String.valueOf(item));
+            }
+
+            return copy;
+        }
+
+        if (value instanceof Date date) {
+            return new Date(date.getTime());
+        }
+
+        return value;
     }
 
     private static byte[] geodeSerializedBoolean(boolean value) {
