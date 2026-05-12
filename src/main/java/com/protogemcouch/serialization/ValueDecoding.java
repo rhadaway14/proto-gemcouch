@@ -1,6 +1,7 @@
 package com.protogemcouch.serialization;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 
 public final class ValueDecoding {
 
@@ -82,6 +83,16 @@ public final class ValueDecoding {
      *   Double.valueOf(0.0d)         -> 3c 00 00 00 00 00 00 00 00
      */
     private static final int GEODE_DOUBLE_CODE = 0x3c;
+
+    /*
+     * Geode DataSerializer Date marker observed from DateShapeTest:
+     *
+     *   new Date(0L)                 -> 3d 00 00 00 00 00 00 00 00
+     *   new Date(1_000L)             -> 3d 00 00 00 00 00 00 03 e8
+     *   new Date(1_778_265_266_000L) -> 3d 00 00 01 9e 08 de 97 50
+     *   new Date(-1_000L)            -> 3d ff ff ff ff ff ff fc 18
+     */
+    private static final int GEODE_DATE_CODE = 0x3d;
 
     private ValueDecoding() {
     }
@@ -222,6 +233,27 @@ public final class ValueDecoding {
         return Double.longBitsToDouble(bits);
     }
 
+    public static Date decodeDateValue(byte[] payload) {
+        if (payload == null || payload.length != 9) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_DATE_CODE) {
+            return null;
+        }
+
+        long epochMillis = ((long) (payload[1] & 0xff) << 56)
+                | ((long) (payload[2] & 0xff) << 48)
+                | ((long) (payload[3] & 0xff) << 40)
+                | ((long) (payload[4] & 0xff) << 32)
+                | ((long) (payload[5] & 0xff) << 24)
+                | ((long) (payload[6] & 0xff) << 16)
+                | ((long) (payload[7] & 0xff) << 8)
+                | ((long) (payload[8] & 0xff));
+
+        return new Date(epochMillis);
+    }
+
     public static String decodeStringLikeValue(byte[] payload) {
         if (payload == null || payload.length == 0) {
             return null;
@@ -308,6 +340,10 @@ public final class ValueDecoding {
         }
 
         if (decodeDoubleValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeDateValue(payload) != null) {
             return null;
         }
 

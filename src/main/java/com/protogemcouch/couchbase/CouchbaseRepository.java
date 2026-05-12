@@ -18,7 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +32,7 @@ public class CouchbaseRepository implements Repository {
 
     private static final String FIELD_VALUE = "value";
     private static final String FIELD_TYPE = "type";
+    private static final String FIELD_EPOCH_MILLIS = "epochMillis";
 
     private static final String TYPE_STRING = "string";
     private static final String TYPE_BOOLEAN = "boolean";
@@ -39,6 +43,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_LONG = "long";
     private static final String TYPE_FLOAT = "float";
     private static final String TYPE_DOUBLE = "double";
+    private static final String TYPE_DATE = "date";
 
     private final ServerConfig config;
 
@@ -372,6 +377,14 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.DATE) {
+            Date date = value.asDate();
+            body.put(FIELD_TYPE, TYPE_DATE);
+            body.put(FIELD_VALUE, date.toInstant().toString());
+            body.put(FIELD_EPOCH_MILLIS, date.getTime());
+            return body;
+        }
+
         body.put(FIELD_TYPE, TYPE_STRING);
         body.put(FIELD_VALUE, value.value());
         return body;
@@ -520,11 +533,49 @@ public class CouchbaseRepository implements Repository {
             return null;
         }
 
+        if (TYPE_DATE.equalsIgnoreCase(type)) {
+            return decodeDateStoredValue(content, rawValue);
+        }
+
         if (rawValue == null) {
             return null;
         }
 
         return StoredValue.stringValue(String.valueOf(rawValue));
+    }
+
+    private static StoredValue decodeDateStoredValue(JsonObject content, Object rawValue) {
+        Object rawEpochMillis = content.get(FIELD_EPOCH_MILLIS);
+
+        if (rawEpochMillis instanceof Number number) {
+            return StoredValue.dateValue(new Date(number.longValue()));
+        }
+
+        if (rawEpochMillis instanceof String text) {
+            try {
+                return StoredValue.dateValue(new Date(Long.parseLong(text)));
+            } catch (NumberFormatException e) {
+                // Fall through and try the value field below.
+            }
+        }
+
+        if (rawValue instanceof Number number) {
+            return StoredValue.dateValue(new Date(number.longValue()));
+        }
+
+        if (rawValue instanceof String text) {
+            try {
+                return StoredValue.dateValue(Date.from(Instant.parse(text)));
+            } catch (DateTimeParseException e) {
+                try {
+                    return StoredValue.dateValue(new Date(Long.parseLong(text)));
+                } catch (NumberFormatException ignored) {
+                    return StoredValue.stringValue(text);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static String q(String identifier) {

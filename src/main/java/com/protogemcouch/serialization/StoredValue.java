@@ -1,5 +1,6 @@
 package com.protogemcouch.serialization;
 
+import java.util.Date;
 import java.util.Objects;
 
 public record StoredValue(
@@ -12,7 +13,8 @@ public record StoredValue(
         Boolean booleanValue,
         Long longValue,
         Float floatValue,
-        Double doubleValue
+        Double doubleValue,
+        Date dateValue
 ) {
 
     public enum Type {
@@ -24,43 +26,48 @@ public record StoredValue(
         BOOLEAN,
         LONG,
         FLOAT,
-        DOUBLE
+        DOUBLE,
+        DATE
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue characterValue(Character value) {
-        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteValue(Byte value) {
-        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, null, null, value, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, null, null, value, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, value, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, null, null, value, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, value, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, value);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, value, null);
+    }
+
+    public static StoredValue dateValue(Date value) {
+        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, value);
     }
 
     public StoredValue {
@@ -100,6 +107,10 @@ public record StoredValue(
 
         if (type == Type.DOUBLE && doubleValue == null) {
             throw new IllegalArgumentException("DOUBLE StoredValue requires doubleValue");
+        }
+
+        if (type == Type.DATE && dateValue == null) {
+            throw new IllegalArgumentException("DATE StoredValue requires dateValue");
         }
     }
 
@@ -165,5 +176,13 @@ public record StoredValue(
         }
 
         return doubleValue;
+    }
+
+    public Date asDate() {
+        if (type != Type.DATE) {
+            throw new IllegalStateException("StoredValue is not DATE. Actual type: " + type);
+        }
+
+        return dateValue;
     }
 }

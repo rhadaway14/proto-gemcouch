@@ -87,6 +87,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asDouble()
             );
+        } else if (value.type() == StoredValue.Type.DATE) {
+            response = GemResponseWriter.buildDateGetResponse(
+                    frame.getTransactionId(),
+                    value.asDate()
+            );
         } else {
             response = GemResponseWriter.buildGetResponse(
                     frame.getTransactionId(),

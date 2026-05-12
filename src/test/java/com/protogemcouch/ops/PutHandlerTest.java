@@ -6,6 +6,8 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.Date;
+
 import static com.protogemcouch.testsupport.FrameTestUtil.intPart;
 import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
 import static com.protogemcouch.testsupport.FrameTestUtil.objectPart;
@@ -291,6 +293,38 @@ class PutHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::my-double-key"),
                 eq(StoredValue.doubleValue(7.25d))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_date_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-date-key"),
+                objectPart("5"),
+                part(new byte[]{
+                        0x3d,
+                        0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x03, (byte) 0xe8
+                }),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-date-key"),
+                eq(StoredValue.dateValue(new Date(1_000L)))
         );
         verify(ctx).writeAndFlush(any());
     }

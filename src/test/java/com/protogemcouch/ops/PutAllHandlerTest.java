@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -249,10 +250,34 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_date_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("date-key-1", geodeDate(1_000L)),
+                entry("date-key-2", geodeDate(1_778_265_266_000L))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::date-key-1"),
+                eq(StoredValue.dateValue(new Date(1_000L)))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::date-key-2"),
+                eq(StoredValue.dateValue(new Date(1_778_265_266_000L)))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_mixed_primitive_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                9,
+                10,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
@@ -261,7 +286,8 @@ class PutAllHandlerTest {
                 entry("integer-key", geodeInteger(12345)),
                 entry("long-key", geodeLong(9_876_543_210L)),
                 entry("float-key", geodeFloat(7.25f)),
-                entry("double-key", geodeDouble(7.25d))
+                entry("double-key", geodeDouble(7.25d)),
+                entry("date-key", geodeDate(1_000L))
         );
 
         handler.handle(ctx, frame);
@@ -309,6 +335,11 @@ class PutAllHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::double-key"),
                 eq(StoredValue.doubleValue(7.25d))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::date-key"),
+                eq(StoredValue.dateValue(new Date(1_000L)))
         );
 
         verify(ctx).writeAndFlush(any());
@@ -520,6 +551,20 @@ class PutAllHandlerTest {
                 (byte) ((bits >>> 16) & 0xff),
                 (byte) ((bits >>> 8) & 0xff),
                 (byte) (bits & 0xff)
+        };
+    }
+
+    private static byte[] geodeDate(long epochMillis) {
+        return new byte[] {
+                0x3d,
+                (byte) ((epochMillis >>> 56) & 0xff),
+                (byte) ((epochMillis >>> 48) & 0xff),
+                (byte) ((epochMillis >>> 40) & 0xff),
+                (byte) ((epochMillis >>> 32) & 0xff),
+                (byte) ((epochMillis >>> 24) & 0xff),
+                (byte) ((epochMillis >>> 16) & 0xff),
+                (byte) ((epochMillis >>> 8) & 0xff),
+                (byte) (epochMillis & 0xff)
         };
     }
 

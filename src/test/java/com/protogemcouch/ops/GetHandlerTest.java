@@ -6,6 +6,8 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.Date;
+
 import static com.protogemcouch.testsupport.FrameTestUtil.mockFrame;
 import static com.protogemcouch.testsupport.FrameTestUtil.stringPart;
 import static org.mockito.ArgumentMatchers.any;
@@ -217,6 +219,29 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-double-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_date_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-date-key"))
+                .thenReturn(StoredValue.dateValue(new Date(1_000L)));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-date-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-date-key");
         verify(ctx).writeAndFlush(any());
     }
 

@@ -6,6 +6,7 @@ import com.protogemcouch.wire.GemFrame;
 import io.netty.channel.ChannelHandlerContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -265,6 +266,33 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_date_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("date-key-1", StoredValue.dateValue(new Date(1_000L)));
+        repoResult.put("date-key-2", StoredValue.dateValue(new Date(1_778_265_266_000L)));
+
+        when(repository.getAll("/helloWorld", List.of("date-key-1", "date-key-2")))
+                .thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("date-key-1", "date-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", List.of("date-key-1", "date-key-2"));
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_mixed_typed_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -279,6 +307,7 @@ class GetAllHandlerTest {
         repoResult.put("long-key", StoredValue.longValue(9_876_543_210L));
         repoResult.put("float-key", StoredValue.floatValue(7.25f));
         repoResult.put("double-key", StoredValue.doubleValue(7.25d));
+        repoResult.put("date-key", StoredValue.dateValue(new Date(1_000L)));
         repoResult.put("missing", null);
 
         List<String> keys = List.of(
@@ -291,6 +320,7 @@ class GetAllHandlerTest {
                 "long-key",
                 "float-key",
                 "double-key",
+                "date-key",
                 "missing"
         );
 

@@ -2,26 +2,41 @@
 
 ## Current Build Verification
 
-The project successfully completed a full clean verification after adding Byte support.
+The project successfully completed a full clean verification after adding `java.util.Date` support.
 
 ```text
 mvn clean verify
-
-Unit/focused test phase:
-Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
-
-Failsafe integration phase:
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
-
 BUILD SUCCESS
-Total time: 05:13 min
 ```
 
-The full verification created Docker Compose-managed Couchbase and ProtoGemCouch shim containers, ran the integration suite, and successfully tore the environment down afterward.
+Visible unit/focused test phase from the latest verification stream:
+
+```text
+Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
+```
+
+The full Docker-backed verification was also confirmed successful locally after Docker was running.
+
+The verification lifecycle includes:
+
+```text
+clean
+compile
+testCompile
+surefire unit tests
+jar
+shade
+docker-compose-up
+failsafe integration tests
+docker-compose-down
+failsafe verify
+```
+
+---
 
 ## Summary
 
-ProtoGemCouch now supports typed primitive round-tripping across the shim, including:
+ProtoGemCouch now supports typed value round-tripping across the shim for:
 
 ```text
 String
@@ -33,6 +48,7 @@ Integer
 Long
 Float
 Double
+java.util.Date
 ```
 
 This includes:
@@ -43,141 +59,145 @@ GET
 PUT_ALL
 GET_ALL
 Couchbase persistence
+Couchbase hydration
 Geode-compatible response serialization
 Focused unit coverage
-Serialization integration coverage
+Docker-backed serialization integration coverage
 ```
 
-## Newly Added Byte Support
+---
 
-Byte support was added and verified across the full runtime path.
+## Newly Added Date Support
 
-### Geode Byte Marker
+Date support was added and verified across the full runtime path.
+
+### Geode Date Marker
 
 ```text
-Byte marker: 0x37
+Date marker: 0x3d
 ```
 
-### Verified Byte Shapes
+### Verified Date Shape
+
+Date is encoded as:
 
 ```text
-Byte.valueOf((byte) 0)    -> 3700
-Byte.valueOf((byte) 7)    -> 3707
-Byte.valueOf((byte) -7)   -> 37f9
-Byte.MAX_VALUE            -> 377f
-Byte.MIN_VALUE            -> 3780
+0x3d + 8-byte signed epoch millis, big-endian
 ```
 
-### Byte Runtime Support
+Verified examples:
+
+```text
+new Date(0L)                 -> 3d0000000000000000
+new Date(1_000L)             -> 3d00000000000003e8
+new Date(1_778_265_266_000L) -> 3d0000019e08de9750
+new Date(-1_000L)            -> 3dfffffffffffffc18
+```
+
+### Date Runtime Support
 
 | Component | Status |
 |---|---:|
-| `ByteShapeTest.java` | Complete |
-| `ValueDecoding.decodeByteValue(...)` | Complete |
-| `StoredValue.Type.BYTE` | Complete |
-| `StoredValue.byteValue(...)` | Complete |
-| `StoredValue.asByte()` | Complete |
-| `GemResponseWriter.buildByteGetResponse(...)` | Complete |
-| `GemResponseWriter` GET_ALL Byte encoding | Complete |
-| `PutHandler` Byte decode/store | Complete |
-| `PutAllHandler` Byte decode/store | Complete |
-| `GetHandler` Byte response path | Complete |
-| `GetAllHandler` Byte response path | Complete |
-| `CouchbaseRepository` Byte persistence/hydration | Complete |
-| `ProtoGemCouchSerializationIntegrationTest` Byte end-to-end coverage | Complete |
+| `DateShapeTest.java` | Complete |
+| `ValueDecoding.decodeDateValue(...)` | Complete |
+| `StoredValue.Type.DATE` | Complete |
+| `StoredValue.dateValue(...)` | Complete |
+| `StoredValue.asDate()` | Complete |
+| `GemResponseWriter.buildDateGetResponse(...)` | Complete |
+| `GemResponseWriter` GET_ALL Date encoding | Complete |
+| `PutHandler` Date decode/store | Complete |
+| `PutAllHandler` Date decode/store | Complete |
+| `GetHandler` Date response path | Complete |
+| `GetAllHandler` Date response path | Complete |
+| `CouchbaseRepository` Date persistence/hydration | Complete |
+| `ProtoGemCouchSerializationIntegrationTest` Date end-to-end coverage | Complete |
 | Focused handler tests | Complete |
 | Full `mvn clean verify` | Passing |
 
+---
+
 ## Focused Handler Test Results
 
-The focused handler tests validate typed primitive paths across `PUT`, `GET`, `PUT_ALL`, and `GET_ALL`.
+The focused handler tests validate typed paths across `PUT`, `GET`, `PUT_ALL`, and `GET_ALL`.
 
 Representative command:
 
 ```powershell
-mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
+mvn test "-Dtest=GetAllHandlerTest,GetHandlerTest,DateShapeTest,GemResponseWriterTest"
 ```
 
-Validated Byte paths:
+Representative successful result:
+
+```text
+Tests run: 45, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Validated Date paths:
 
 ```text
 GET:
-key=my-byte-key
-docId=/helloWorld::my-byte-key
+key=my-date-key
+docId=/helloWorld::my-date-key
 
 PUT:
-encoding=geode-byte
-valueType=BYTE
-key=my-byte-key
-docId=/helloWorld::my-byte-key
+encoding=geode-date
+valueType=DATE
+key=my-date-key
+docId=/helloWorld::my-date-key
 
 PUT_ALL:
-encoding=geode-byte key=byte-key valueType=BYTE
-encoding=geode-byte key=byte-key-1 valueType=BYTE
-encoding=geode-byte key=byte-key-2 valueType=BYTE
+encoding=geode-date key=date-key valueType=DATE
+encoding=geode-date key=date-key-1 valueType=DATE
+encoding=geode-date key=date-key-2 valueType=DATE
 
 GET_ALL:
-keys="[byte-key-1, byte-key-2]"
-keys="[string-key, character-key, byte-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, missing]"
+keys="[date-key-1, date-key-2]"
+keys="[string-key, character-key, byte-key, short-key, integer-key, boolean-key, long-key, float-key, double-key, date-key, missing]"
 ```
+
+---
 
 ## Shape Test Results
 
-### ByteShapeTest
+### DateShapeTest
 
 Command:
 
 ```powershell
-mvn test "-Dtest=ByteShapeTest"
+mvn test "-Dtest=DateShapeTest"
 ```
 
-Result:
+Representative result:
 
 ```text
-Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-Captured output:
+Captured Date output:
 
 ```text
-BYTE_MIN_HEX_START
-3780
-BYTE_MIN_HEX_END
+DATE_KNOWN_FUTURE_HEX_START
+3d0000019e08de9750
+DATE_KNOWN_FUTURE_HEX_END
 
-BYTE_NEGATIVE_HEX_START
-37f9
-BYTE_NEGATIVE_HEX_END
+DATE_ONE_SECOND_HEX_START
+3d00000000000003e8
+DATE_ONE_SECOND_HEX_END
 
-BYTE_MAX_HEX_START
-377f
-BYTE_MAX_HEX_END
+DATE_NEGATIVE_HEX_START
+3dfffffffffffffc18
+DATE_NEGATIVE_HEX_END
 
-BYTE_ZERO_HEX_START
-3700
-BYTE_ZERO_HEX_END
-
-BYTE_POSITIVE_HEX_START
-3707
-BYTE_POSITIVE_HEX_END
+DATE_EPOCH_HEX_START
+3d0000000000000000
+DATE_EPOCH_HEX_END
 ```
 
-### Primitive Shape Suite
+### Validated Shape Suite
 
-The validated primitive shape suite now includes:
-
-```text
-Boolean
-Character
-Byte
-Short
-Integer
-Long
-Float
-Double
-```
-
-Representative passing shape tests:
+The validated shape suite now includes:
 
 ```text
 BooleanShapeTest
@@ -188,51 +208,53 @@ IntegerShapeTest
 LongShapeTest
 FloatShapeTest
 DoubleShapeTest
+DateShapeTest
 ```
+
+---
 
 ## Serialization Integration Results
 
-The serialization integration suite now includes Byte end-to-end coverage.
+The serialization integration suite now includes Date end-to-end coverage.
 
-Added / updated scenarios include:
+Added / updated Date scenarios:
 
 ```text
-byteValueShouldRoundTripThroughShimAndCouchbase
-putAllWithByteValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithByteValuesShouldReturnBytes
-mixedStringCharacterByteShortIntegerBooleanLongFloatAndDoublePutAllAndGetAllShouldPreserveTypes
+dateValueShouldRoundTripThroughShimAndCouchbase
+putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithDateValuesShouldReturnDates
+mixedStringCharacterByteShortIntegerBooleanLongFloatDoubleAndDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 Verified integration behavior:
 
 ```text
-Geode client PUT Byte -> shim decodes Byte -> Couchbase stores typed byte document
-Geode client GET Byte -> shim reads typed byte document -> returns Geode Byte payload
-Geode client PUT_ALL Byte values -> shim decodes and stores all Byte values
-Geode client GET_ALL Byte values -> shim returns VersionedObjectList-compatible Byte values
+Geode client PUT Date -> shim decodes Date -> Couchbase stores typed date document
+Geode client GET Date -> shim reads typed date document -> returns Geode Date payload
+Geode client PUT_ALL Date values -> shim decodes and stores all Date values
+Geode client GET_ALL Date values -> shim returns VersionedObjectList-compatible Date values
+Mixed typed PUT_ALL / GET_ALL preserves Date alongside String, Character, Byte, Short, Integer, Boolean, Long, Float, and Double
 ```
 
-Integration test results:
-
-```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 32, Failures: 0, Errors: 0, Skipped: 0
-
-Failsafe total:
-Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
-```
+---
 
 ## Couchbase Document Examples
 
-### Byte
+### String
 
 ```json
 {
-  "type": "byte",
-  "value": 7
+  "type": "string",
+  "value": "value-1"
+}
+```
+
+### Boolean
+
+```json
+{
+  "type": "boolean",
+  "value": true
 }
 ```
 
@@ -245,21 +267,21 @@ Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 }
 ```
 
+### Byte
+
+```json
+{
+  "type": "byte",
+  "value": 7
+}
+```
+
 ### Short
 
 ```json
 {
   "type": "short",
   "value": 7
-}
-```
-
-### Boolean
-
-```json
-{
-  "type": "boolean",
-  "value": true
 }
 ```
 
@@ -299,6 +321,18 @@ Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 }
 ```
 
+### Date
+
+```json
+{
+  "type": "date",
+  "value": "1970-01-01T00:00:01Z",
+  "epochMillis": 1000
+}
+```
+
+---
+
 ## Full Unit Verification
 
 Command:
@@ -307,44 +341,28 @@ Command:
 mvn test
 ```
 
-Result:
+Latest visible result:
 
 ```text
-Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 153, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
-Included passing test classes:
+Included passing test categories:
 
 ```text
-ServerConfigTest
-StartupValidatorTest
-RepositoryFactoryTest
-ContainsHandlerTest
-GetHandlerTest
-GetAllHandlerTest
-PutHandlerTest
-PutAllHandlerTest
-RemoveHandlerTest
-SimpleAckHandlerTest
-SizeOnServerHandlerTest
-KeySetOnServerHandlerTest
-GeodeSerializationTest
-ByteUtilsTest
-DocumentKeyUtilTest
-BooleanShapeTest
-CharacterShapeTest
-ByteShapeTest
-ShortShapeTest
-IntegerShapeTest
-LongShapeTest
-FloatShapeTest
-DoubleShapeTest
-GemResponseWriterTest
-GoldenWireResponseTest
-VersionedObjectListShapeTest
-MixedVersionedObjectListShapeTest
+Configuration tests
+Repository factory tests
+Handler tests
+Serialization tests
+Utility tests
+Wire shape tests
+Golden-wire response tests
+VersionedObjectList shape tests
+Mixed typed response tests
 ```
+
+---
 
 ## Full Verification
 
@@ -358,37 +376,17 @@ Result:
 
 ```text
 BUILD SUCCESS
-Total time: 05:13 min
 ```
 
-The verification lifecycle included:
+The build also produced Maven Shade Plugin warnings for overlapping resources/classes and `module-info.class` entries. These are dependency packaging warnings from building the shaded jar and did not block the build.
 
-```text
-clean
-compile
-testCompile
-surefire unit tests
-jar
-shade
-docker-compose-up
-failsafe integration tests
-docker-compose-down
-failsafe verify
-```
-
-## Maven Shade Notes
-
-The build produced Maven Shade Plugin warnings for overlapping resources/classes and `module-info.class` entries. These are dependency packaging warnings from building the shaded jar and did not block the build.
-
-Result:
-
-```text
-BUILD SUCCESS
-```
+---
 
 ## Current Demo Narrative
 
-The current demo can now show a Java Geode client using the normal Geode client API while only changing the endpoint to point at ProtoGemCouch. The shim accepts the request, decodes Geode-compatible primitive values, persists them into Couchbase using typed JSON envelopes, and returns values back to the Geode client with Geode-compatible response serialization.
+The current demo shows a Java Geode client using normal Geode client APIs while only changing the endpoint to point at ProtoGemCouch.
+
+The shim accepts the request, decodes Geode-compatible typed values, persists them into Couchbase using typed JSON envelopes, and returns values back to the Geode client with Geode-compatible response serialization.
 
 Validated demo value types:
 
@@ -402,6 +400,7 @@ Integer
 Long
 Float
 Double
+java.util.Date
 ```
 
 Validated demo request paths:
@@ -417,24 +416,110 @@ size
 keySet
 ```
 
+---
+
 ## Suggested Demo Flow
 
 1. Start the environment with Docker Compose.
 2. Show the Java Geode client using standard `Region.put`, `Region.get`, `Region.putAll`, and `Region.getAll`.
-3. Demonstrate a Byte round trip:
+3. Demonstrate a Date round trip:
    ```java
-   region.put("byte-demo-key", Byte.valueOf((byte) 7));
-   Object actual = region.get("byte-demo-key");
+   Date expected = new Date(1_000L);
+   region.put("date-demo-key", expected);
+   Object actual = region.get("date-demo-key");
    ```
 4. Show the Couchbase document:
    ```json
    {
-     "type": "byte",
-     "value": 7
+     "type": "date",
+     "value": "1970-01-01T00:00:01Z",
+     "epochMillis": 1000
    }
    ```
-5. Demonstrate mixed typed `putAll` / `getAll` preserving all validated primitive types.
+5. Demonstrate mixed typed `putAll` / `getAll` preserving all validated types.
 6. Run or reference:
    ```powershell
    mvn clean verify
    ```
+
+---
+
+## What This Demo Proves
+
+This demo proves that the current shim implementation can support a meaningful subset of Geode client behavior against Couchbase.
+
+The validated path proves:
+
+```text
+A real Geode Java client can connect to the shim.
+The shim can parse supported Geode protocol operations.
+The shim can translate those operations into Couchbase KV operations.
+The shim can encode Geode-compatible responses.
+Couchbase can act as the persistence backend for the tested region operations.
+Typed Java wrapper values and Date values preserve type fidelity across PUT/GET and PUT_ALL/GET_ALL.
+Automated Docker-based integration tests can validate the whole stack.
+```
+
+---
+
+## Current Scope
+
+Validated:
+
+```text
+Java Geode client
+Proxy region behavior
+Core region operations
+Typed wrapper and Date values
+Couchbase KV persistence
+Single bucket/scope/collection backend
+Manual VersionedObjectList-compatible GET_ALL responses
+Docker Compose based integration environment
+```
+
+Not yet fully validated:
+
+```text
+byte[]
+String[]
+ArrayList<String>
+HashMap<String, Object>
+Complex POJO values
+PDX values
+JSON object values
+Transactions
+Queries
+Region events
+Subscriptions
+Continuous queries
+Server-side functions
+Partition/replication semantics
+Multi-region mapping beyond the current tested path
+Production-grade security/TLS/authentication
+High-concurrency load behavior
+Long-running soak behavior
+```
+
+---
+
+## Current Milestone
+
+This demo phase is successful.
+
+The current milestone is:
+
+```text
+date-support-complete
+```
+
+Suggested commit:
+
+```text
+Add Date serialization support
+```
+
+Suggested next target:
+
+```text
+byte[]
+```

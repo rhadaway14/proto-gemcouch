@@ -5,6 +5,7 @@ import com.protogemcouch.serialization.ValueEncoding;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -119,6 +120,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_DOUBLE_CODE = 0x3c;
 
     /*
+     * Geode DataSerializer Date marker observed from DateShapeTest:
+     *
+     *   new Date(0L)                 -> 3d 00 00 00 00 00 00 00 00
+     *   new Date(1_000L)             -> 3d 00 00 00 00 00 00 03 e8
+     *   new Date(1_778_265_266_000L) -> 3d 00 00 01 9e 08 de 97 50
+     *   new Date(-1_000L)            -> 3d ff ff ff ff ff ff fc 18
+     */
+    private static final byte GEODE_DATE_CODE = 0x3d;
+
+    /*
      * Geode DataSerializer List marker observed from ListShapeTest:
      *
      *   List.of("key-1", "key-2", "key-3")
@@ -224,6 +235,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedDouble(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildDateGetResponse(int txId, Date value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedDate(value), (byte) 1))
         );
     }
 
@@ -427,6 +446,10 @@ public final class GemResponseWriter {
             return StoredValue.doubleValue(doubleValue);
         }
 
+        if (rawValue instanceof Date dateValue) {
+            return StoredValue.dateValue(dateValue);
+        }
+
         return StoredValue.stringValue(String.valueOf(rawValue));
     }
 
@@ -461,6 +484,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.DOUBLE) {
             return geodeSerializedDouble(value.asDouble());
+        }
+
+        if (value.type() == StoredValue.Type.DATE) {
+            return geodeSerializedDate(value.asDate());
         }
 
         return ValueEncoding.encodeGeodeStringValue(value.value());
@@ -594,6 +621,21 @@ public final class GemResponseWriter {
         try {
             buf.writeByte(GEODE_DOUBLE_CODE);
             buf.writeLong(Double.doubleToRawLongBits(value));
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedDate(Date value) {
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_DATE_CODE);
+            buf.writeLong(value.getTime());
 
             byte[] bytes = new byte[buf.readableBytes()];
             buf.getBytes(0, bytes);

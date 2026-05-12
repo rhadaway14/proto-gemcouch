@@ -17,6 +17,7 @@ import io.netty.channel.ChannelHandlerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -148,7 +149,7 @@ public class PutAllHandler implements OperationHandler {
 
         /*
          * Important:
-         * Decode typed primitives before the generic string-like fallback.
+         * Decode typed values before the generic string-like fallback.
          *
          * Otherwise payloads such as:
          *
@@ -160,6 +161,7 @@ public class PutAllHandler implements OperationHandler {
          *   Long 101L     -> 3a 00 00 00 00 00 00 00 65
          *   Float 7.25f   -> 3b 40 e8 00 00
          *   Double 7.25d  -> 3c 40 1d 00 00 00 00 00 00
+         *   Date(1000L)   -> 3d 00 00 00 00 00 00 03 e8
          *
          * can be incorrectly decoded as text.
          */
@@ -267,6 +269,19 @@ public class PutAllHandler implements OperationHandler {
             return StoredValue.doubleValue(doubleValue);
         }
 
+        Date dateValue = ValueDecoding.decodeDateValue(valuePayload);
+
+        if (dateValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-date",
+                    "key", key,
+                    "valueType", "DATE",
+                    "txId", txId
+            ));
+            return StoredValue.dateValue(dateValue);
+        }
+
         String stringLikeValue = ValueDecoding.decodeStringLikeValue(valuePayload);
 
         if (stringLikeValue != null) {
@@ -369,6 +384,17 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.doubleValue(doubleObject);
+            }
+
+            if (rawValue instanceof Date dateObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "DATE",
+                        "txId", txId
+                ));
+                return StoredValue.dateValue(dateObject);
             }
 
             if (rawValue != null) {
