@@ -202,6 +202,15 @@ public final class GemResponseWriter {
     private static final byte GEODE_JAVA_SERIALIZED_CODE = 0x2c;
 
     /*
+     * Geode DataSerializer Object[] marker observed from ObjectArrayShapeTest:
+     *
+     *   34 <length> 2b 57 0010 java.lang.Object <elements...>
+     *
+     * We currently preserve Object[] as an opaque encoded payload.
+     */
+    private static final byte GEODE_OBJECT_ARRAY_CODE = 0x34;
+
+    /*
      * Full Geode DataSerializer object header for VersionedObjectList.
      *
      * Observed from DataSerializer.writeObject(new VersionedObjectList(...)):
@@ -303,6 +312,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedJavaObject(serializedValue), (byte) 1))
+        );
+    }
+
+    public static byte[] buildObjectArrayGetResponse(int txId, byte[] encodedObjectArrayValue) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedObjectArray(encodedObjectArrayValue), (byte) 1))
         );
     }
 
@@ -625,6 +642,10 @@ public final class GemResponseWriter {
             return geodeSerializedJavaObject(value.asJavaSerializedValue());
         }
 
+        if (value.type() == StoredValue.Type.OBJECT_ARRAY) {
+            return geodeSerializedObjectArray(value.asObjectArrayValue());
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             return geodeSerializedShort(value.asShort());
         }
@@ -899,6 +920,22 @@ public final class GemResponseWriter {
 
         return framed;
     }
+
+    private static byte[] geodeSerializedObjectArray(byte[] encodedObjectArrayValue) {
+        if (encodedObjectArrayValue == null || encodedObjectArrayValue.length == 0) {
+            throw new IllegalArgumentException("Object[] encoded bytes must not be null or empty");
+        }
+
+        if (encodedObjectArrayValue[0] != GEODE_OBJECT_ARRAY_CODE) {
+            throw new IllegalArgumentException("Object[] encoded bytes must start with Geode Object[] marker 0x34");
+        }
+
+        byte[] copy = new byte[encodedObjectArrayValue.length];
+        System.arraycopy(encodedObjectArrayValue, 0, copy, 0, encodedObjectArrayValue.length);
+
+        return copy;
+    }
+
 
     private static byte[] javaSerializedBytes(Object value) {
         if (!(value instanceof Serializable)) {

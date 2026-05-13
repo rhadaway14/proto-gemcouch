@@ -178,6 +178,19 @@ public class PutHandler implements OperationHandler {
             return StoredValue.stringObjectHashMapValue(stringObjectHashMapValue);
         }
 
+        ValueDecoding.ObjectArray objectArrayValue =
+                ValueDecoding.decodeObjectArrayValue(valuePayload);
+
+        if (objectArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-object-array",
+                    "valueType", "OBJECT_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.objectArrayValue(objectArrayValue.encodedValue());
+        }
+
         ValueDecoding.JavaSerializedObject javaSerializedObjectValue =
                 ValueDecoding.decodeJavaSerializedObjectValue(valuePayload);
 
@@ -501,6 +514,19 @@ public class PutHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.dateValue(dateObject);
+            }
+
+            ValueDecoding.ObjectArray fallbackObjectArrayValue =
+                    ValueDecoding.decodeObjectArrayValue(valuePayload);
+
+            if (fallbackObjectArrayValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer-object-array",
+                        "valueType", "OBJECT_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.objectArrayValue(fallbackObjectArrayValue.encodedValue());
             }
 
             ValueDecoding.JavaSerializedObject fallbackJavaSerializedObjectValue =

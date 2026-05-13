@@ -61,6 +61,18 @@ public final class ValueDecoding {
     private static final int GEODE_JAVA_SERIALIZED_CODE = 0x2c;
 
     /*
+     * Geode DataSerializer Object[] marker observed from ObjectArrayShapeTest:
+     *
+     *   34 <length> 2b 57 0010 "java.lang.Object" <elements...>
+     *
+     * For the first compatibility pass we preserve the complete Object[]
+     * payload as opaque bytes. This avoids needing to load nested customer
+     * POJO classes inside the shim and safely handles nested 2c Java-serialized
+     * objects whose exact byte length is non-trivial to scan.
+     */
+    private static final int GEODE_OBJECT_ARRAY_CODE = 0x34;
+
+    /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
      *
      *   new byte[] {}                         -> 2e 00
@@ -102,6 +114,65 @@ public final class ValueDecoding {
         public byte[] serializedValue() {
             return Arrays.copyOf(serializedValue, serializedValue.length);
         }
+    }
+
+    public record ObjectArray(byte[] encodedValue) {
+        public ObjectArray {
+            if (encodedValue == null || encodedValue.length == 0) {
+                throw new IllegalArgumentException("encodedValue must not be null or empty");
+            }
+
+            encodedValue = Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+
+        @Override
+        public byte[] encodedValue() {
+            return Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+    }
+
+
+    public static ObjectArray decodeObjectArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 4) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_OBJECT_ARRAY_CODE) {
+            return null;
+        }
+
+        /*
+         * Validate the observed Object[] header without trying to deserialize or
+         * recursively parse every element:
+         *
+         *   34 <length> 2b 57 0010 java.lang.Object ...
+         *
+         * Keeping this opaque is deliberate. Object[] can contain nested POJOs
+         * and Java-serialized maps. Preserving the original payload is the most
+         * reliable compatibility behavior for the first pass.
+         */
+        int offset = 1;
+
+        int count = payload[offset] & 0xff;
+        offset++;
+
+        if (count > payload.length) {
+            return null;
+        }
+
+        if (offset >= payload.length || (payload[offset] & 0xff) != 0x2b) {
+            return null;
+        }
+
+        offset++;
+
+        String componentType = decodeLengthPrefixedGeodeString(Arrays.copyOfRange(payload, offset, payload.length));
+
+        if (!"java.lang.Object".equals(componentType)) {
+            return null;
+        }
+
+        return new ObjectArray(payload);
     }
 
     public static String[] decodeStringArrayValue(byte[] payload) {
@@ -578,7 +649,7 @@ public final class ValueDecoding {
 
         int first = payload[0] & 0xff;
 
-        if (first == GEODE_HASH_MAP_CODE || first == GEODE_JAVA_SERIALIZED_CODE || looksLikeJavaSerializationStream(payload)) {
+        if (first == GEODE_HASH_MAP_CODE || first == GEODE_JAVA_SERIALIZED_CODE || first == GEODE_OBJECT_ARRAY_CODE || looksLikeJavaSerializationStream(payload)) {
             return null;
         }
 
@@ -617,6 +688,10 @@ public final class ValueDecoding {
         }
 
         if (decodeStringObjectHashMapValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeObjectArrayValue(payload) != null) {
             return null;
         }
 

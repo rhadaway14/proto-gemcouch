@@ -271,6 +271,33 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_object_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        byte[] objectArrayPayload = hexToBytes(
+                "34032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a3501"
+        );
+
+        when(repository.get("/helloWorld::my-object-array-key"))
+                .thenReturn(StoredValue.objectArrayValue(objectArrayPayload));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-object-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-object-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_short_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
