@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.Serial;
+import java.io.Serializable;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -1721,6 +1724,133 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void serializablePojoValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-serializable-pojo-value-" + suffix;
+
+        CustomerProfile expected = new CustomerProfile(
+                "customer-1-" + suffix,
+                "Rob",
+                42,
+                true
+        );
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(CustomerProfile.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void serializablePojoWithNullFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-serializable-pojo-null-field-" + suffix;
+
+        CustomerProfile expected = new CustomerProfile(
+                "customer-2-" + suffix,
+                null,
+                43,
+                false
+        );
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(CustomerProfile.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT null-field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void serializablePojoWithDateAndByteArrayShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-serializable-pojo-extras-" + suffix;
+
+        CustomerProfileWithExtras expected = new CustomerProfileWithExtras(
+                "customer-3-" + suffix,
+                "Rob",
+                42,
+                true,
+                new Date(1_000L),
+                new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}
+        );
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(CustomerProfileWithExtras.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT extras round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void serializablePojoWithNestedMapShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-serializable-pojo-nested-map-" + suffix;
+
+        LinkedHashMap<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("tier", "gold");
+        attributes.put("score", Integer.valueOf(9001));
+        attributes.put("active", Boolean.TRUE);
+        attributes.put("lastSeen", new Date(1_000L));
+
+        CustomerProfileWithAttributes expected = new CustomerProfileWithAttributes(
+                "customer-4-" + suffix,
+                "Rob",
+                attributes
+        );
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(CustomerProfileWithAttributes.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT nested-map round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet() {
         String suffix = UUID.randomUUID().toString();
 
@@ -1996,6 +2126,67 @@ class ProtoGemCouchSerializationIntegrationTest {
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
             System.err.println("========== protogemcouch-shim logs after STRING_OBJECT_HASH_MAP PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithSerializablePojoValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-serializable-pojo-1-" + suffix;
+        String key2 = "it-putall-serializable-pojo-2-" + suffix;
+        String key3 = "it-putall-serializable-pojo-3-" + suffix;
+
+        CustomerProfile expected1 = new CustomerProfile(
+                "customer-1-" + suffix,
+                "Rob",
+                42,
+                true
+        );
+
+        CustomerProfile expected2 = new CustomerProfile(
+                "customer-2-" + suffix,
+                null,
+                43,
+                false
+        );
+
+        CustomerProfileWithExtras expected3 = new CustomerProfileWithExtras(
+                "customer-3-" + suffix,
+                "Rob",
+                42,
+                true,
+                new Date(1_000L),
+                new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}
+        );
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, expected1);
+        entries.put(key2, expected2);
+        entries.put(key3, expected3);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(CustomerProfile.class, actual1);
+            assertInstanceOf(CustomerProfile.class, actual2);
+            assertInstanceOf(CustomerProfileWithExtras.class, actual3);
+
+            assertEquals(expected1, actual1);
+            assertEquals(expected2, actual2);
+            assertEquals(expected3, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT PUT_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -2313,28 +2504,94 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
-    void mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
+    void getAllWithSerializablePojoValuesShouldReturnSerializablePojos() {
         String suffix = UUID.randomUUID().toString();
 
-        String stringKey = "it-mixed14-string-" + suffix;
-        String characterKey = "it-mixed14-character-" + suffix;
-        String byteKey = "it-mixed14-byte-" + suffix;
-        String byteArrayKey = "it-mixed14-byte-array-" + suffix;
-        String stringArrayKey = "it-mixed14-string-array-" + suffix;
-        String stringArrayListKey = "it-mixed14-string-array-list-" + suffix;
-        String stringHashMapKey = "it-mixed14-string-hash-map-" + suffix;
-        String stringObjectHashMapKey = "it-mixed14-string-object-hash-map-" + suffix;
-        String shortKey = "it-mixed14-short-" + suffix;
-        String integerKey = "it-mixed14-integer-" + suffix;
-        String booleanTrueKey = "it-mixed14-bool-true-" + suffix;
-        String booleanFalseKey = "it-mixed14-bool-false-" + suffix;
-        String longPositiveKey = "it-mixed14-long-positive-" + suffix;
-        String longNegativeKey = "it-mixed14-long-negative-" + suffix;
-        String floatPositiveKey = "it-mixed14-float-positive-" + suffix;
-        String floatNegativeKey = "it-mixed14-float-negative-" + suffix;
-        String doublePositiveKey = "it-mixed14-double-positive-" + suffix;
-        String doubleNegativeKey = "it-mixed14-double-negative-" + suffix;
-        String dateKey = "it-mixed14-date-" + suffix;
+        String key1 = "it-getall-serializable-pojo-1-" + suffix;
+        String key2 = "it-getall-serializable-pojo-2-" + suffix;
+        String key3 = "it-getall-serializable-pojo-3-" + suffix;
+
+        CustomerProfile expected1 = new CustomerProfile(
+                "customer-1-" + suffix,
+                "Rob",
+                42,
+                true
+        );
+
+        CustomerProfile expected2 = new CustomerProfile(
+                "customer-2-" + suffix,
+                null,
+                43,
+                false
+        );
+
+        CustomerProfileWithExtras expected3 = new CustomerProfileWithExtras(
+                "customer-3-" + suffix,
+                "Rob",
+                42,
+                true,
+                new Date(1_000L),
+                new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}
+        );
+
+        try {
+            region.put(key1, expected1);
+            region.put(key2, expected2);
+            region.put(key3, expected3);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(CustomerProfile.class, actual1);
+            assertInstanceOf(CustomerProfile.class, actual2);
+            assertInstanceOf(CustomerProfileWithExtras.class, actual3);
+
+            assertEquals(expected1, actual1);
+            assertEquals(expected2, actual2);
+            assertEquals(expected3, actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after JAVA_SERIALIZED_OBJECT GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey = "it-mixed15-string-" + suffix;
+        String characterKey = "it-mixed15-character-" + suffix;
+        String byteKey = "it-mixed15-byte-" + suffix;
+        String byteArrayKey = "it-mixed15-byte-array-" + suffix;
+        String stringArrayKey = "it-mixed15-string-array-" + suffix;
+        String stringArrayListKey = "it-mixed15-string-array-list-" + suffix;
+        String stringHashMapKey = "it-mixed15-string-hash-map-" + suffix;
+        String stringObjectHashMapKey = "it-mixed15-string-object-hash-map-" + suffix;
+        String serializablePojoKey = "it-mixed15-serializable-pojo-" + suffix;
+        String shortKey = "it-mixed15-short-" + suffix;
+        String integerKey = "it-mixed15-integer-" + suffix;
+        String booleanTrueKey = "it-mixed15-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed15-bool-false-" + suffix;
+        String longPositiveKey = "it-mixed15-long-positive-" + suffix;
+        String longNegativeKey = "it-mixed15-long-negative-" + suffix;
+        String floatPositiveKey = "it-mixed15-float-positive-" + suffix;
+        String floatNegativeKey = "it-mixed15-float-negative-" + suffix;
+        String doublePositiveKey = "it-mixed15-double-positive-" + suffix;
+        String doubleNegativeKey = "it-mixed15-double-negative-" + suffix;
+        String dateKey = "it-mixed15-date-" + suffix;
 
         byte[] expectedByteArray = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
         String[] expectedStringArray = new String[] {"one", null, "three"};
@@ -2358,6 +2615,15 @@ class ProtoGemCouchSerializationIntegrationTest {
         expectedStringObjectHashMap.put("items", new String[] {"one", null, "three"});
         expectedStringObjectHashMap.put("list", expectedStringArrayList);
 
+        CustomerProfileWithExtras expectedSerializablePojo = new CustomerProfileWithExtras(
+                "customer-mixed-" + suffix,
+                "Rob",
+                42,
+                true,
+                new Date(1_000L),
+                new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}
+        );
+
         Date expectedDate = new Date(1_000L);
 
         Map<String, Object> entries = new LinkedHashMap<>();
@@ -2369,6 +2635,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         entries.put(stringArrayListKey, expectedStringArrayList);
         entries.put(stringHashMapKey, expectedStringHashMap);
         entries.put(stringObjectHashMapKey, expectedStringObjectHashMap);
+        entries.put(serializablePojoKey, expectedSerializablePojo);
         entries.put(shortKey, Short.valueOf((short) 77));
         entries.put(integerKey, Integer.valueOf(12_012));
         entries.put(booleanTrueKey, Boolean.TRUE);
@@ -2393,6 +2660,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             keys.add(stringArrayListKey);
             keys.add(stringHashMapKey);
             keys.add(stringObjectHashMapKey);
+            keys.add(serializablePojoKey);
             keys.add(shortKey);
             keys.add(integerKey);
             keys.add(booleanTrueKey);
@@ -2415,6 +2683,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             Object stringArrayListActual = results.get(stringArrayListKey);
             Object stringHashMapActual = results.get(stringHashMapKey);
             Object stringObjectHashMapActual = results.get(stringObjectHashMapKey);
+            Object serializablePojoActual = results.get(serializablePojoKey);
             Object shortActual = results.get(shortKey);
             Object integerActual = results.get(integerKey);
             Object booleanTrueActual = results.get(booleanTrueKey);
@@ -2435,6 +2704,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertInstanceOf(ArrayList.class, stringArrayListActual);
             assertInstanceOf(Map.class, stringHashMapActual);
             assertInstanceOf(Map.class, stringObjectHashMapActual);
+            assertInstanceOf(CustomerProfileWithExtras.class, serializablePojoActual);
             assertInstanceOf(Short.class, shortActual);
             assertInstanceOf(Integer.class, integerActual);
             assertInstanceOf(Boolean.class, booleanTrueActual);
@@ -2455,6 +2725,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertEquals(expectedStringArrayList, stringArrayListActual);
             assertEquals(expectedStringHashMap, stringHashMapActual);
             assertMapValuesEqual(expectedStringObjectHashMap, castMap(stringObjectHashMapActual));
+            assertEquals(expectedSerializablePojo, serializablePojoActual);
             assertEquals(Short.valueOf((short) 77), shortActual);
             assertEquals(Integer.valueOf(12_012), integerActual);
             assertEquals(Boolean.TRUE, booleanTrueActual);
@@ -2468,7 +2739,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertEquals(expectedDate, dateActual);
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
-            System.err.println("========== protogemcouch-shim logs after MIXED STRING/CHARACTER/BYTE/BYTE_ARRAY/STRING_ARRAY/STRING_ARRAY_LIST/STRING_HASH_MAP/STRING_OBJECT_HASH_MAP/SHORT/INTEGER/BOOLEAN/LONG/FLOAT/DOUBLE/DATE PUT_ALL/GET_ALL failure ==========");
+            System.err.println("========== protogemcouch-shim logs after MIXED JAVA_SERIALIZED_OBJECT PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -2578,6 +2849,140 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    private static final class CustomerProfile implements Serializable {
+
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        private final String id;
+        private final String name;
+        private final int age;
+        private final boolean active;
+
+        private CustomerProfile(String id, String name, int age, boolean active) {
+            this.id = id;
+            this.name = name;
+            this.age = age;
+            this.active = active;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+
+            if (!(other instanceof CustomerProfile that)) {
+                return false;
+            }
+
+            return age == that.age
+                    && active == that.active
+                    && Objects.equals(id, that.id)
+                    && Objects.equals(name, that.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id, name, age, active);
+        }
+    }
+
+    private static final class CustomerProfileWithExtras implements Serializable {
+
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        private final String id;
+        private final String name;
+        private final int age;
+        private final boolean active;
+        private final Date createdAt;
+        private final byte[] payload;
+
+        private CustomerProfileWithExtras(
+                String id,
+                String name,
+                int age,
+                boolean active,
+                Date createdAt,
+                byte[] payload
+        ) {
+            this.id = id;
+            this.name = name;
+            this.age = age;
+            this.active = active;
+            this.createdAt = createdAt == null ? null : new Date(createdAt.getTime());
+            this.payload = payload == null ? null : payload.clone();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+
+            if (!(other instanceof CustomerProfileWithExtras that)) {
+                return false;
+            }
+
+            return age == that.age
+                    && active == that.active
+                    && Objects.equals(id, that.id)
+                    && Objects.equals(name, that.name)
+                    && Objects.equals(createdAt, that.createdAt)
+                    && java.util.Arrays.equals(payload, that.payload);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(id, name, age, active, createdAt);
+            result = 31 * result + java.util.Arrays.hashCode(payload);
+            return result;
+        }
+    }
+
+    private static final class CustomerProfileWithAttributes implements Serializable {
+
+        @Serial
+        private static final long serialVersionUID = 1L;
+
+        private final String id;
+        private final String name;
+        private final LinkedHashMap<String, Object> attributes;
+
+        private CustomerProfileWithAttributes(
+                String id,
+                String name,
+                LinkedHashMap<String, Object> attributes
+        ) {
+            this.id = id;
+            this.name = name;
+            this.attributes = attributes == null ? null : new LinkedHashMap<>(attributes);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+
+            if (!(other instanceof CustomerProfileWithAttributes that)) {
+                return false;
+            }
+
+            return Objects.equals(id, that.id)
+                    && Objects.equals(name, that.name)
+                    && Objects.equals(attributes, that.attributes);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id, name, attributes);
+        }
+    }
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> castMap(Object value) {

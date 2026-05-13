@@ -47,6 +47,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_STRING_ARRAY_LIST = "stringArrayList";
     private static final String TYPE_STRING_HASH_MAP = "stringHashMap";
     private static final String TYPE_STRING_OBJECT_HASH_MAP = "stringObjectHashMap";
+    private static final String TYPE_JAVA_SERIALIZED_OBJECT = "javaSerializedObject";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -432,6 +433,16 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.JAVA_SERIALIZED_OBJECT) {
+            byte[] serializedValue = value.asJavaSerializedValue();
+
+            body.put(FIELD_TYPE, TYPE_JAVA_SERIALIZED_OBJECT);
+            body.put("className", value.asJavaSerializedClassName());
+            body.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(serializedValue));
+            body.put(FIELD_LENGTH, serializedValue.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -558,6 +569,10 @@ public class CouchbaseRepository implements Repository {
 
         if (TYPE_STRING_OBJECT_HASH_MAP.equalsIgnoreCase(type)) {
             return decodeStringObjectHashMapStoredValue(content, rawValue);
+        }
+
+        if (TYPE_JAVA_SERIALIZED_OBJECT.equalsIgnoreCase(type)) {
+            return decodeJavaSerializedObjectStoredValue(content);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -840,6 +855,51 @@ public class CouchbaseRepository implements Repository {
         }
 
         return StoredValue.stringObjectHashMapValue(decoded);
+    }
+
+    private static StoredValue decodeJavaSerializedObjectStoredValue(JsonObject content) {
+        Object rawClassName = content.get("className");
+        Object rawBase64 = content.get(FIELD_VALUE_BASE64);
+
+        if (!(rawClassName instanceof String className) || className.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_java_serialized_object_decode_failed",
+                    "reason", "missing_or_blank_className"
+            ));
+            return null;
+        }
+
+        if (!(rawBase64 instanceof String base64Text) || base64Text.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_java_serialized_object_decode_failed",
+                    "reason", "missing_or_blank_valueBase64",
+                    "className", className
+            ));
+            return null;
+        }
+
+        try {
+            byte[] decoded = Base64.getDecoder().decode(base64Text);
+
+            Object rawLength = content.get(FIELD_LENGTH);
+            if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+                log.warn(StructuredLog.event(
+                        "repository_java_serialized_object_length_mismatch",
+                        "className", className,
+                        "expectedLength", number.intValue(),
+                        "actualLength", decoded.length
+                ));
+            }
+
+            return StoredValue.javaSerializedObjectValue(className, decoded);
+        } catch (IllegalArgumentException e) {
+            log.warn(StructuredLog.event(
+                    "repository_java_serialized_object_decode_failed",
+                    "className", className,
+                    "error", e.getMessage()
+            ));
+            return null;
+        }
     }
 
     private static JsonObject encodeMapObjectValue(Object value) {

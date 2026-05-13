@@ -85,6 +85,25 @@ public final class ValueDecoding {
     private ValueDecoding() {
     }
 
+    public record JavaSerializedObject(String className, byte[] serializedValue) {
+        public JavaSerializedObject {
+            if (className == null || className.isBlank()) {
+                throw new IllegalArgumentException("className must not be blank");
+            }
+
+            if (serializedValue == null || serializedValue.length == 0) {
+                throw new IllegalArgumentException("serializedValue must not be null or empty");
+            }
+
+            serializedValue = Arrays.copyOf(serializedValue, serializedValue.length);
+        }
+
+        @Override
+        public byte[] serializedValue() {
+            return Arrays.copyOf(serializedValue, serializedValue.length);
+        }
+    }
+
     public static String[] decodeStringArrayValue(byte[] payload) {
         if (payload == null || payload.length < 2) {
             return null;
@@ -294,6 +313,39 @@ public final class ValueDecoding {
             if (rawValue instanceof Map<?, ?> rawMap && isSupportedStringObjectMap(rawMap)) {
                 return toStringObjectLinkedHashMap(rawMap);
             }
+        }
+
+        return null;
+    }
+
+
+    public static JavaSerializedObject decodeJavaSerializedObjectValue(byte[] payload) {
+        if (payload == null || payload.length < 5) {
+            return null;
+        }
+
+        int first = payload[0] & 0xff;
+
+        if (first == GEODE_JAVA_SERIALIZED_CODE) {
+            if (!looksLikeJavaSerializationStream(payload, 1, payload.length - 1)) {
+                return null;
+            }
+
+            byte[] serializedValue = Arrays.copyOfRange(payload, 1, payload.length);
+
+            return new JavaSerializedObject(
+                    extractJavaSerializedClassName(serializedValue),
+                    serializedValue
+            );
+        }
+
+        if (looksLikeJavaSerializationStream(payload, 0, payload.length)) {
+            byte[] serializedValue = Arrays.copyOf(payload, payload.length);
+
+            return new JavaSerializedObject(
+                    extractJavaSerializedClassName(serializedValue),
+                    serializedValue
+            );
         }
 
         return null;
@@ -568,6 +620,10 @@ public final class ValueDecoding {
             return null;
         }
 
+        if (decodeJavaSerializedObjectValue(payload) != null) {
+            return null;
+        }
+
         if (decodeByteArrayValue(payload) != null) {
             return null;
         }
@@ -669,6 +725,70 @@ public final class ValueDecoding {
         }
     }
 
+    private static boolean looksLikeJavaSerializationStream(byte[] payload) {
+        return looksLikeJavaSerializationStream(payload, 0, payload == null ? 0 : payload.length);
+    }
+
+    private static boolean looksLikeJavaSerializationStream(byte[] payload, int offset, int length) {
+        return payload != null
+                && offset >= 0
+                && length >= 4
+                && payload.length >= offset + length
+                && (payload[offset] & 0xff) == 0xac
+                && (payload[offset + 1] & 0xff) == 0xed
+                && (payload[offset + 2] & 0xff) == 0x00
+                && (payload[offset + 3] & 0xff) == 0x05;
+    }
+
+    private static String extractJavaSerializedClassName(byte[] serializedValue) {
+        /*
+         * We intentionally do not deserialize here.
+         *
+         * Integration-test and customer POJO classes may exist on the Geode
+         * client classpath but not inside the shim container. Loading the object
+         * with ObjectInputStream would require the shim to have the POJO class.
+         *
+         * For this compatibility layer, the shim only needs to preserve the raw
+         * ObjectOutputStream bytes. The className is diagnostic metadata for the
+         * Couchbase envelope, so best-effort stream parsing is sufficient.
+         */
+        if (!looksLikeJavaSerializationStream(serializedValue)) {
+            return "unknown";
+        }
+
+        for (int i = 4; i < serializedValue.length - 3; i++) {
+            /*
+             * TC_CLASSDESC = 0x72
+             * Followed by a two-byte modified UTF length and the class name.
+             */
+            if ((serializedValue[i] & 0xff) != 0x72) {
+                continue;
+            }
+
+            int length = ((serializedValue[i + 1] & 0xff) << 8)
+                    | (serializedValue[i + 2] & 0xff);
+
+            int start = i + 3;
+            int end = start + length;
+
+            if (length <= 0 || end > serializedValue.length) {
+                continue;
+            }
+
+            String candidate = new String(
+                    serializedValue,
+                    start,
+                    length,
+                    java.nio.charset.StandardCharsets.UTF_8
+            );
+
+            if (candidate.indexOf('.') > 0 && candidate.indexOf(' ') < 0) {
+                return candidate;
+            }
+        }
+
+        return "unknown";
+    }
     private static Object deserializeJavaObjectAfterMarker(byte[] payload) {
         if (payload == null || payload.length <= 1) {
             return null;
@@ -806,13 +926,6 @@ public final class ValueDecoding {
         }
 
         return out;
-    }
-
-    private static boolean looksLikeJavaSerializationStream(byte[] payload) {
-        return payload != null
-                && payload.length >= 2
-                && (payload[0] & 0xff) == 0xac
-                && (payload[1] & 0xff) == 0xed;
     }
 
     private static boolean isLikelyUtf8Text(byte[] payload) {

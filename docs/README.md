@@ -11,31 +11,21 @@ The goal is to let an existing Java Geode client application change only its con
 Current milestone:
 
 ```text
-string-object-map-support-complete
+java-serialized-pojo-support-complete
 ```
 
 Latest Docker-backed serialization verification:
 
 ```text
 mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
-BUILD SUCCESS
-```
 
-Latest serialization integration result:
-
-```text
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
-```
+Tests run: 59, Failures: 0, Errors: 0, Skipped: 0
 
-Latest focused typed-path verification:
-
-```text
-mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
-
-Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
+
+Serializable POJO support is now implemented and validated without requiring the shim to load the POJO class.
 
 ---
 
@@ -99,6 +89,7 @@ String[]
 ArrayList<String>
 HashMap<String,String>
 HashMap<String,Object>
+Serializable POJO
 Short
 Integer
 Long
@@ -126,18 +117,63 @@ String[]
 ArrayList<String>
 ```
 
-These are supported across:
+Top-level Serializable POJOs are supported as opaque Java serialized objects.
+
+---
+
+## Serializable POJO Support
+
+Serializable POJO support uses raw byte preservation.
+
+### How It Works
 
 ```text
-PUT
-GET
-PUT_ALL
-GET_ALL
-Couchbase persistence
-Couchbase hydration
-Geode-compatible response serialization
-Focused unit tests
-Docker-backed integration tests
+Geode client sends:
+2c ac ed 00 05 ...
+
+ProtoGemCouch stores:
+ac ed 00 05 ...
+
+ProtoGemCouch returns:
+2c ac ed 00 05 ...
+
+Geode client deserializes:
+CustomerProfile / customer POJO
+```
+
+### Why The Shim Does Not Deserialize POJOs
+
+The shim should not need every customer application class on its classpath.
+
+Instead:
+
+```text
+The customer app already has the POJO classes.
+The shim stores the serialized object bytes.
+Couchbase persists those bytes in a typed envelope.
+The shim returns the bytes.
+The customer app deserializes the object normally.
+```
+
+This is the safest first-pass compatibility behavior.
+
+### Couchbase POJO Envelope
+
+```json
+{
+  "type": "javaSerializedObject",
+  "className": "com.example.CustomerProfile",
+  "valueBase64": "rO0ABXNy...",
+  "length": 218
+}
+```
+
+Notes:
+
+```text
+valueBase64 contains Java ObjectOutputStream bytes without the Geode 0x2c marker.
+className is best-effort diagnostic metadata.
+length is the number of serialized bytes stored.
 ```
 
 ---
@@ -181,6 +217,15 @@ Representative package:
 com.protogemcouch.wire
 ```
 
+Important classes:
+
+```text
+GemFrame
+GemPart
+GemResponseWriter
+MessageTypes
+```
+
 Responsibilities:
 
 ```text
@@ -192,17 +237,6 @@ VersionedObjectList-compatible GET_ALL responses
 Golden-wire and shape validation
 ```
 
-Important classes include:
-
-```text
-GemFrame
-GemPart
-GemResponseWriter
-MessageTypes
-```
-
----
-
 ### Operation Handlers
 
 Representative package:
@@ -211,16 +245,7 @@ Representative package:
 com.protogemcouch.ops
 ```
 
-Responsibilities:
-
-```text
-Route supported operation frames
-Decode request payloads
-Call repository methods
-Write Geode-compatible responses
-```
-
-Important handlers include:
+Important handlers:
 
 ```text
 PutHandler
@@ -235,8 +260,6 @@ SimpleAckHandler
 UnknownOpcodeHandler
 ```
 
----
-
 ### Serialization Layer
 
 Representative package:
@@ -245,18 +268,7 @@ Representative package:
 com.protogemcouch.serialization
 ```
 
-Responsibilities:
-
-```text
-Decode typed Geode DataSerializer values
-Decode real-client raw byte[] payloads
-Decode Geode Java-serialized map payloads
-Represent typed values internally
-Fallback to Geode DataSerializer deserialization where useful
-Avoid accidental primitive/map-to-string fallback
-```
-
-Important classes include:
+Important classes:
 
 ```text
 StoredValue
@@ -265,7 +277,16 @@ ValueEncoding
 GeodeSerialization
 ```
 
----
+Responsibilities:
+
+```text
+Decode typed Geode DataSerializer values
+Decode real-client raw byte[] payloads
+Decode Geode Java-serialized map payloads
+Detect Java-serialized POJO payloads without classloading
+Represent typed values internally
+Avoid accidental primitive/map/object-to-string fallback
+```
 
 ### Couchbase Repository Layer
 
@@ -273,6 +294,14 @@ Representative package:
 
 ```text
 com.protogemcouch.couchbase
+```
+
+Important classes:
+
+```text
+Repository
+CouchbaseRepository
+RepositoryFactory
 ```
 
 Responsibilities:
@@ -288,19 +317,9 @@ List keys
 Count region documents
 ```
 
-Important classes include:
-
-```text
-Repository
-CouchbaseRepository
-RepositoryFactory
-```
-
 ---
 
 ## Couchbase Typed Document Format
-
-Typed values are persisted as JSON envelopes.
 
 ### String
 
@@ -308,33 +327,6 @@ Typed values are persisted as JSON envelopes.
 {
   "type": "string",
   "value": "value-1"
-}
-```
-
-### Boolean
-
-```json
-{
-  "type": "boolean",
-  "value": true
-}
-```
-
-### Character
-
-```json
-{
-  "type": "character",
-  "value": "A"
-}
-```
-
-### Byte
-
-```json
-{
-  "type": "byte",
-  "value": 7
 }
 ```
 
@@ -347,8 +339,6 @@ Typed values are persisted as JSON envelopes.
   "length": 5
 }
 ```
-
-`valueBase64` stores the exact binary payload. `length` is included as a validation/debug aid when hydrating the value back from Couchbase.
 
 ### String Array
 
@@ -398,79 +388,24 @@ Typed values are persisted as JSON envelopes.
       "type": "integer",
       "value": 42
     },
-    "active": {
-      "type": "boolean",
-      "value": true
-    },
     "createdAt": {
       "type": "date",
       "value": "1970-01-01T00:00:01Z",
       "epochMillis": 1000
-    },
-    "payload": {
-      "type": "byteArray",
-      "valueBase64": "AQID",
-      "length": 3
-    },
-    "items": {
-      "type": "stringArray",
-      "value": ["one", null, "three"],
-      "length": 3
-    },
-    "list": {
-      "type": "stringArrayList",
-      "value": ["one", null, "three"],
-      "length": 3
     }
   },
-  "length": 7
+  "length": 3
 }
 ```
 
-The `stringObjectHashMap` envelope intentionally stores each nested value as a typed envelope to preserve Java type fidelity across JSON storage.
-
-### Short
+### Serializable POJO
 
 ```json
 {
-  "type": "short",
-  "value": 7
-}
-```
-
-### Integer
-
-```json
-{
-  "type": "integer",
-  "value": 12345
-}
-```
-
-### Long
-
-```json
-{
-  "type": "long",
-  "value": 9876543210
-}
-```
-
-### Float
-
-```json
-{
-  "type": "float",
-  "value": 7.25
-}
-```
-
-### Double
-
-```json
-{
-  "type": "double",
-  "value": 7.25
+  "type": "javaSerializedObject",
+  "className": "com.example.CustomerProfile",
+  "valueBase64": "rO0ABXNy...",
+  "length": 218
 }
 ```
 
@@ -484,93 +419,21 @@ The `stringObjectHashMap` envelope intentionally stores each nested value as a t
 }
 ```
 
-The Date envelope intentionally stores both a readable ISO-8601 timestamp and the exact epoch-millis value needed for lossless Geode round-tripping.
-
 ---
 
 ## Verified Geode Wire Shapes
 
-### String
+### Serializable POJO
 
 ```text
-57 <2-byte UTF-8 length> <UTF-8 bytes>
+2c ac ed 00 05 ...
 ```
 
-### Boolean
+Meaning:
 
 ```text
-Boolean.TRUE  -> 3501
-Boolean.FALSE -> 3500
-```
-
-### Character
-
-```text
-'A' -> 360041
-'Z' -> 36005a
-'0' -> 360030
-' ' -> 360020
-```
-
-### Byte
-
-```text
-0             -> 3700
-7             -> 3707
--7            -> 37f9
-Byte.MAX      -> 377f
-Byte.MIN      -> 3780
-```
-
-### Byte Array
-
-Two byte-array shapes are supported.
-
-DataSerializer byte-array shape:
-
-```text
-new byte[] {}                         -> 2e00
-new byte[] {0x01}                     -> 2e0101
-new byte[] {0x01,0x02,0x03,0x04,0x05} -> 2e050102030405
-new byte[] {0x00,0x01,0x7f,0x80,0xff} -> 2e0500017f80ff
-```
-
-Real Geode client raw byte-array payload shape:
-
-```text
-new byte[] {}                         -> empty payload
-new byte[] {0x01,0x02,0x03,0x04,0x05} -> 0102030405
-new byte[] {0x00,0x01,0x02,0x03}      -> 00010203
-```
-
-Runtime decode labels:
-
-```text
-encoding=geode-byte-array
-encoding=raw-byte-array
-```
-
-### String Array
-
-```text
-new String[] {}                   -> 4000
-new String[] {"one"}              -> 40015700036f6e65
-new String[] {"one",null,"three"} -> 40035700036f6e65455700057468726565
-```
-
-### ArrayList<String>
-
-```text
-new ArrayList<>()                 -> 4100
-["one"]                           -> 41015700036f6e65
-["one",null,"three"]              -> 41035700036f6e65295700057468726565
-```
-
-### HashMap<String,String>
-
-```text
-empty map      -> 4300
-non-empty map  -> 2caced0005...
+0x2c               Geode Java-serialized-object marker
+ac ed 00 05 ...    Java ObjectOutputStream stream header and object bytes
 ```
 
 ### HashMap<String,Object>
@@ -580,63 +443,20 @@ empty map      -> 4300
 non-empty map  -> 2caced0005...
 ```
 
-Non-empty map payloads are encoded as `0x2c + Java ObjectOutputStream bytes`.
-
-### Short
+### Byte Array
 
 ```text
-0             -> 380000
-7             -> 380007
--7            -> 38fff9
-Short.MAX     -> 387fff
-Short.MIN     -> 388000
-```
+DataSerializer byte-array:
+2e050102030405
 
-### Integer
-
-```text
-7 -> 3900000007
-```
-
-### Long
-
-```text
-7L           -> 3a0000000000000007
--7L          -> 3afffffffffffffff9
-9876543210L  -> 3a000000024cb016ea
-```
-
-### Float
-
-```text
-0.0f       -> 3b00000000
-7.25f      -> 3b40e80000
--7.25f     -> 3bc0e80000
-987654.25f -> 3b49712064
-```
-
-### Double
-
-```text
-0.0d        -> 3c0000000000000000
-7.25d       -> 3c401d000000000000
--7.25d      -> 3cc01d000000000000
-9876543.210 -> 3c4162d687e6b851ec
+Real Geode client raw byte-array:
+0102030405
 ```
 
 ### Date
 
 ```text
-new Date(0L)                 -> 3d0000000000000000
-new Date(1_000L)             -> 3d00000000000003e8
-new Date(1_778_265_266_000L) -> 3d0000019e08de9750
-new Date(-1_000L)            -> 3dfffffffffffffc18
-```
-
-Date shape:
-
-```text
-0x3d + 8-byte signed epoch millis, big-endian
+new Date(1_000L) -> 3d00000000000003e8
 ```
 
 ---
@@ -649,25 +469,17 @@ The production response writer does not instantiate Geode `VersionedObjectList` 
 
 Instead, `GemResponseWriter` manually writes the compatible object header and body.
 
-Conceptual shape:
-
-```text
-01 07 03
-<key-count>
-<geode-string-key-1>
-<geode-string-key-2>
-...
-<object-count>
-<object-marker> <geode-object>
-<object-marker> <geode-object>
-...
-```
-
 Object markers:
 
 ```text
 0x01 = present object
 0x03 = key not at server / absent
+```
+
+For Serializable POJOs, the GET_ALL value payload is:
+
+```text
+0x01 + 0x2c + ac ed 00 05 ...
 ```
 
 ---
@@ -680,16 +492,10 @@ Object markers:
 mvn test
 ```
 
-### Focused Typed Handler Tests
+### Focused POJO Path
 
 ```powershell
-mvn test "-Dtest=GetHandlerTest,GetAllHandlerTest,PutHandlerTest,PutAllHandlerTest"
-```
-
-### String Object Map Focused Path
-
-```powershell
-mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
+mvn test "-Dtest=PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest,SerializablePojoShapeTest,GemResponseWriterTest"
 ```
 
 ### Full Serialization Integration Verification
@@ -700,34 +506,18 @@ Requires Docker Desktop / Docker daemon to be running.
 mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 ```
 
-This runs:
+Expected:
 
 ```text
-Unit tests
-Jar build
-Maven Shade build
-Docker Compose environment startup
-Couchbase container
-Couchbase init container
-ProtoGemCouch shim container
-Failsafe integration tests
-Docker Compose cleanup
-Failsafe verify
+Tests run: 59, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
 ```
 
 ---
 
 ## Docker Requirement
 
-The full verification lifecycle starts Docker Compose as part of Maven.
-
-Before running:
-
-```powershell
-mvn clean verify
-```
-
-confirm Docker is available:
+Before running full verification, confirm Docker is available:
 
 ```powershell
 docker ps
@@ -739,40 +529,21 @@ If Docker is not running, Maven will fail at:
 exec:3.2.0:exec (docker-compose-up)
 ```
 
-with an error similar to:
-
-```text
-this error may indicate that the docker daemon is not running
-```
-
 ---
 
 ## Current Demo Narrative
 
 The current demo shows a Java Geode client using normal Geode client APIs while only changing the endpoint to point at ProtoGemCouch.
 
-Example client calls:
+Example Serializable POJO call:
 
 ```java
-region.put("string-key", "value-1");
-Object stringValue = region.get("string-key");
-
-region.put("integer-key", Integer.valueOf(12345));
-Object integerValue = region.get("integer-key");
-
-region.put("byte-array-key", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
-Object byteArrayValue = region.get("byte-array-key");
-
-region.put("date-key", new Date(1_000L));
-Object dateValue = region.get("date-key");
-
-LinkedHashMap<String, Object> profile = new LinkedHashMap<>();
-profile.put("name", "rob");
-profile.put("age", Integer.valueOf(42));
-profile.put("active", Boolean.TRUE);
-profile.put("createdAt", new Date(1_000L));
-profile.put("payload", new byte[] {0x01, 0x02, 0x03});
-profile.put("items", new String[] {"one", null, "three"});
+CustomerProfile profile = new CustomerProfile(
+    "customer-1",
+    "Rob",
+    42,
+    true
+);
 
 region.put("profile-key", profile);
 Object profileValue = region.get("profile-key");
@@ -781,41 +552,11 @@ Object profileValue = region.get("profile-key");
 Mixed bulk example:
 
 ```java
-ArrayList<String> tags = new ArrayList<>();
-tags.add("one");
-tags.add(null);
-tags.add("three");
-
-LinkedHashMap<String, String> stringMap = new LinkedHashMap<>();
-stringMap.put("one", "value-1");
-stringMap.put("two", null);
-stringMap.put("three", "value-3");
-
-LinkedHashMap<String, Object> objectMap = new LinkedHashMap<>();
-objectMap.put("name", "rob");
-objectMap.put("age", Integer.valueOf(42));
-objectMap.put("active", Boolean.TRUE);
-objectMap.put("createdAt", new Date(1_000L));
-objectMap.put("payload", new byte[] {0x01, 0x02, 0x03});
-objectMap.put("items", new String[] {"one", null, "three"});
-objectMap.put("list", tags);
-
 Map<String, Object> entries = new LinkedHashMap<>();
 entries.put("string-key", "value-1");
-entries.put("character-key", Character.valueOf('A'));
-entries.put("byte-key", Byte.valueOf((byte) 7));
-entries.put("byte-array-key", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
-entries.put("string-array-key", new String[] {"one", null, "three"});
-entries.put("string-array-list-key", tags);
-entries.put("string-hash-map-key", stringMap);
-entries.put("string-object-hash-map-key", objectMap);
-entries.put("short-key", Short.valueOf((short) 7));
 entries.put("integer-key", Integer.valueOf(12345));
-entries.put("boolean-key", Boolean.TRUE);
-entries.put("long-key", Long.valueOf(9_876_543_210L));
-entries.put("float-key", Float.valueOf(7.25f));
-entries.put("double-key", Double.valueOf(7.25d));
 entries.put("date-key", new Date(1_000L));
+entries.put("profile-key", profile);
 
 region.putAll(entries);
 
@@ -825,7 +566,7 @@ Map<String, Object> results = region.getAll(entries.keySet());
 Expected result:
 
 ```text
-Each returned value keeps its original Java wrapper/date/binary/array/list/map type.
+Each returned value keeps its original Java wrapper/date/binary/array/list/map/POJO type.
 ```
 
 ---
@@ -841,21 +582,29 @@ String[] round-tripping
 ArrayList<String> round-tripping
 HashMap<String,String> round-tripping
 HashMap<String,Object> round-tripping
+Serializable POJO round-tripping
 java.util.Date round-tripping
 Typed Couchbase persistence envelopes
 Manual VersionedObjectList-compatible GET_ALL responses
 Key-based region operation mapping
-Docker-based integration verification
+Docker-backed integration verification
 ```
 
 Not yet fully implemented or validated:
 
 ```text
-Arbitrary Java object graph serialization
-Complex POJO round-tripping
-Nested Map<String,Object> beyond explicitly tested supported value types
-PDX object support
-JSON object values
+Nested Serializable POJO values inside structured Map<String,Object> envelopes
+Object[]
+ArrayList<Object>
+Primitive arrays beyond byte[]
+Wrapper arrays
+BigDecimal
+BigInteger
+UUID
+Enum
+java.time values such as Instant, LocalDate, LocalDateTime
+DataSerializable
+PDX / PdxInstance
 Expiration / TTL behavior
 Transactions
 Queries
@@ -869,16 +618,22 @@ High-concurrency load and soak testing
 
 ---
 
-## Build Notes
-
-The build produces Maven Shade Plugin warnings for overlapping resources/classes and `module-info.class` entries.
-
-These are dependency packaging warnings from the shaded jar build and do not currently block the build.
-
-Current result:
+## Current Milestone
 
 ```text
-BUILD SUCCESS
+java-serialized-pojo-support-complete
+```
+
+Suggested commit:
+
+```text
+Add Java serialized POJO support
+```
+
+Suggested tag:
+
+```text
+java-serialized-pojo-support-complete
 ```
 
 ---
@@ -888,15 +643,7 @@ BUILD SUCCESS
 The next recommended compatibility target is:
 
 ```text
-Simple Serializable POJO
-```
-
-Alternative next targets:
-
-```text
-Nested Map<String,Object>
-PDX object support
-JSON object value support
+Object[]
 ```
 
 Recommended implementation path:
@@ -914,26 +661,4 @@ GetAllHandler response
 CouchbaseRepository persistence/hydration
 ProtoGemCouchSerializationIntegrationTest round trip
 Docs update
-```
-
----
-
-## Repository Milestone
-
-Current stable checkpoint:
-
-```text
-string-object-map-support-complete
-```
-
-Suggested commit:
-
-```text
-Add string object map serialization support
-```
-
-Suggested tag:
-
-```text
-string-object-map-support-complete
 ```

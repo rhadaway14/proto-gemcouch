@@ -2,32 +2,21 @@
 
 ## Current Validation Status
 
-Last updated after successful full verification for `HashMap<String,Object>` / `LinkedHashMap<String,Object>` support.
+Current completed milestone:
 
 ```text
-mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
-BUILD SUCCESS
+java-serialized-pojo-support-complete
 ```
+
+The project now supports Java Serializable POJO round-tripping without requiring the ProtoGemCouch shim to have the customer POJO classes on its classpath.
 
 Latest Docker-backed serialization integration result:
 
 ```text
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
-
-BUILD SUCCESS
-```
-
-The latest full Docker-backed verification completed successfully after `HashMap<String,Object>` support was added across the runtime path, focused unit tests, Couchbase persistence/hydration, and Docker-backed integration tests.
-
-Previously validated full integration baseline:
-
-```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 46, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 59, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -35,9 +24,23 @@ BUILD SUCCESS
 Latest focused typed-path unit result:
 
 ```text
-mvn test "-Dtest=RepositoryFactoryTest,GetAllHandlerTest,GetHandlerTest,PutAllHandlerTest,PutHandlerTest,HashMapStringObjectShapeTest,GemResponseWriterTest"
+mvn test "-Dtest=PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest,SerializablePojoShapeTest,GemResponseWriterTest"
 
-Tests run: 106, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+Previously completed milestone:
+
+```text
+string-object-map-support-complete
+```
+
+Previously validated Docker-backed result:
+
+```text
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 53, Failures: 0, Errors: 0, Skipped: 0
+
 BUILD SUCCESS
 ```
 
@@ -75,14 +78,80 @@ BUILD SUCCESS
 | `ArrayList<String>` | `0x41` | `41035700036f6e65295700057468726565` | Yes | Yes | Yes |
 | `HashMap<String,String>` / `LinkedHashMap<String,String>` | `0x43` empty, `0x2c + Java serialization` non-empty | `4300`, `2caced0005...` | Yes | Yes | Yes |
 | `HashMap<String,Object>` / `LinkedHashMap<String,Object>` | `0x43` empty, `0x2c + Java serialization` non-empty | `4300`, `2caced0005...` | Yes | Yes | Yes |
+| Serializable POJO | `0x2c + Java ObjectOutputStream bytes` | `2caced0005...` | Yes | Yes | Yes |
+| Serializable POJO with null fields | `0x2c + Java ObjectOutputStream bytes` | `2caced0005...` | Yes | Yes | Yes |
+| Serializable POJO with `Date` / `byte[]` fields | `0x2c + Java ObjectOutputStream bytes` | `2caced0005...` | Yes | Yes | Yes |
+| Serializable POJO with nested map field | `0x2c + Java ObjectOutputStream bytes` | `2caced0005...` | Yes | Yes | Yes |
 | `Short` | `0x38` | `7 -> 380007` | Yes | Yes | Yes |
 | `Integer` | `0x39` | `7 -> 3900000007` | Yes | Yes | Yes |
 | `Long` | `0x3a` | `7 -> 3a0000000000000007` | Yes | Yes | Yes |
 | `Float` | `0x3b` | `7.25f -> 3b40e80000` | Yes | Yes | Yes |
 | `Double` | `0x3c` | `7.25d -> 3c401d000000000000` | Yes | Yes | Yes |
 | `java.util.Date` | `0x3d` | `new Date(1000L) -> 3d00000000000003e8` | Yes | Yes | Yes |
-| Simple Serializable POJO | TBD | TBD | Not yet | Not yet | Not yet |
 | PDX object | TBD | TBD | Not yet | Not yet | Not yet |
+| DataSerializable | TBD | TBD | Not yet | Not yet | Not yet |
+
+---
+
+## Serializable POJO Support
+
+Serializable POJO support is implemented as raw Java serialized byte preservation.
+
+The shim does not need to load or understand the customer class. It only needs to recognize the Geode Java-serialized-object marker, store the serialized bytes, and return those bytes to the Geode client.
+
+### Wire Shape
+
+Observed shape:
+
+```text
+2c ac ed 00 05 ...
+```
+
+Meaning:
+
+```text
+0x2c               Geode Java-serialized-object marker
+ac ed 00 05 ...    Java ObjectOutputStream bytes
+```
+
+### Stored Bytes
+
+The shim strips the Geode marker before storing:
+
+```text
+Stored in Couchbase:
+ac ed 00 05 ...
+
+Returned to Geode client:
+2c ac ed 00 05 ...
+```
+
+### Why This Design
+
+This preserves maximum compatibility:
+
+```text
+The shim does not need the customer POJO classes.
+The Geode client already has the customer POJO classes.
+The shim stores and returns the raw serialized object bytes.
+The client deserializes the object normally when it receives the response.
+```
+
+### Validated POJO Shapes
+
+Validated in shape tests and Docker-backed integration tests:
+
+```text
+Simple Serializable POJO
+Serializable POJO with null field
+Serializable POJO with Date and byte[] fields
+Serializable POJO with nested LinkedHashMap<String,Object>
+Serializable POJO in put
+Serializable POJO in get
+Serializable POJO in putAll
+Serializable POJO in getAll
+Serializable POJO inside full mixed typed putAll/getAll
+```
 
 ---
 
@@ -107,7 +176,7 @@ String[]
 ArrayList<String>
 ```
 
-Nested `byte[]` and `String[]` values require array-aware equality checks in tests because Java array equality is identity-based by default.
+Nested Serializable POJO values inside `HashMap<String,Object>` are not yet supported by the structured map envelope. A POJO as the top-level region value is supported.
 
 ---
 
@@ -119,28 +188,12 @@ Nested `byte[]` and `String[]` values require array-aware equality checks in tes
 57 <2-byte UTF-8 length> <UTF-8 bytes>
 ```
 
-Example:
-
-```text
-57 00 05 6b65792d31
-```
-
-Meaning:
-
-```text
-String: key-1
-```
-
----
-
 ### Boolean
 
 | Value | Hex |
 |---:|---|
 | `Boolean.TRUE` | `3501` |
 | `Boolean.FALSE` | `3500` |
-
----
 
 ### Character
 
@@ -150,8 +203,6 @@ String: key-1
 | `'Z'` | `36005a` |
 | `'0'` | `360030` |
 | `' '` | `360020` |
-
----
 
 ### Byte
 
@@ -163,208 +214,78 @@ String: key-1
 | `Byte.MAX_VALUE` | `377f` |
 | `Byte.MIN_VALUE` | `3780` |
 
----
-
 ### Byte Array
 
 Two byte-array shapes are supported.
 
-#### DataSerializer byte-array shape
-
-`DataSerializer.writeObject(byte[])` produces:
-
 ```text
+DataSerializer byte-array:
 0x2e + compact length + bytes
+
+Real Geode client raw byte-array:
+raw bytes as the value part payload
 ```
 
-| Value | Hex |
-|---:|---|
-| `new byte[] {}` | `2e00` |
-| `new byte[] {0x01}` | `2e0101` |
-| `new byte[] {0x01,0x02,0x03,0x04,0x05}` | `2e050102030405` |
-| `new byte[] {0x00,0x01,0x7f,0x80,0xff}` | `2e0500017f80ff` |
-
-#### Real Geode client raw byte-array shape
-
-Real `Region.put(key, byte[])` and related real-client paths were observed to send `byte[]` as the raw value part payload rather than the DataSerializer wrapper.
-
-| Value | Hex |
-|---:|---|
-| `new byte[] {}` | empty payload |
-| `new byte[] {0x01,0x02,0x03,0x04,0x05}` | `0102030405` |
-| `new byte[] {0x00,0x01,0x02,0x03}` | `00010203` |
-
-Runtime decode labels:
+Examples:
 
 ```text
-encoding=geode-byte-array
-encoding=raw-byte-array
+new byte[] {}                         -> 2e00 or empty payload
+new byte[] {0x01}                     -> 2e0101
+new byte[] {0x01,0x02,0x03,0x04,0x05} -> 2e050102030405 or 0102030405
+new byte[] {0x00,0x01,0x7f,0x80,0xff} -> 2e0500017f80ff
 ```
-
----
 
 ### String Array
 
-`DataSerializer.writeObject(String[])` produces:
-
 ```text
-0x40 + compact length + element payloads
+new String[] {}                   -> 4000
+new String[] {"one"}              -> 40015700036f6e65
+new String[] {"one",null,"three"} -> 40035700036f6e65455700057468726565
 ```
-
-Observed shapes:
-
-| Value | Hex |
-|---:|---|
-| `new String[] {}` | `4000` |
-| `new String[] {"one"}` | `40015700036f6e65` |
-| `new String[] {"one","two","three"}` | `40035700036f6e6557000374776f5700057468726565` |
-| `new String[] {"one",null,"three"}` | `40035700036f6e65455700057468726565` |
-
-Null element marker observed in `String[]`:
-
-```text
-0x45
-```
-
----
 
 ### ArrayList<String>
 
-`DataSerializer.writeObject(ArrayList<String>)` produces:
-
 ```text
-0x41 + compact length + element payloads
+new ArrayList<>()                 -> 4100
+["one"]                           -> 41015700036f6e65
+["one",null,"three"]              -> 41035700036f6e65295700057468726565
 ```
-
-Observed shapes:
-
-| Value | Hex |
-|---:|---|
-| `new ArrayList<>()` | `4100` |
-| `["one"]` | `41015700036f6e65` |
-| `["one","two","three"]` | `41035700036f6e6557000374776f5700057468726565` |
-| `["one",null,"three"]` | `41035700036f6e65295700057468726565` |
-
-Null element marker observed in `ArrayList<String>`:
-
-```text
-0x29
-```
-
----
 
 ### HashMap<String,String>
 
-Observed shapes:
-
 ```text
-empty map      -> 43 00
-non-empty map  -> 2c + Java ObjectOutputStream bytes
+empty map      -> 4300
+non-empty map  -> 2caced0005...
 ```
-
-Examples:
-
-| Value | Shape |
-|---|---|
-| empty map | `4300` |
-| non-empty `LinkedHashMap<String,String>` | `2caced0005...` |
-
-The runtime decodes non-empty maps with `ObjectInputStream` over the bytes after the `0x2c` marker.
-
----
 
 ### HashMap<String,Object>
 
-Observed shapes:
-
 ```text
-empty map      -> 43 00
-non-empty map  -> 2c + Java ObjectOutputStream bytes
+empty map      -> 4300
+non-empty map  -> 2caced0005...
 ```
 
-Examples:
+### Serializable POJO
 
-| Value | Shape |
-|---|---|
-| empty map | `4300` |
-| non-empty `LinkedHashMap<String,Object>` | `2caced0005...` |
-
-Supported nested value types are listed above.
-
----
-
-### Short
-
-| Value | Hex |
-|---:|---|
-| `Short.valueOf((short) 0)` | `380000` |
-| `Short.valueOf((short) 7)` | `380007` |
-| `Short.valueOf((short) -7)` | `38fff9` |
-| `Short.MAX_VALUE` | `387fff` |
-| `Short.MIN_VALUE` | `388000` |
-
----
-
-### Integer
-
-| Value | Hex |
-|---:|---|
-| `Integer.valueOf(7)` | `3900000007` |
-
----
-
-### Long
-
-| Value | Hex |
-|---:|---|
-| `Long.valueOf(7L)` | `3a0000000000000007` |
-| `Long.valueOf(-7L)` | `3afffffffffffffff9` |
-| `Long.valueOf(9876543210L)` | `3a000000024cb016ea` |
-
----
-
-### Float
-
-| Value | Hex |
-|---:|---|
-| `Float.valueOf(0.0f)` | `3b00000000` |
-| `Float.valueOf(7.25f)` | `3b40e80000` |
-| `Float.valueOf(-7.25f)` | `3bc0e80000` |
-| `Float.valueOf(987654.25f)` | `3b49712064` |
-
----
-
-### Double
-
-| Value | Hex |
-|---:|---|
-| `Double.valueOf(0.0d)` | `3c0000000000000000` |
-| `Double.valueOf(7.25d)` | `3c401d000000000000` |
-| `Double.valueOf(-7.25d)` | `3cc01d000000000000` |
-| `Double.valueOf(9876543.210d)` | `3c4162d687e6b851ec` |
-
----
+```text
+simple POJO                  -> 2caced0005...
+POJO with null field          -> 2caced0005...
+POJO with Date + byte[]       -> 2caced0005...
+POJO with nested map field    -> 2caced0005...
+```
 
 ### Date
 
-Date is encoded as:
-
 ```text
-0x3d + 8-byte signed epoch millis, big-endian
+new Date(0L)                 -> 3d0000000000000000
+new Date(1_000L)             -> 3d00000000000003e8
+new Date(1_778_265_266_000L) -> 3d0000019e08de9750
+new Date(-1_000L)            -> 3dfffffffffffffc18
 ```
-
-| Value | Hex |
-|---:|---|
-| `new Date(0L)` | `3d0000000000000000` |
-| `new Date(1_000L)` | `3d00000000000003e8` |
-| `new Date(1_778_265_266_000L)` | `3d0000019e08de9750` |
-| `new Date(-1_000L)` | `3dfffffffffffffc18` |
 
 ---
 
 ## Couchbase Typed Storage Envelopes
-
-Validated typed values are persisted as JSON objects with a `type` field and value-specific fields.
 
 ### String
 
@@ -372,33 +293,6 @@ Validated typed values are persisted as JSON objects with a `type` field and val
 {
   "type": "string",
   "value": "value-1"
-}
-```
-
-### Boolean
-
-```json
-{
-  "type": "boolean",
-  "value": true
-}
-```
-
-### Character
-
-```json
-{
-  "type": "character",
-  "value": "A"
-}
-```
-
-### Byte
-
-```json
-{
-  "type": "byte",
-  "value": 7
 }
 ```
 
@@ -468,72 +362,29 @@ Validated typed values are persisted as JSON objects with a `type` field and val
       "type": "date",
       "value": "1970-01-01T00:00:01Z",
       "epochMillis": 1000
-    },
-    "payload": {
-      "type": "byteArray",
-      "valueBase64": "AQID",
-      "length": 3
-    },
-    "items": {
-      "type": "stringArray",
-      "value": ["one", null, "three"],
-      "length": 3
-    },
-    "list": {
-      "type": "stringArrayList",
-      "value": ["one", null, "three"],
-      "length": 3
     }
   },
-  "length": 7
+  "length": 4
 }
 ```
 
-The `stringObjectHashMap` envelope intentionally stores each value as a nested typed envelope to preserve Java type fidelity across JSON storage.
-
-### Short
+### Serializable POJO
 
 ```json
 {
-  "type": "short",
-  "value": 7
+  "type": "javaSerializedObject",
+  "className": "com.example.CustomerProfile",
+  "valueBase64": "rO0ABXNy...",
+  "length": 218
 }
 ```
 
-### Integer
+Notes:
 
-```json
-{
-  "type": "integer",
-  "value": 12345
-}
-```
-
-### Long
-
-```json
-{
-  "type": "long",
-  "value": 9876543210
-}
-```
-
-### Float
-
-```json
-{
-  "type": "float",
-  "value": 7.25
-}
-```
-
-### Double
-
-```json
-{
-  "type": "double",
-  "value": 7.25
-}
+```text
+valueBase64 is the Java ObjectOutputStream byte stream without the Geode 0x2c marker.
+className is best-effort diagnostic metadata extracted without loading the class.
+length is the stored serialized-byte length.
 ```
 
 ### Date
@@ -550,45 +401,23 @@ The `stringObjectHashMap` envelope intentionally stores each value as a nested t
 
 ## Runtime Coverage by Component
 
-| Component | String | Boolean | Character | Byte | byte[] | String[] | ArrayList<String> | Map<String,String> | Map<String,Object> | Short | Integer | Long | Float | Double | Date |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | POJO | Map<String,Object> | String[] | ArrayList<String> | byte[] | Date | Scalars |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` GET_ALL | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Integration tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ---
 
 ## Integration Test Coverage
-
-### CRUD / Region Operation Integration Tests
-
-Integration test class:
-
-```text
-src/test/java/com/protogemcouch/integration/ProtoGemCouchCrudIntegrationTest.java
-```
-
-Validated operation categories:
-
-```text
-PUT
-GET
-Overwrite
-REMOVE
-containsKey / containsValueForKey style checks
-GET_ALL for strings
-PUT_ALL for strings
-sizeOnServer
-keySetOnServer
-```
 
 ### Serialization Integration Tests
 
@@ -598,35 +427,25 @@ Integration test class:
 src/test/java/com/protogemcouch/integration/ProtoGemCouchSerializationIntegrationTest.java
 ```
 
-Validated typed categories:
+Current Docker-backed test count:
 
 ```text
-Single-key PUT/GET typed round trips
-Typed overwrite for supported values where implemented
-PUT_ALL typed values
-GET_ALL typed values
-Mixed typed PUT_ALL / GET_ALL preservation
-Date round trips through Couchbase
-byte[] round trips through Couchbase
-String[] round trips through Couchbase
-ArrayList<String> round trips through Couchbase
-HashMap<String,String> round trips through Couchbase
-HashMap<String,Object> round trips through Couchbase
+Tests run: 59
+Failures: 0
+Errors: 0
+Skipped: 0
 ```
 
-Map-specific scenarios:
+Serializable POJO scenarios:
 
 ```text
-stringHashMapValueShouldRoundTripThroughShimAndCouchbase
-emptyStringHashMapValueShouldRoundTripThroughShimAndCouchbase
-putAllWithStringHashMapValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithStringHashMapValuesShouldReturnLinkedHashMaps
-
-stringObjectHashMapValueShouldRoundTripThroughShimAndCouchbase
-stringObjectHashMapWithArrayValuesShouldRoundTripThroughShimAndCouchbase
-putAllWithStringObjectHashMapValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithStringObjectHashMapValuesShouldReturnMaps
-mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+serializablePojoValueShouldRoundTripThroughShimAndCouchbase
+serializablePojoWithNullFieldShouldRoundTripThroughShimAndCouchbase
+serializablePojoWithDateAndByteArrayShouldRoundTripThroughShimAndCouchbase
+serializablePojoWithNestedMapShouldRoundTripThroughShimAndCouchbase
+putAllWithSerializablePojoValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithSerializablePojoValuesShouldReturnSerializablePojos
+mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 ---
@@ -636,11 +455,18 @@ mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringOb
 Not yet fully implemented or validated:
 
 ```text
-Arbitrary Java object graph serialization
-Complex POJO round-tripping
-Nested Map<String,Object> beyond explicitly tested supported value types
-PDX object support
-JSON object value support
+Nested Serializable POJO values inside structured Map<String,Object> envelopes
+Object[]
+ArrayList<Object>
+Primitive arrays beyond byte[]
+Wrapper arrays
+BigDecimal
+BigInteger
+UUID
+Enum
+java.time types such as Instant, LocalDate, LocalDateTime
+DataSerializable
+PDX / PdxInstance
 Expiration / TTL behavior
 Transactions
 Queries
@@ -648,8 +474,7 @@ Continuous queries
 Interest registration
 Partitioned region metadata behavior
 Server-side function execution
-Production-grade security/auth compatibility beyond the current shim setup
-TLS/mTLS production configuration
+Production-grade security/TLS/auth compatibility beyond the current shim setup
 High-concurrency load and soak testing
 ```
 
@@ -657,45 +482,36 @@ High-concurrency load and soak testing
 
 ## Current Milestone
 
-`HashMap<String,Object>` support is the current completed milestone.
+```text
+java-serialized-pojo-support-complete
+```
 
 Suggested commit:
 
 ```text
-Add string object map serialization support
+Add Java serialized POJO support
 ```
 
 Suggested tag:
 
 ```text
-string-object-map-support-complete
+java-serialized-pojo-support-complete
 ```
 
 ---
 
 ## Recommended Next Target
 
-The next compatibility target should be one of:
+The next recommended compatibility target is:
 
 ```text
-Simple Serializable POJO
-Nested Map<String,Object>
-PDX object support
+Object[]
 ```
 
-Suggested implementation path for the next type:
+Reason:
 
 ```text
-Shape test
-ValueDecoding support
-StoredValue representation
-GemResponseWriter GET support
-GemResponseWriter GET_ALL support
-PutHandler decode/store
-PutAllHandler decode/store
-GetHandler response
-GetAllHandler response
-CouchbaseRepository persistence/hydration
-ProtoGemCouchSerializationIntegrationTest round trip
-Docs update
+Serializable POJO support covers arbitrary object graphs as opaque serialized objects.
+Object[] is the next common non-POJO object container that may appear as a top-level region value.
+It also prepares the project for ArrayList<Object> and nested mixed collection support.
 ```

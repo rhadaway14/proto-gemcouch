@@ -223,6 +223,24 @@ public class PutAllHandler implements OperationHandler {
             return StoredValue.stringObjectHashMapValue(stringObjectHashMapValue);
         }
 
+        ValueDecoding.JavaSerializedObject javaSerializedObjectValue =
+                ValueDecoding.decodeJavaSerializedObjectValue(valuePayload);
+
+        if (javaSerializedObjectValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-java-serialized-object",
+                    "key", key,
+                    "type", javaSerializedObjectValue.className(),
+                    "valueType", "JAVA_SERIALIZED_OBJECT",
+                    "txId", txId
+            ));
+            return StoredValue.javaSerializedObjectValue(
+                    javaSerializedObjectValue.className(),
+                    javaSerializedObjectValue.serializedValue()
+            );
+        }
+
         byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
 
         if (byteArrayValue != null) {
@@ -541,6 +559,24 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.dateValue(dateObject);
+            }
+
+            ValueDecoding.JavaSerializedObject fallbackJavaSerializedObjectValue =
+                    ValueDecoding.decodeJavaSerializedObjectValue(valuePayload);
+
+            if (fallbackJavaSerializedObjectValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "encoding", "geode-dataserializer-java-serialized-object",
+                        "type", fallbackJavaSerializedObjectValue.className(),
+                        "valueType", "JAVA_SERIALIZED_OBJECT",
+                        "txId", txId
+                ));
+                return StoredValue.javaSerializedObjectValue(
+                        fallbackJavaSerializedObjectValue.className(),
+                        fallbackJavaSerializedObjectValue.serializedValue()
+                );
             }
 
             if (rawValue != null) {

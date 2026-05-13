@@ -394,6 +394,45 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_java_serialized_pojo_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        byte[] payload = hexToBytes(
+                "2caced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62"
+        );
+
+        byte[] expectedSerializedValue = hexToBytes(
+                "aced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62"
+        );
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-java-serialized-pojo-key"),
+                objectPart("5"),
+                part(payload),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-java-serialized-pojo-key"),
+                eq(StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        expectedSerializedValue
+                ))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_raw_byte_array_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

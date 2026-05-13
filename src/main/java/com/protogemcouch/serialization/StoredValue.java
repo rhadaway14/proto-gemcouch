@@ -17,6 +17,8 @@ public record StoredValue(
         ArrayList<String> stringArrayListValue,
         LinkedHashMap<String, String> stringHashMapValue,
         LinkedHashMap<String, Object> stringObjectHashMapValue,
+        String javaSerializedClassName,
+        byte[] javaSerializedValue,
         Short shortValue,
         Integer integerValue,
         Boolean booleanValue,
@@ -35,6 +37,7 @@ public record StoredValue(
         STRING_ARRAY_LIST,
         STRING_HASH_MAP,
         STRING_OBJECT_HASH_MAP,
+        JAVA_SERIALIZED_OBJECT,
         SHORT,
         INTEGER,
         BOOLEAN,
@@ -45,63 +48,67 @@ public record StoredValue(
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue characterValue(Character value) {
-        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteValue(Byte value) {
-        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteArrayValue(byte[] value) {
-        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayValue(String[] value) {
-        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayListValue(ArrayList<String> value) {
-        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringHashMapValue(Map<String, String> value) {
-        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringObjectHashMapValue(Map<String, Object> value) {
-        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue javaSerializedObjectValue(String className, byte[] serializedValue) {
+        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
     }
 
     public static StoredValue dateValue(Date value) {
-        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
+        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
     }
 
     public StoredValue {
@@ -125,6 +132,10 @@ public record StoredValue(
 
         if (stringObjectHashMapValue != null) {
             stringObjectHashMapValue = copyStringObjectHashMap(stringObjectHashMapValue);
+        }
+
+        if (javaSerializedValue != null) {
+            javaSerializedValue = copyByteArray(javaSerializedValue);
         }
 
         if (dateValue != null) {
@@ -161,6 +172,16 @@ public record StoredValue(
 
         if (type == Type.STRING_OBJECT_HASH_MAP && stringObjectHashMapValue == null) {
             throw new IllegalArgumentException("STRING_OBJECT_HASH_MAP StoredValue requires stringObjectHashMapValue");
+        }
+
+        if (type == Type.JAVA_SERIALIZED_OBJECT) {
+            if (javaSerializedClassName == null || javaSerializedClassName.isBlank()) {
+                throw new IllegalArgumentException("JAVA_SERIALIZED_OBJECT StoredValue requires javaSerializedClassName");
+            }
+
+            if (javaSerializedValue == null || javaSerializedValue.length == 0) {
+                throw new IllegalArgumentException("JAVA_SERIALIZED_OBJECT StoredValue requires javaSerializedValue");
+            }
         }
 
         if (type == Type.SHORT && shortValue == null) {
@@ -215,6 +236,11 @@ public record StoredValue(
     @Override
     public LinkedHashMap<String, Object> stringObjectHashMapValue() {
         return copyStringObjectHashMap(stringObjectHashMapValue);
+    }
+
+    @Override
+    public byte[] javaSerializedValue() {
+        return copyByteArray(javaSerializedValue);
     }
 
     @Override
@@ -276,6 +302,22 @@ public record StoredValue(
         }
 
         return copyStringObjectHashMap(stringObjectHashMapValue);
+    }
+
+    public String asJavaSerializedClassName() {
+        if (type != Type.JAVA_SERIALIZED_OBJECT) {
+            throw new IllegalStateException("StoredValue is not JAVA_SERIALIZED_OBJECT. Actual type: " + type);
+        }
+
+        return javaSerializedClassName;
+    }
+
+    public byte[] asJavaSerializedValue() {
+        if (type != Type.JAVA_SERIALIZED_OBJECT) {
+            throw new IllegalStateException("StoredValue is not JAVA_SERIALIZED_OBJECT. Actual type: " + type);
+        }
+
+        return copyByteArray(javaSerializedValue);
     }
 
     public Short asShort() {
@@ -353,6 +395,8 @@ public record StoredValue(
                 && Objects.equals(stringArrayListValue, that.stringArrayListValue)
                 && Objects.equals(stringHashMapValue, that.stringHashMapValue)
                 && stringObjectHashMapsEqual(stringObjectHashMapValue, that.stringObjectHashMapValue)
+                && Objects.equals(javaSerializedClassName, that.javaSerializedClassName)
+                && Arrays.equals(javaSerializedValue, that.javaSerializedValue)
                 && Objects.equals(shortValue, that.shortValue)
                 && Objects.equals(integerValue, that.integerValue)
                 && Objects.equals(booleanValue, that.booleanValue)
@@ -371,6 +415,7 @@ public record StoredValue(
                 byteValue,
                 stringArrayListValue,
                 stringHashMapValue,
+                javaSerializedClassName,
                 shortValue,
                 integerValue,
                 booleanValue,
@@ -383,6 +428,7 @@ public record StoredValue(
         result = 31 * result + Arrays.hashCode(byteArrayValue);
         result = 31 * result + Arrays.hashCode(stringArrayValue);
         result = 31 * result + stringObjectHashMapHashCode(stringObjectHashMapValue);
+        result = 31 * result + Arrays.hashCode(javaSerializedValue);
 
         return result;
     }

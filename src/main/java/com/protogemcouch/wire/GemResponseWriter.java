@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -191,6 +192,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_HASH_MAP_CODE = 0x43;
 
     /*
+     * Geode Java-serialized-object marker observed from Serializable POJO
+     * and non-empty LinkedHashMap shapes:
+     *
+     *   2c ac ed 00 05 ...
+     *
+     * The bytes after 0x2c are standard Java ObjectOutputStream bytes.
+     */
+    private static final byte GEODE_JAVA_SERIALIZED_CODE = 0x2c;
+
+    /*
      * Full Geode DataSerializer object header for VersionedObjectList.
      *
      * Observed from DataSerializer.writeObject(new VersionedObjectList(...)):
@@ -284,6 +295,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedStringObjectHashMap(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildJavaSerializedObjectGetResponse(int txId, byte[] serializedValue) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedJavaObject(serializedValue), (byte) 1))
         );
     }
 
@@ -523,6 +542,13 @@ public final class GemResponseWriter {
             return StoredValue.stringObjectHashMapValue(toStringObjectLinkedHashMap(mapValue));
         }
 
+        if (isSupportedJavaSerializableObject(rawValue)) {
+            return StoredValue.javaSerializedObjectValue(
+                    rawValue.getClass().getName(),
+                    javaSerializedBytes(rawValue)
+            );
+        }
+
         if (rawValue instanceof Boolean bool) {
             return StoredValue.booleanValue(bool);
         }
@@ -593,6 +619,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.STRING_OBJECT_HASH_MAP) {
             return geodeSerializedStringObjectHashMap(value.asStringObjectHashMap());
+        }
+
+        if (value.type() == StoredValue.Type.JAVA_SERIALIZED_OBJECT) {
+            return geodeSerializedJavaObject(value.asJavaSerializedValue());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -851,8 +881,72 @@ public final class GemResponseWriter {
         }
     }
 
+    private static byte[] geodeSerializedJavaObject(byte[] serializedValue) {
+        if (serializedValue == null || serializedValue.length == 0) {
+            throw new IllegalArgumentException("Java serialized object bytes must not be null or empty");
+        }
+
+        /*
+         * StoredValue keeps the raw ObjectOutputStream bytes without the Geode
+         * marker. Reattach 0x2c for the Geode client response:
+         *
+         *   2c + ac ed 00 05 ...
+         */
+        byte[] framed = new byte[serializedValue.length + 1];
+
+        framed[0] = GEODE_JAVA_SERIALIZED_CODE;
+        System.arraycopy(serializedValue, 0, framed, 1, serializedValue.length);
+
+        return framed;
+    }
+
+    private static byte[] javaSerializedBytes(Object value) {
+        if (!(value instanceof Serializable)) {
+            throw new IllegalArgumentException("Value must implement Serializable");
+        }
+
+        try {
+            ByteArrayOutputStream javaBytes = new ByteArrayOutputStream();
+
+            try (ObjectOutputStream out = new ObjectOutputStream(javaBytes)) {
+                out.writeObject(value);
+            }
+
+            return javaBytes.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to Java-serialize object of type " + value.getClass().getName(), e);
+        }
+    }
 
 
+
+
+
+    private static boolean isSupportedJavaSerializableObject(Object value) {
+        if (!(value instanceof Serializable)) {
+            return false;
+        }
+
+        if (value instanceof String
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof Date
+                || value instanceof byte[]
+                || value instanceof String[]
+                || value instanceof ArrayList<?>
+                || value instanceof Map<?, ?>
+                || value instanceof StoredValue) {
+            return false;
+        }
+
+        return true;
+    }
 
     private static boolean isStringArrayList(ArrayList<?> value) {
         for (Object item : value) {

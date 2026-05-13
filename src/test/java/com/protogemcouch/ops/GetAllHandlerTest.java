@@ -349,6 +349,50 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_java_serialized_object_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put(
+                "java-serialized-pojo-key-1",
+                StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        javaSerializedPojoBytes()
+                )
+        );
+        repoResult.put(
+                "java-serialized-pojo-key-2",
+                StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        javaSerializedPojoWithNullFieldBytes()
+                )
+        );
+
+        when(repository.getAll(
+                "/helloWorld",
+                List.of("java-serialized-pojo-key-1", "java-serialized-pojo-key-2")
+        )).thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("java-serialized-pojo-key-1", "java-serialized-pojo-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll(
+                "/helloWorld",
+                List.of("java-serialized-pojo-key-1", "java-serialized-pojo-key-2")
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_short_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -546,6 +590,13 @@ class GetAllHandlerTest {
         repoResult.put("string-array-list-key", StoredValue.stringArrayListValue(arrayList));
         repoResult.put("string-hash-map-key", StoredValue.stringHashMapValue(stringHashMap));
         repoResult.put("string-object-hash-map-key", StoredValue.stringObjectHashMapValue(stringObjectHashMap));
+        repoResult.put(
+                "java-serialized-pojo-key",
+                StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        javaSerializedPojoBytes()
+                )
+        );
         repoResult.put("short-key", StoredValue.shortValue(Short.valueOf((short) 7)));
         repoResult.put("integer-key", StoredValue.integerValue(12345));
         repoResult.put("boolean-key", StoredValue.booleanValue(Boolean.TRUE));
@@ -564,6 +615,7 @@ class GetAllHandlerTest {
                 "string-array-list-key",
                 "string-hash-map-key",
                 "string-object-hash-map-key",
+                "java-serialized-pojo-key",
                 "short-key",
                 "integer-key",
                 "boolean-key",
@@ -678,4 +730,31 @@ class GetAllHandlerTest {
         verify(repository).getAll("/helloWorld", List.of("key-1", "missing"));
         verify(ctx).writeAndFlush(any());
     }
+
+    private static byte[] javaSerializedPojoBytes() {
+        return hexToBytes(
+                "aced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62"
+        );
+    }
+
+    private static byte[] javaSerializedPojoWithNullFieldBytes() {
+        return hexToBytes(
+                "aced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870000000002b74000a637573746f6d65722d3270"
+        );
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        if (hex == null || hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Hex string must be non-null and have an even length");
+        }
+
+        byte[] out = new byte[hex.length() / 2];
+
+        for (int i = 0; i < hex.length(); i += 2) {
+            out[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+        }
+
+        return out;
+    }
+
 }

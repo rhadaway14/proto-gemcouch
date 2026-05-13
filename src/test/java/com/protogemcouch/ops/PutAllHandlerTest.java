@@ -358,6 +358,38 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_java_serialized_pojo_values_and_stores_them() {
+        byte[] expectedSerializedValue = javaSerializedPojoBytes();
+
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("java-serialized-pojo-key-1", geodeJavaSerializedPojo()),
+                entry("java-serialized-pojo-key-2", geodeJavaSerializedPojoWithNullField())
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::java-serialized-pojo-key-1"),
+                eq(StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        expectedSerializedValue
+                ))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::java-serialized-pojo-key-2"),
+                eq(StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        javaSerializedPojoWithNullFieldBytes()
+                ))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_short_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -520,7 +552,7 @@ class PutAllHandlerTest {
 
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                15,
+                16,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
@@ -536,6 +568,7 @@ class PutAllHandlerTest {
                 entry("string-array-list-key", geodeStringArrayList(expectedStringArrayList)),
                 entry("string-hash-map-key", geodeStringHashMapWithNullValue()),
                 entry("string-object-hash-map-key", geodeStringObjectHashMapStringIntegerBoolean()),
+                entry("java-serialized-pojo-key", geodeJavaSerializedPojo()),
                 entry("short-key", geodeShort((short) 7)),
                 entry("integer-key", geodeInteger(12345)),
                 entry("long-key", geodeLong(9_876_543_210L)),
@@ -595,6 +628,14 @@ class PutAllHandlerTest {
         verify(repository).put(
                 eq("/helloWorld::string-object-hash-map-key"),
                 eq(StoredValue.stringObjectHashMapValue(expectedStringObjectHashMap))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::java-serialized-pojo-key"),
+                eq(StoredValue.javaSerializedObjectValue(
+                        "com.protogemcouch.wire.SerializablePojoShapeTest$CustomerProfile",
+                        javaSerializedPojoBytes()
+                ))
         );
 
         verify(repository).put(
@@ -942,6 +983,30 @@ class PutAllHandlerTest {
         out.add(two);
         out.add(three);
         return out;
+    }
+
+    private static byte[] geodeJavaSerializedPojo() {
+        return hexToBytes(
+                "2caced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62"
+        );
+    }
+
+    private static byte[] javaSerializedPojoBytes() {
+        return hexToBytes(
+                "aced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62"
+        );
+    }
+
+    private static byte[] geodeJavaSerializedPojoWithNullField() {
+        return hexToBytes(
+                "2caced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870000000002b74000a637573746f6d65722d3270"
+        );
+    }
+
+    private static byte[] javaSerializedPojoWithNullFieldBytes() {
+        return hexToBytes(
+                "aced000573720040636f6d2e70726f746f67656d636f7563682e776972652e53657269616c697a61626c65506f6a6f53686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870000000002b74000a637573746f6d65722d3270"
+        );
     }
 
     private static byte[] geodeShort(short value) {
