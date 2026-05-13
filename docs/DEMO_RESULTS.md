@@ -1,35 +1,144 @@
 # ProtoGemCouch Demo Results
 
-## Current Build Verification
-
-Current completed milestone:
+## Current Milestone
 
 ```text
-java-serialized-pojo-support-complete
+object-array-support-complete
 ```
 
-The project successfully completed Docker-backed verification after adding Serializable POJO support.
+The project now supports opaque `Object[]` round-tripping through the full stack:
 
 ```text
-mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
-
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 59, Failures: 0, Errors: 0, Skipped: 0
-
-BUILD SUCCESS
+Geode Java client
+ProtoGemCouch protocol shim
+Couchbase typed storage envelope
+Geode-compatible response encoding
 ```
 
-The POJO implementation was updated to avoid classloading inside the shim. The shim stores and returns raw Java ObjectOutputStream bytes, so customer POJO classes are required only on the Geode client side.
+Verification completed successfully:
 
----
+```powershell
+mvn clean test
+mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
+```
 
-## Summary
-
-ProtoGemCouch now supports typed value round-tripping across the shim for:
+## Supported Demo Value Types
 
 ```text
 String
 Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+String[]
+ArrayList<String>
+HashMap<String,String>
+HashMap<String,Object>
+Serializable POJO
+Object[]
+```
+
+## Object[] Demo
+
+Client-side example:
+
+```java
+Object[] value = new Object[] {
+    "one",
+    Integer.valueOf(42),
+    Boolean.TRUE
+};
+
+region.put("object-array-demo-key", value);
+Object actual = region.get("object-array-demo-key");
+```
+
+Observed Geode shape:
+
+```text
+34032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a3501
+```
+
+Decoded meaning:
+
+```text
+0x34                         Object[] marker
+03                           array length
+2b 57 0010 java.lang.Object  component type metadata
+57 0003 one                  String element
+39 0000002a                  Integer 42
+35 01                        Boolean true
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "objectArray",
+  "valueBase64": "NA...",
+  "length": 37
+}
+```
+
+## Runtime Strategy
+
+```text
+Client sends:
+34 <length> 2b 57 0010 java.lang.Object <elements...>
+
+Shim stores:
+same full 34... payload as Base64
+
+Shim returns:
+same full 34... payload
+
+Client receives:
+Object[]
+```
+
+## Why Opaque Object[] Storage
+
+`Object[]` may contain nested POJOs, maps, arrays, lists, and scalar values. Parsing it fully would require handling Java serialization stream boundaries and potentially classloading customer objects.
+
+The compatibility-first approach is:
+
+```text
+Recognize Object[] marker
+Store original encoded payload
+Return original encoded payload
+Let the Geode client deserialize normally
+```
+
+## Validated Object[] Scenarios
+
+```text
+Simple Object[] with String, Integer, Boolean
+Object[] with null element
+Object[] with scalar wrappers
+Object[] with Date
+Object[] with byte[]
+Object[] with nested String[]
+Object[] with nested ArrayList<String>
+Object[] with nested HashMap<String,Object>
+Object[] with nested Serializable POJO
+Object[] in put/get
+Object[] in putAll/get
+Object[] in getAll
+Object[] inside full mixed typed putAll/getAll
+```
+
+## Full Mixed Demo Path
+
+The current integration test validates a mixed batch containing:
+
+```text
+String
 Character
 Byte
 byte[]
@@ -38,305 +147,15 @@ ArrayList<String>
 HashMap<String,String>
 HashMap<String,Object>
 Serializable POJO
+Object[]
 Short
 Integer
+Boolean
 Long
 Float
 Double
-java.util.Date
+Date
 ```
-
-This includes:
-
-```text
-PUT
-GET
-PUT_ALL
-GET_ALL
-Couchbase persistence
-Couchbase hydration
-Geode-compatible response serialization
-Focused unit coverage
-Docker-backed serialization integration coverage
-```
-
----
-
-## Newly Added Serializable POJO Support
-
-Serializable POJO support is now complete.
-
-### Demonstrated POJO Cases
-
-```text
-Simple Serializable POJO
-Serializable POJO with null field
-Serializable POJO with Date and byte[] fields
-Serializable POJO with nested LinkedHashMap<String,Object>
-Serializable POJO in put/get
-Serializable POJO in putAll/get
-Serializable POJO in getAll
-Serializable POJO in mixed typed putAll/getAll
-```
-
-### Wire Shape
-
-Observed Geode shape:
-
-```text
-2c ac ed 00 05 ...
-```
-
-Meaning:
-
-```text
-0x2c               Geode Java-serialized-object marker
-ac ed 00 05 ...    standard Java ObjectOutputStream bytes
-```
-
-### Runtime Strategy
-
-```text
-Client sends:
-2c ac ed 00 05 ...
-
-Shim stores:
-ac ed 00 05 ...
-
-Shim returns:
-2c ac ed 00 05 ...
-
-Client deserializes:
-Customer POJO object
-```
-
-### Important Demo Message
-
-The shim does not need customer POJO classes.
-
-That is the important migration story:
-
-```text
-Existing Java app has the customer classes.
-ProtoGemCouch stores opaque serialized bytes.
-Couchbase persists the serialized bytes in a typed JSON envelope.
-The Java app receives the same object back.
-```
-
----
-
-## Couchbase POJO Document Example
-
-```json
-{
-  "type": "javaSerializedObject",
-  "className": "com.example.CustomerProfile",
-  "valueBase64": "rO0ABXNy...",
-  "length": 218
-}
-```
-
-Notes:
-
-```text
-valueBase64 contains ObjectOutputStream bytes without the Geode 0x2c marker.
-className is diagnostic metadata extracted best-effort without loading the class.
-length is stored for validation/debugging.
-```
-
----
-
-## Previous Completed Milestones
-
-### HashMap<String,Object>
-
-Validated support includes:
-
-```text
-HashMap<String,Object>
-LinkedHashMap<String,Object>
-Map values containing String, Boolean, Character, Byte, Short, Integer, Long, Float, Double, Date, byte[], String[], ArrayList<String>, and null
-```
-
-Stored as:
-
-```json
-{
-  "type": "stringObjectHashMap",
-  "value": {
-    "name": {
-      "type": "string",
-      "value": "rob"
-    },
-    "age": {
-      "type": "integer",
-      "value": 42
-    }
-  },
-  "length": 2
-}
-```
-
-### byte[]
-
-Both observed shapes are supported:
-
-```text
-DataSerializer byte-array:
-2e050102030405
-
-Real Geode client raw byte-array:
-0102030405
-```
-
-### Date
-
-Date support remains fully validated:
-
-```text
-0x3d + 8-byte signed epoch millis, big-endian
-```
-
-Example:
-
-```text
-new Date(1_000L) -> 3d00000000000003e8
-```
-
----
-
-## Focused Handler Test Results
-
-Representative command:
-
-```powershell
-mvn test "-Dtest=PutHandlerTest,PutAllHandlerTest,GetHandlerTest,GetAllHandlerTest,SerializablePojoShapeTest,GemResponseWriterTest"
-```
-
-Result:
-
-```text
-BUILD SUCCESS
-```
-
-Validated POJO paths:
-
-```text
-PUT:
-encoding=geode-java-serialized-object
-valueType=JAVA_SERIALIZED_OBJECT
-
-PUT_ALL:
-encoding=geode-java-serialized-object
-valueType=JAVA_SERIALIZED_OBJECT
-
-GET:
-StoredValue.Type.JAVA_SERIALIZED_OBJECT -> buildJavaSerializedObjectGetResponse(...)
-
-GET_ALL:
-StoredValue.Type.JAVA_SERIALIZED_OBJECT -> VersionedObjectList-compatible object payload
-```
-
----
-
-## Serialization Integration Results
-
-Latest Docker-backed result:
-
-```text
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 59
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
-```
-
-POJO-specific scenarios:
-
-```text
-serializablePojoValueShouldRoundTripThroughShimAndCouchbase
-serializablePojoWithNullFieldShouldRoundTripThroughShimAndCouchbase
-serializablePojoWithDateAndByteArrayShouldRoundTripThroughShimAndCouchbase
-serializablePojoWithNestedMapShouldRoundTripThroughShimAndCouchbase
-putAllWithSerializablePojoValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithSerializablePojoValuesShouldReturnSerializablePojos
-mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
-```
-
----
-
-## Suggested Demo Flow
-
-1. Start the environment with Docker Compose.
-2. Show the Java Geode client using standard `Region.put`, `Region.get`, `Region.putAll`, and `Region.getAll`.
-3. Demonstrate a normal Serializable POJO:
-   ```java
-   CustomerProfile profile = new CustomerProfile(
-       "customer-1",
-       "Rob",
-       42,
-       true
-   );
-
-   region.put("profile-demo-key", profile);
-   Object actual = region.get("profile-demo-key");
-   ```
-4. Show that Couchbase stores the object as:
-   ```json
-   {
-     "type": "javaSerializedObject",
-     "className": "com.example.CustomerProfile",
-     "valueBase64": "rO0ABXNy...",
-     "length": 218
-   }
-   ```
-5. Explain that the shim does not deserialize the POJO and does not need the customer class.
-6. Demonstrate mixed typed `putAll` / `getAll` preserving:
-   ```text
-   String
-   Character
-   Byte
-   byte[]
-   String[]
-   ArrayList<String>
-   HashMap<String,String>
-   HashMap<String,Object>
-   Serializable POJO
-   Short
-   Integer
-   Boolean
-   Long
-   Float
-   Double
-   Date
-   ```
-7. Run or reference:
-   ```powershell
-   mvn clean verify "-Dit.test=ProtoGemCouchSerializationIntegrationTest"
-   ```
-
----
-
-## What This Demo Proves
-
-This demo proves that the current shim implementation can support a meaningful subset of Geode client behavior against Couchbase, including opaque custom Java objects.
-
-Validated:
-
-```text
-A real Geode Java client can connect to the shim.
-The shim can parse supported Geode protocol operations.
-The shim can translate those operations into Couchbase KV operations.
-The shim can persist typed values into Couchbase.
-The shim can preserve Java-serialized POJO bytes without classloading.
-The shim can encode Geode-compatible responses.
-The Java client receives and deserializes the POJO normally.
-Automated Docker-backed integration tests validate the whole stack.
-```
-
----
 
 ## Current Scope
 
@@ -344,63 +163,34 @@ Validated:
 
 ```text
 Java Geode client
-Proxy region behavior
 Core region operations
-Typed wrapper values
-byte[]
-String[]
-ArrayList<String>
-HashMap<String,String>
-HashMap<String,Object>
-Serializable POJO
-java.util.Date
+PUT / GET / PUT_ALL / GET_ALL
 Couchbase KV persistence
-Single bucket/scope/collection backend
+Typed storage envelopes
+Opaque POJO preservation
+Opaque Object[] preservation
 Manual VersionedObjectList-compatible GET_ALL responses
-Docker Compose based integration environment
+Docker-backed integration environment
 ```
 
-Not yet fully validated:
+Not yet validated:
 
 ```text
-Nested Serializable POJO values inside structured Map<String,Object> envelopes
-Object[]
 ArrayList<Object>
-Primitive arrays beyond byte[]
-Wrapper arrays
-BigDecimal
-UUID
-Enum
-java.time values
+Nested Object[] inside structured Map<String,Object>
+Nested POJO inside structured Map<String,Object>
 DataSerializable
 PDX / PdxInstance
-Transactions
 Queries
-Region events
-Subscriptions
+Transactions
 Continuous queries
+Interest registration
 Server-side functions
-Production-grade security/TLS/authentication
-High-concurrency load behavior
-Long-running soak behavior
+High-concurrency load testing
 ```
 
----
-
-## Current Milestone
+## Suggested Next Demo Target
 
 ```text
-java-serialized-pojo-support-complete
-```
-
-Suggested commit:
-
-```text
-Add Java serialized POJO support
-```
-
-Suggested next target:
-
-```text
-Object[]
+ArrayList<Object>
 ```
