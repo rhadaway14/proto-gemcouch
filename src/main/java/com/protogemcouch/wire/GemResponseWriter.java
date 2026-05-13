@@ -323,6 +323,14 @@ public final class GemResponseWriter {
         );
     }
 
+    public static byte[] buildObjectArrayListGetResponse(int txId, byte[] encodedObjectArrayListValue) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedObjectArrayList(encodedObjectArrayListValue), (byte) 1))
+        );
+    }
+
     public static byte[] buildShortGetResponse(int txId, short value) {
         return buildMessage(
                 MessageTypes.RESPONSE,
@@ -646,6 +654,10 @@ public final class GemResponseWriter {
             return geodeSerializedObjectArray(value.asObjectArrayValue());
         }
 
+        if (value.type() == StoredValue.Type.OBJECT_ARRAY_LIST) {
+            return geodeSerializedObjectArrayList(value.asObjectArrayListValue());
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             return geodeSerializedShort(value.asShort());
         }
@@ -935,6 +947,24 @@ public final class GemResponseWriter {
 
         return copy;
     }
+
+    private static byte[] geodeSerializedObjectArrayList(byte[] encodedObjectArrayListValue) {
+        if (encodedObjectArrayListValue == null || encodedObjectArrayListValue.length == 0) {
+            throw new IllegalArgumentException("ArrayList<Object> encoded bytes must not be null or empty");
+        }
+
+        if (encodedObjectArrayListValue[0] != GEODE_LIST_CODE) {
+            throw new IllegalArgumentException(
+                    "ArrayList<Object> encoded bytes must start with Geode ArrayList/List marker 0x41"
+            );
+        }
+
+        byte[] copy = new byte[encodedObjectArrayListValue.length];
+        System.arraycopy(encodedObjectArrayListValue, 0, copy, 0, encodedObjectArrayListValue.length);
+
+        return copy;
+    }
+
 
 
     private static byte[] javaSerializedBytes(Object value) {

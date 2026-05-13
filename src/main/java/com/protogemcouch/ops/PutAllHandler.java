@@ -197,6 +197,20 @@ public class PutAllHandler implements OperationHandler {
             return StoredValue.stringArrayListValue(stringArrayListValue);
         }
 
+        ValueDecoding.ObjectArrayList objectArrayListValue =
+                ValueDecoding.decodeObjectArrayListValue(valuePayload);
+
+        if (objectArrayListValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-object-array-list",
+                    "key", key,
+                    "valueType", "OBJECT_ARRAY_LIST",
+                    "txId", txId
+            ));
+            return StoredValue.objectArrayListValue(objectArrayListValue.encodedValue());
+        }
+
         LinkedHashMap<String, String> stringHashMapValue = ValueDecoding.decodeStringHashMapValue(valuePayload);
 
         if (stringHashMapValue != null) {
@@ -573,6 +587,20 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.dateValue(dateObject);
+            }
+
+            ValueDecoding.ObjectArrayList fallbackObjectArrayListValue =
+                    ValueDecoding.decodeObjectArrayListValue(valuePayload);
+
+            if (fallbackObjectArrayListValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "encoding", "geode-dataserializer-object-array-list",
+                        "valueType", "OBJECT_ARRAY_LIST",
+                        "txId", txId
+                ));
+                return StoredValue.objectArrayListValue(fallbackObjectArrayListValue.encodedValue());
             }
 
             ValueDecoding.ObjectArray fallbackObjectArrayValue =

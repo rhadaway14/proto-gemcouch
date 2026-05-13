@@ -49,6 +49,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_STRING_OBJECT_HASH_MAP = "stringObjectHashMap";
     private static final String TYPE_JAVA_SERIALIZED_OBJECT = "javaSerializedObject";
     private static final String TYPE_OBJECT_ARRAY = "objectArray";
+    private static final String TYPE_OBJECT_ARRAY_LIST = "objectArrayList";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -453,6 +454,15 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.OBJECT_ARRAY_LIST) {
+            byte[] encodedObjectArrayListValue = value.asObjectArrayListValue();
+
+            body.put(FIELD_TYPE, TYPE_OBJECT_ARRAY_LIST);
+            body.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(encodedObjectArrayListValue));
+            body.put(FIELD_LENGTH, encodedObjectArrayListValue.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -587,6 +597,10 @@ public class CouchbaseRepository implements Repository {
 
         if (TYPE_OBJECT_ARRAY.equalsIgnoreCase(type)) {
             return decodeObjectArrayStoredValue(content);
+        }
+
+        if (TYPE_OBJECT_ARRAY_LIST.equalsIgnoreCase(type)) {
+            return decodeObjectArrayListStoredValue(content);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -957,6 +971,49 @@ public class CouchbaseRepository implements Repository {
             return null;
         }
     }
+
+    private static StoredValue decodeObjectArrayListStoredValue(JsonObject content) {
+        Object rawBase64 = content.get(FIELD_VALUE_BASE64);
+
+        if (!(rawBase64 instanceof String base64Text) || base64Text.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_object_array_list_decode_failed",
+                    "reason", "missing_or_blank_valueBase64"
+            ));
+            return null;
+        }
+
+        try {
+            byte[] decoded = Base64.getDecoder().decode(base64Text);
+
+            if (decoded.length == 0 || (decoded[0] & 0xff) != 0x41) {
+                log.warn(StructuredLog.event(
+                        "repository_object_array_list_decode_failed",
+                        "reason", "decoded_value_does_not_start_with_array_list_marker",
+                        "actualLength", decoded.length
+                ));
+                return null;
+            }
+
+            Object rawLength = content.get(FIELD_LENGTH);
+            if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+                log.warn(StructuredLog.event(
+                        "repository_object_array_list_length_mismatch",
+                        "expectedLength", number.intValue(),
+                        "actualLength", decoded.length
+                ));
+            }
+
+            return StoredValue.objectArrayListValue(decoded);
+        } catch (IllegalArgumentException e) {
+            log.warn(StructuredLog.event(
+                    "repository_object_array_list_decode_failed",
+                    "error", e.getMessage()
+            ));
+            return null;
+        }
+    }
+
 
 
     private static JsonObject encodeMapObjectValue(Object value) {

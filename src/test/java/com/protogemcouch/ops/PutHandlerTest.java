@@ -394,6 +394,70 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_object_array_list_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        byte[] payload = hexToBytes(
+                "41035700036f6e65390000002a3501"
+        );
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-object-array-list-key"),
+                objectPart("5"),
+                part(payload),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-object-array-list-key"),
+                eq(StoredValue.objectArrayListValue(payload))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_mixed_object_array_list_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        byte[] payload = hexToBytes(
+                "411057000c737472696e672d76616c756536004137072e0301020340035700036f6e6545570005746872656534032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a350141035700036f6e652957000574687265652caced0005737200176a6176612e7574696c2e4c696e6b6564486173684d617034c04e5c106cc0fb0200015a000b6163636573734f72646572787200116a6176612e7574696c2e486173684d61700507dac1c31660d103000246000a6c6f6164466163746f724900097468726573686f6c6478703f4000000000000c770800000010000000047400046e616d65740003726f62740003616765737200116a6176612e6c616e672e496e746567657212e2a0a4f781873802000149000576616c7565787200106a6176612e6c616e672e4e756d62657286ac951d0b94e08b02000078700000002a740006616374697665737200116a6176612e6c616e672e426f6f6c65616ecd207280d59cfaee0200015a000576616c75657870017400096372656174656441747372000e6a6176612e7574696c2e44617465686a81014b5974190300007870770800000000000003e87878002caced00057372003f636f6d2e70726f746f67656d636f7563682e776972652e4f626a65637441727261794c69737453686170655465737424437573746f6d657250726f66696c6500000000000000010200045a00066163746976654900036167654c000269647400124c6a6176612f6c616e672f537472696e673b4c00046e616d6571007e00017870010000002a74000a637573746f6d65722d31740003526f62380007390000002a35013a000000024cb016ea3b40e800003c401d0000000000003d00000000000003e8"
+        );
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-mixed-object-array-list-key"),
+                objectPart("5"),
+                part(payload),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-mixed-object-array-list-key"),
+                eq(StoredValue.objectArrayListValue(payload))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_object_array_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

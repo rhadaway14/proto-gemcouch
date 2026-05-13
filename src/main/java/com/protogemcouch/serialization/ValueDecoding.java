@@ -49,6 +49,17 @@ public final class ValueDecoding {
     private static final int GEODE_STRING_ARRAY_LIST_CODE = 0x41;
 
     /*
+     * Geode DataSerializer ArrayList<Object> uses the same 0x41 list marker
+     * as ArrayList<String>, but elements may be mixed DataSerializer values.
+     *
+     * Decode order matters:
+     *   1. Try decodeStringArrayListValue(...) first.
+     *   2. If that fails and the payload starts with 0x41, preserve the
+     *      complete encoded payload as an opaque Object ArrayList.
+     */
+    private static final int GEODE_OBJECT_ARRAY_LIST_CODE = 0x41;
+
+    /*
      * Geode DataSerializer HashMap/LinkedHashMap observations from HashMapStringStringShapeTest:
      *
      *   new HashMap<>()                         -> 43 00
@@ -131,6 +142,22 @@ public final class ValueDecoding {
         }
     }
 
+    public record ObjectArrayList(byte[] encodedValue) {
+        public ObjectArrayList {
+            if (encodedValue == null || encodedValue.length == 0) {
+                throw new IllegalArgumentException("encodedValue must not be null or empty");
+            }
+
+            encodedValue = Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+
+        @Override
+        public byte[] encodedValue() {
+            return Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+    }
+
+
 
     public static ObjectArray decodeObjectArrayValue(byte[] payload) {
         if (payload == null || payload.length < 4) {
@@ -174,6 +201,55 @@ public final class ValueDecoding {
 
         return new ObjectArray(payload);
     }
+
+    public static ObjectArrayList decodeObjectArrayListValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_OBJECT_ARRAY_LIST_CODE) {
+            return null;
+        }
+
+        /*
+         * Keep string-only ArrayList values on the existing structured path.
+         *
+         * Examples that remain STRING_ARRAY_LIST:
+         *   4100
+         *   41015700036f6e65
+         *   41035700036f6e65295700057468726565
+         */
+        if (decodeStringArrayListValue(payload) != null) {
+            return null;
+        }
+
+        /*
+         * Mixed ArrayList<Object> shape observed from ObjectArrayListShapeTest:
+         *
+         *   41 <length> <element>...
+         *
+         * Elements can include scalars, byte[], String[], Object[], nested
+         * ArrayList, Java-serialized maps, and Java-serialized POJOs. We preserve
+         * the whole payload opaquely to avoid classloading and Java serialization
+         * stream-boundary parsing inside the shim.
+         */
+        int count = payload[1] & 0xff;
+
+        if (count == 0) {
+            /*
+             * Empty list already decodes as STRING_ARRAY_LIST above. If we ever
+             * arrive here, treat it as invalid rather than duplicating behavior.
+             */
+            return null;
+        }
+
+        if (payload.length < 3) {
+            return null;
+        }
+
+        return new ObjectArrayList(payload);
+    }
+
 
     public static String[] decodeStringArrayValue(byte[] payload) {
         if (payload == null || payload.length < 2) {
@@ -680,6 +756,10 @@ public final class ValueDecoding {
         }
 
         if (decodeStringArrayListValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeObjectArrayListValue(payload) != null) {
             return null;
         }
 

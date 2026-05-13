@@ -2099,6 +2099,245 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void objectArrayListValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-object-array-list-value-" + suffix;
+
+        ArrayList<Object> expected = new ArrayList<>();
+        expected.add("one");
+        expected.add(Integer.valueOf(42));
+        expected.add(Boolean.TRUE);
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(ArrayList.class, actual);
+            assertObjectArrayListDeepEquals(expected, castArrayList(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after OBJECT_ARRAY_LIST round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void objectArrayListWithNullElementShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-object-array-list-null-" + suffix;
+
+        ArrayList<Object> expected = new ArrayList<>();
+        expected.add("one");
+        expected.add(null);
+        expected.add("three");
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(ArrayList.class, actual);
+            assertObjectArrayListDeepEquals(expected, castArrayList(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after OBJECT_ARRAY_LIST null-element round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void objectArrayListWithNestedValuesShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-object-array-list-nested-" + suffix;
+
+        ArrayList<String> nestedStringList = new ArrayList<>();
+        nestedStringList.add("one");
+        nestedStringList.add(null);
+        nestedStringList.add("three");
+
+        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+        map.put("name", "rob");
+        map.put("age", Integer.valueOf(42));
+        map.put("active", Boolean.TRUE);
+        map.put("createdAt", new Date(1_000L));
+
+        CustomerProfile profile = new CustomerProfile(
+                "customer-object-array-list-" + suffix,
+                "Rob",
+                42,
+                true
+        );
+
+        ArrayList<Object> expected = new ArrayList<>();
+        expected.add("string-value");
+        expected.add(Character.valueOf('A'));
+        expected.add(Byte.valueOf((byte) 7));
+        expected.add(new byte[] {0x01, 0x02, 0x03});
+        expected.add(new String[] {"one", null, "three"});
+        expected.add(new Object[] {"one", Integer.valueOf(42), Boolean.TRUE});
+        expected.add(nestedStringList);
+        expected.add(map);
+        expected.add(profile);
+        expected.add(Short.valueOf((short) 7));
+        expected.add(Integer.valueOf(42));
+        expected.add(Boolean.TRUE);
+        expected.add(Long.valueOf(9_876_543_210L));
+        expected.add(Float.valueOf(7.25f));
+        expected.add(Double.valueOf(7.25d));
+        expected.add(new Date(1_000L));
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(ArrayList.class, actual);
+            assertObjectArrayListDeepEquals(expected, castArrayList(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after OBJECT_ARRAY_LIST nested-values round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithObjectArrayListValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-object-array-list-1-" + suffix;
+        String key2 = "it-putall-object-array-list-2-" + suffix;
+        String key3 = "it-putall-object-array-list-3-" + suffix;
+
+        ArrayList<Object> expected1 = new ArrayList<>();
+        expected1.add("one");
+        expected1.add(Integer.valueOf(42));
+        expected1.add(Boolean.TRUE);
+
+        ArrayList<Object> expected2 = new ArrayList<>();
+        expected2.add("one");
+        expected2.add(null);
+        expected2.add("three");
+
+        ArrayList<Object> expected3 = new ArrayList<>();
+        expected3.add("string-value");
+        expected3.add(Character.valueOf('A'));
+        expected3.add(Byte.valueOf((byte) 7));
+        expected3.add(Short.valueOf((short) 7));
+        expected3.add(Integer.valueOf(42));
+        expected3.add(Boolean.TRUE);
+        expected3.add(Long.valueOf(9_876_543_210L));
+        expected3.add(Float.valueOf(7.25f));
+        expected3.add(Double.valueOf(7.25d));
+        expected3.add(new Date(1_000L));
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, expected1);
+        entries.put(key2, expected2);
+        entries.put(key3, expected3);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(ArrayList.class, actual1);
+            assertInstanceOf(ArrayList.class, actual2);
+            assertInstanceOf(ArrayList.class, actual3);
+
+            assertObjectArrayListDeepEquals(expected1, castArrayList(actual1));
+            assertObjectArrayListDeepEquals(expected2, castArrayList(actual2));
+            assertObjectArrayListDeepEquals(expected3, castArrayList(actual3));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after OBJECT_ARRAY_LIST PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithObjectArrayListValuesShouldReturnArrayLists() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-object-array-list-1-" + suffix;
+        String key2 = "it-getall-object-array-list-2-" + suffix;
+        String key3 = "it-getall-object-array-list-3-" + suffix;
+
+        ArrayList<Object> expected1 = new ArrayList<>();
+        expected1.add("one");
+        expected1.add(Integer.valueOf(42));
+        expected1.add(Boolean.TRUE);
+
+        ArrayList<Object> expected2 = new ArrayList<>();
+        expected2.add("one");
+        expected2.add(null);
+        expected2.add("three");
+
+        ArrayList<Object> expected3 = new ArrayList<>();
+        expected3.add("string-value");
+        expected3.add(Character.valueOf('A'));
+        expected3.add(Byte.valueOf((byte) 7));
+        expected3.add(Short.valueOf((short) 7));
+        expected3.add(Integer.valueOf(42));
+        expected3.add(Boolean.TRUE);
+        expected3.add(Long.valueOf(9_876_543_210L));
+        expected3.add(Float.valueOf(7.25f));
+        expected3.add(Double.valueOf(7.25d));
+        expected3.add(new Date(1_000L));
+
+        try {
+            region.put(key1, expected1);
+            region.put(key2, expected2);
+            region.put(key3, expected3);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(ArrayList.class, actual1);
+            assertInstanceOf(ArrayList.class, actual2);
+            assertInstanceOf(ArrayList.class, actual3);
+
+            assertObjectArrayListDeepEquals(expected1, castArrayList(actual1));
+            assertObjectArrayListDeepEquals(expected2, castArrayList(actual2));
+            assertObjectArrayListDeepEquals(expected3, castArrayList(actual3));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after OBJECT_ARRAY_LIST GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void putAllWithDateValuesShouldPersistAllEntriesAndBeReadableByGet() {
         String suffix = UUID.randomUUID().toString();
 
@@ -2817,30 +3056,31 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
-    void mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
+    void mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
         String suffix = UUID.randomUUID().toString();
 
-        String stringKey = "it-mixed16-string-" + suffix;
-        String characterKey = "it-mixed16-character-" + suffix;
-        String byteKey = "it-mixed16-byte-" + suffix;
-        String byteArrayKey = "it-mixed16-byte-array-" + suffix;
-        String stringArrayKey = "it-mixed16-string-array-" + suffix;
-        String stringArrayListKey = "it-mixed16-string-array-list-" + suffix;
-        String stringHashMapKey = "it-mixed16-string-hash-map-" + suffix;
-        String stringObjectHashMapKey = "it-mixed16-string-object-hash-map-" + suffix;
-        String serializablePojoKey = "it-mixed16-serializable-pojo-" + suffix;
-        String objectArrayKey = "it-mixed16-object-array-" + suffix;
-        String shortKey = "it-mixed16-short-" + suffix;
-        String integerKey = "it-mixed16-integer-" + suffix;
-        String booleanTrueKey = "it-mixed16-bool-true-" + suffix;
-        String booleanFalseKey = "it-mixed16-bool-false-" + suffix;
-        String longPositiveKey = "it-mixed16-long-positive-" + suffix;
-        String longNegativeKey = "it-mixed16-long-negative-" + suffix;
-        String floatPositiveKey = "it-mixed16-float-positive-" + suffix;
-        String floatNegativeKey = "it-mixed16-float-negative-" + suffix;
-        String doublePositiveKey = "it-mixed16-double-positive-" + suffix;
-        String doubleNegativeKey = "it-mixed16-double-negative-" + suffix;
-        String dateKey = "it-mixed16-date-" + suffix;
+        String stringKey = "it-mixed17-string-" + suffix;
+        String characterKey = "it-mixed17-character-" + suffix;
+        String byteKey = "it-mixed17-byte-" + suffix;
+        String byteArrayKey = "it-mixed17-byte-array-" + suffix;
+        String stringArrayKey = "it-mixed17-string-array-" + suffix;
+        String stringArrayListKey = "it-mixed17-string-array-list-" + suffix;
+        String stringHashMapKey = "it-mixed17-string-hash-map-" + suffix;
+        String stringObjectHashMapKey = "it-mixed17-string-object-hash-map-" + suffix;
+        String serializablePojoKey = "it-mixed17-serializable-pojo-" + suffix;
+        String objectArrayKey = "it-mixed17-object-array-" + suffix;
+        String objectArrayListKey = "it-mixed17-object-array-list-" + suffix;
+        String shortKey = "it-mixed17-short-" + suffix;
+        String integerKey = "it-mixed17-integer-" + suffix;
+        String booleanTrueKey = "it-mixed17-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed17-bool-false-" + suffix;
+        String longPositiveKey = "it-mixed17-long-positive-" + suffix;
+        String longNegativeKey = "it-mixed17-long-negative-" + suffix;
+        String floatPositiveKey = "it-mixed17-float-positive-" + suffix;
+        String floatNegativeKey = "it-mixed17-float-negative-" + suffix;
+        String doublePositiveKey = "it-mixed17-double-positive-" + suffix;
+        String doubleNegativeKey = "it-mixed17-double-negative-" + suffix;
+        String dateKey = "it-mixed17-date-" + suffix;
 
         byte[] expectedByteArray = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
         String[] expectedStringArray = new String[] {"one", null, "three"};
@@ -2880,6 +3120,12 @@ class ProtoGemCouchSerializationIntegrationTest {
                 new Date(1_000L)
         };
 
+        ArrayList<Object> expectedObjectArrayList = new ArrayList<>();
+        expectedObjectArrayList.add("object-array-list-value");
+        expectedObjectArrayList.add(Integer.valueOf(42));
+        expectedObjectArrayList.add(Boolean.TRUE);
+        expectedObjectArrayList.add(new Date(1_000L));
+
         Date expectedDate = new Date(1_000L);
 
         Map<String, Object> entries = new LinkedHashMap<>();
@@ -2893,6 +3139,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         entries.put(stringObjectHashMapKey, expectedStringObjectHashMap);
         entries.put(serializablePojoKey, expectedSerializablePojo);
         entries.put(objectArrayKey, expectedObjectArray);
+        entries.put(objectArrayListKey, expectedObjectArrayList);
         entries.put(shortKey, Short.valueOf((short) 77));
         entries.put(integerKey, Integer.valueOf(12_012));
         entries.put(booleanTrueKey, Boolean.TRUE);
@@ -2919,6 +3166,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             keys.add(stringObjectHashMapKey);
             keys.add(serializablePojoKey);
             keys.add(objectArrayKey);
+            keys.add(objectArrayListKey);
             keys.add(shortKey);
             keys.add(integerKey);
             keys.add(booleanTrueKey);
@@ -2943,6 +3191,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             Object stringObjectHashMapActual = results.get(stringObjectHashMapKey);
             Object serializablePojoActual = results.get(serializablePojoKey);
             Object objectArrayActual = results.get(objectArrayKey);
+            Object objectArrayListActual = results.get(objectArrayListKey);
             Object shortActual = results.get(shortKey);
             Object integerActual = results.get(integerKey);
             Object booleanTrueActual = results.get(booleanTrueKey);
@@ -2965,6 +3214,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertInstanceOf(Map.class, stringObjectHashMapActual);
             assertInstanceOf(CustomerProfileWithExtras.class, serializablePojoActual);
             assertInstanceOf(Object[].class, objectArrayActual);
+            assertInstanceOf(ArrayList.class, objectArrayListActual);
             assertInstanceOf(Short.class, shortActual);
             assertInstanceOf(Integer.class, integerActual);
             assertInstanceOf(Boolean.class, booleanTrueActual);
@@ -2987,6 +3237,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertMapValuesEqual(expectedStringObjectHashMap, castMap(stringObjectHashMapActual));
             assertEquals(expectedSerializablePojo, serializablePojoActual);
             assertObjectArrayDeepEquals(expectedObjectArray, (Object[]) objectArrayActual);
+            assertObjectArrayListDeepEquals(expectedObjectArrayList, castArrayList(objectArrayListActual));
             assertEquals(Short.valueOf((short) 77), shortActual);
             assertEquals(Integer.valueOf(12_012), integerActual);
             assertEquals(Boolean.TRUE, booleanTrueActual);
@@ -3000,7 +3251,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertEquals(expectedDate, dateActual);
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
-            System.err.println("========== protogemcouch-shim logs after MIXED OBJECT_ARRAY PUT_ALL/GET_ALL failure ==========");
+            System.err.println("========== protogemcouch-shim logs after MIXED OBJECT_ARRAY_LIST PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -3245,11 +3496,46 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+    @SuppressWarnings("unchecked")
+    private static ArrayList<?> castArrayList(Object value) {
+        return (ArrayList<?>) value;
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> castMap(Object value) {
         return (Map<String, Object>) value;
     }
 
+
+
+    private static void assertObjectArrayListDeepEquals(ArrayList<?> expected, ArrayList<?> actual) {
+        assertEquals(expected.size(), actual.size(), "ArrayList<Object> size mismatch");
+
+        for (int i = 0; i < expected.size(); i++) {
+            Object expectedItem = expected.get(i);
+            Object actualItem = actual.get(i);
+
+            if (expectedItem instanceof byte[] expectedBytes) {
+                assertInstanceOf(byte[].class, actualItem, "ArrayList<Object> item " + i + " should be byte[]");
+                assertArrayEquals(expectedBytes, (byte[]) actualItem, "ArrayList<Object> byte[] item mismatch at index " + i);
+            } else if (expectedItem instanceof String[] expectedStrings) {
+                assertInstanceOf(String[].class, actualItem, "ArrayList<Object> item " + i + " should be String[]");
+                assertArrayEquals(expectedStrings, (String[]) actualItem, "ArrayList<Object> String[] item mismatch at index " + i);
+            } else if (expectedItem instanceof Object[] expectedObjects) {
+                assertInstanceOf(Object[].class, actualItem, "ArrayList<Object> item " + i + " should be Object[]");
+                assertObjectArrayDeepEquals(expectedObjects, (Object[]) actualItem);
+            } else if (expectedItem instanceof ArrayList<?> expectedList) {
+                assertInstanceOf(ArrayList.class, actualItem, "ArrayList<Object> item " + i + " should be ArrayList");
+                assertObjectArrayListDeepEquals(expectedList, castArrayList(actualItem));
+            } else if (expectedItem instanceof Map<?, ?> expectedMap) {
+                assertInstanceOf(Map.class, actualItem, "ArrayList<Object> item " + i + " should be Map");
+                assertMapValuesEqual(toStringObjectMap(expectedMap), castMap(actualItem));
+            } else {
+                assertEquals(expectedItem, actualItem, "ArrayList<Object> item mismatch at index " + i);
+            }
+        }
+    }
 
     private static void assertObjectArrayDeepEquals(Object[] expected, Object[] actual) {
         assertEquals(expected.length, actual.length, "Object[] length mismatch");

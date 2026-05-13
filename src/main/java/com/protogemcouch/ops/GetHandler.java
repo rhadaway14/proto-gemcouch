@@ -97,6 +97,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asObjectArrayValue()
             );
+        } else if (value.type() == StoredValue.Type.OBJECT_ARRAY_LIST) {
+            response = GemResponseWriter.buildObjectArrayListGetResponse(
+                    frame.getTransactionId(),
+                    value.asObjectArrayListValue()
+            );
         } else if (value.type() == StoredValue.Type.SHORT) {
             response = GemResponseWriter.buildShortGetResponse(
                     frame.getTransactionId(),
