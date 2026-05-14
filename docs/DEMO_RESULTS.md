@@ -3,10 +3,10 @@
 ## Current Milestone
 
 ```text
-object-array-support-complete
+object-array-list-support-complete
 ```
 
-The project now supports opaque `Object[]` round-tripping through the full stack:
+The project now supports opaque `ArrayList<Object>` round-tripping through the full stack:
 
 ```text
 Geode Java client
@@ -15,11 +15,28 @@ Couchbase typed storage envelope
 Geode-compatible response encoding
 ```
 
+This includes and builds on the previous completed `Object[]` milestone.
+
 Verification completed successfully:
 
 ```powershell
 mvn clean test
 mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
+```
+
+Latest Docker-backed integration result:
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+
+Total:
+Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
 ```
 
 ## Supported Demo Value Types
@@ -42,95 +59,96 @@ HashMap<String,String>
 HashMap<String,Object>
 Serializable POJO
 Object[]
+ArrayList<Object>
 ```
 
-## Object[] Demo
+## ArrayList<Object> Demo
 
 Client-side example:
 
 ```java
-Object[] value = new Object[] {
-    "one",
-    Integer.valueOf(42),
-    Boolean.TRUE
-};
+ArrayList<Object> value = new ArrayList<>();
+value.add("one");
+value.add(Integer.valueOf(42));
+value.add(Boolean.TRUE);
 
-region.put("object-array-demo-key", value);
-Object actual = region.get("object-array-demo-key");
+region.put("object-array-list-demo-key", value);
+Object actual = region.get("object-array-list-demo-key");
 ```
 
 Observed Geode shape:
 
 ```text
-34032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a3501
+41035700036f6e65390000002a3501
 ```
 
 Decoded meaning:
 
 ```text
-0x34                         Object[] marker
-03                           array length
-2b 57 0010 java.lang.Object  component type metadata
-57 0003 one                  String element
-39 0000002a                  Integer 42
-35 01                        Boolean true
+0x41         ArrayList/list marker
+03           list length
+57 0003 one  String element
+39 0000002a  Integer 42
+35 01        Boolean true
 ```
 
 Couchbase envelope:
 
 ```json
 {
-  "type": "objectArray",
-  "valueBase64": "NA...",
-  "length": 37
+  "type": "objectArrayList",
+  "valueBase64": "QQ...",
+  "length": 14
 }
 ```
 
-## Runtime Strategy
+## ArrayList<Object> Runtime Strategy
 
 ```text
 Client sends:
-34 <length> 2b 57 0010 java.lang.Object <elements...>
+41 <length> <elements...>
 
 Shim stores:
-same full 34... payload as Base64
+same full 41... payload as Base64
 
 Shim returns:
-same full 34... payload
+same full 41... payload
 
 Client receives:
-Object[]
+ArrayList<Object>
 ```
 
-## Why Opaque Object[] Storage
+## Why Opaque ArrayList<Object> Storage
 
-`Object[]` may contain nested POJOs, maps, arrays, lists, and scalar values. Parsing it fully would require handling Java serialization stream boundaries and potentially classloading customer objects.
+`ArrayList<Object>` may contain nested POJOs, maps, arrays, lists, byte arrays, Date values, and scalar values. Parsing it fully would require handling Java serialization stream boundaries and potentially classloading customer objects.
 
 The compatibility-first approach is:
 
 ```text
-Recognize Object[] marker
+Try ArrayList<String> structured decoding first
+If that fails and the payload starts with 0x41, recognize it as ArrayList<Object>
 Store original encoded payload
 Return original encoded payload
 Let the Geode client deserialize normally
 ```
 
-## Validated Object[] Scenarios
+## Validated ArrayList<Object> Scenarios
 
 ```text
-Simple Object[] with String, Integer, Boolean
-Object[] with null element
-Object[] with scalar wrappers
-Object[] with Date
-Object[] with byte[]
-Object[] with nested String[]
-Object[] with nested ArrayList<String>
-Object[] with nested HashMap<String,Object>
-Object[] with nested Serializable POJO
-Object[] in put/get
-Object[] in putAll/get
-Object[] in getAll
-Object[] inside full mixed typed putAll/getAll
+Simple ArrayList<Object> with String, Integer, Boolean
+ArrayList<Object> with null element
+ArrayList<Object> with scalar wrappers
+ArrayList<Object> with Date
+ArrayList<Object> with byte[]
+ArrayList<Object> with nested String[]
+ArrayList<Object> with nested Object[]
+ArrayList<Object> with nested ArrayList<String>
+ArrayList<Object> with nested HashMap<String,Object>
+ArrayList<Object> with nested Serializable POJO
+ArrayList<Object> in put/get
+ArrayList<Object> in putAll/get
+ArrayList<Object> in getAll
+ArrayList<Object> inside full mixed typed putAll/getAll
 ```
 
 ## Full Mixed Demo Path
@@ -148,6 +166,7 @@ HashMap<String,String>
 HashMap<String,Object>
 Serializable POJO
 Object[]
+ArrayList<Object>
 Short
 Integer
 Boolean
@@ -169,6 +188,7 @@ Couchbase KV persistence
 Typed storage envelopes
 Opaque POJO preservation
 Opaque Object[] preservation
+Opaque ArrayList<Object> preservation
 Manual VersionedObjectList-compatible GET_ALL responses
 Docker-backed integration environment
 ```
@@ -176,9 +196,11 @@ Docker-backed integration environment
 Not yet validated:
 
 ```text
-ArrayList<Object>
 Nested Object[] inside structured Map<String,Object>
 Nested POJO inside structured Map<String,Object>
+Nested ArrayList<Object> inside structured Map<String,Object>
+Primitive arrays beyond byte[]
+Wrapper arrays
 DataSerializable
 PDX / PdxInstance
 Queries
@@ -192,5 +214,11 @@ High-concurrency load testing
 ## Suggested Next Demo Target
 
 ```text
-ArrayList<Object>
+primitive arrays beyond byte[]
+```
+
+Recommended first type:
+
+```text
+int[]
 ```

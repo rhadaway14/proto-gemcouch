@@ -7,7 +7,7 @@ The goal is to let an existing Java Geode client application change only its con
 ## Current Status
 
 ```text
-object-array-support-complete
+object-array-list-support-complete
 ```
 
 Latest verification:
@@ -17,7 +17,22 @@ mvn clean test
 mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
 ```
 
-Both completed successfully after adding `Object[]` support.
+Both completed successfully after adding `ArrayList<Object>` support.
+
+Latest Docker-backed integration result:
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+
+Total:
+Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
+```
 
 ## Supported Operations
 
@@ -55,6 +70,54 @@ HashMap<String,String>
 HashMap<String,Object>
 Serializable POJO
 Object[]
+ArrayList<Object>
+```
+
+## ArrayList<Object> Support
+
+`ArrayList<Object>` is supported as an opaque Geode DataSerializer list payload.
+
+Observed wire shape:
+
+```text
+41 <length> <elements...>
+```
+
+Example:
+
+```java
+ArrayList<Object> value = new ArrayList<>();
+value.add("one");
+value.add(Integer.valueOf(42));
+value.add(Boolean.TRUE);
+
+region.put("object-array-list-demo-key", value);
+Object actual = region.get("object-array-list-demo-key");
+```
+
+Example encoded payload:
+
+```text
+41035700036f6e65390000002a3501
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "objectArrayList",
+  "valueBase64": "QQ...",
+  "length": 14
+}
+```
+
+The shim stores and returns the full `0x41...` payload for mixed object lists.
+
+Important decode rule:
+
+```text
+ArrayList<String> is decoded first into the structured stringArrayList format.
+If that fails and the payload starts with 0x41, the value is treated as opaque ArrayList<Object>.
 ```
 
 ## Object[] Support
@@ -65,25 +128,6 @@ Observed wire shape:
 
 ```text
 34 <length> 2b 57 0010 java.lang.Object <elements...>
-```
-
-Example:
-
-```java
-Object[] value = new Object[] {
-    "one",
-    Integer.valueOf(42),
-    Boolean.TRUE
-};
-
-region.put("object-array-demo-key", value);
-Object actual = region.get("object-array-demo-key");
-```
-
-Example encoded payload:
-
-```text
-34032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a3501
 ```
 
 Couchbase envelope:
@@ -143,6 +187,16 @@ com.protogemcouch.couchbase     repository and Couchbase persistence
 ```
 
 ## Couchbase Document Examples
+
+### ArrayList<Object>
+
+```json
+{
+  "type": "objectArrayList",
+  "valueBase64": "QQ...",
+  "length": 14
+}
+```
 
 ### Object[]
 
@@ -218,6 +272,7 @@ HashMap<String,String> round trips
 HashMap<String,Object> round trips
 Serializable POJO round trips
 Object[] round trips
+ArrayList<Object> round trips
 java.util.Date round trips
 Couchbase typed envelopes
 GET_ALL VersionedObjectList-compatible responses
@@ -227,9 +282,9 @@ Docker-backed integration verification
 Not yet implemented or validated:
 
 ```text
-ArrayList<Object>
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
+Nested ArrayList<Object> inside structured Map<String,Object>
 Primitive arrays beyond byte[]
 Wrapper arrays
 BigDecimal / BigInteger
@@ -250,7 +305,13 @@ High-concurrency load and soak testing
 ## Next Target
 
 ```text
-ArrayList<Object>
+primitive arrays beyond byte[]
+```
+
+Suggested first target:
+
+```text
+int[]
 ```
 
 Suggested implementation sequence:

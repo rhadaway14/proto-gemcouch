@@ -3,16 +3,37 @@
 ## Current Milestone
 
 ```text
-object-array-support-complete
+object-array-list-support-complete
 ```
 
-`Object[]` support is now implemented and validated. The shim preserves `Object[]` values as opaque Geode DataSerializer payloads, stores the full encoded payload in Couchbase as Base64, and returns the same payload to the Geode client.
+`ArrayList<Object>` support is now implemented and validated. The shim preserves mixed `ArrayList<Object>` values as opaque Geode DataSerializer list payloads, stores the full encoded payload in Couchbase as Base64, and returns the same payload to the Geode client.
+
+Previous completed milestone:
+
+```text
+object-array-support-complete
+```
 
 Latest verification completed successfully:
 
 ```powershell
 mvn clean test
 mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
+```
+
+Latest Docker-backed integration result:
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+
+Total:
+Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
 ```
 
 ## Supported Operations
@@ -29,6 +50,7 @@ mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
 | `containsKey` | Supported | Repository-backed existence check. |
 | `sizeOnServer` | Supported | Region document count. |
 | `keySetOnServer` | Supported | Returns region keys. |
+| unknown opcode logging | Supported | Logs unknown frame details without crashing. |
 
 ## Supported Value Types
 
@@ -46,14 +68,54 @@ mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
 | `java.util.Date` | `0x3d` | Yes | Yes | Yes |
 | `byte[]` | `0x2e` or raw bytes | Yes | Yes | Yes |
 | `String[]` | `0x40` | Yes | Yes | Yes |
-| `ArrayList<String>` | `0x41` | Yes | Yes | Yes |
+| `ArrayList<String>` | `0x41` string-only list | Yes | Yes | Yes |
 | `HashMap<String,String>` | `0x43` empty or `0x2c aced...` | Yes | Yes | Yes |
 | `HashMap<String,Object>` | `0x43` empty or `0x2c aced...` | Yes | Yes | Yes |
 | Serializable POJO | `0x2c aced...` | Yes | Yes | Yes |
 | `Object[]` | `0x34 ... java.lang.Object ...` | Yes | Yes | Yes |
-| `ArrayList<Object>` | TBD | Not yet | Not yet | Not yet |
+| `ArrayList<Object>` | `0x41 ... mixed elements ...` | Yes | Yes | Yes |
+| primitive arrays beyond `byte[]` | TBD | Not yet | Not yet | Not yet |
+| wrapper arrays | TBD | Not yet | Not yet | Not yet |
 | DataSerializable | TBD | Not yet | Not yet | Not yet |
 | PDX / PdxInstance | TBD | Not yet | Not yet | Not yet |
+
+## ArrayList<Object> Support
+
+Observed simple mixed-list wire shape:
+
+```text
+41035700036f6e65390000002a3501
+```
+
+Meaning:
+
+```text
+0x41            Geode ArrayList/list marker
+03              list length
+57 0003 one     String element
+39 0000002a     Integer 42
+35 01           Boolean true
+```
+
+Storage envelope:
+
+```json
+{
+  "type": "objectArrayList",
+  "valueBase64": "QQ...",
+  "length": 14
+}
+```
+
+Design decision:
+
+```text
+ArrayList<Object> values are stored opaquely.
+ArrayList<String> still uses the existing structured string-list path.
+The decoder first attempts ArrayList<String>.
+If string-list decoding fails and the payload starts with 0x41, the shim preserves it as ArrayList<Object>.
+The shim returns the original Geode-compatible 0x41 payload.
+```
 
 ## Object[] Support
 
@@ -61,24 +123,6 @@ Observed wire shape:
 
 ```text
 34 <length> 2b 57 0010 6a6176612e6c616e672e4f626a656374 <elements...>
-```
-
-Meaning:
-
-```text
-0x34                         Geode Object[] marker
-<length>                     compact array length
-0x2b                         component class-name metadata marker
-0x57 0010 java.lang.Object   component type string
-<elements...>                encoded array elements
-```
-
-Example:
-
-```text
-Object[] {"one", Integer.valueOf(42), Boolean.TRUE}
-
-34032b5700106a6176612e6c616e672e4f626a6563745700036f6e65390000002a3501
 ```
 
 Storage envelope:
@@ -91,18 +135,9 @@ Storage envelope:
 }
 ```
 
-Design decision:
-
-```text
-Object[] values are stored opaquely.
-The shim does not parse nested Object[] contents.
-The shim does not need nested customer POJO classes.
-The shim returns the original Geode-compatible payload.
-```
-
 ## Serializable POJO Support
 
-Serializable POJOs are also stored opaquely, but without the leading Geode `0x2c` marker:
+Serializable POJOs are stored opaquely, but without the leading Geode `0x2c` marker:
 
 ```text
 Client sends:  2c ac ed 00 05 ...
@@ -123,7 +158,7 @@ Storage envelope:
 
 ## HashMap<String,Object> Nested Value Support
 
-Currently supported nested values:
+Currently supported nested values in structured map envelopes:
 
 ```text
 null
@@ -150,40 +185,40 @@ Serializable POJO
 ArrayList<Object>
 ```
 
-Top-level `Object[]` and top-level Serializable POJOs are supported.
+Top-level `Object[]`, top-level `ArrayList<Object>`, and top-level Serializable POJOs are supported.
 
 ## Runtime Coverage
 
-| Component | Object[] | POJO | Map<String,Object> | Scalars | Arrays/lists | Date |
-|---|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes |
-| Docker integration | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Arrays/lists | Date |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Docker integration | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
-## Object[] Integration Coverage
+## ArrayList<Object> Integration Coverage
 
 ```text
-objectArrayValueShouldRoundTripThroughShimAndCouchbase
-objectArrayWithNullElementShouldRoundTripThroughShimAndCouchbase
-objectArrayWithNestedValuesShouldRoundTripThroughShimAndCouchbase
-putAllWithObjectArrayValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithObjectArrayValuesShouldReturnObjectArrays
-mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+objectArrayListValueShouldRoundTripThroughShimAndCouchbase
+objectArrayListWithNullElementShouldRoundTripThroughShimAndCouchbase
+objectArrayListWithNestedValuesShouldRoundTripThroughShimAndCouchbase
+putAllWithObjectArrayListValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithObjectArrayListValuesShouldReturnArrayLists
+mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 ## Known Limitations
 
 ```text
-ArrayList<Object>
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
+Nested ArrayList<Object> inside structured Map<String,Object>
 Primitive arrays beyond byte[]
 Wrapper arrays
 BigDecimal / BigInteger
@@ -205,14 +240,20 @@ High-concurrency load and soak testing
 ## Recommended Next Target
 
 ```text
-ArrayList<Object>
+primitive arrays beyond byte[]
+```
+
+Start with:
+
+```text
+int[]
 ```
 
 Reason:
 
 ```text
-ArrayList<String> is already supported.
-Object[] is now supported as an opaque mixed object container.
-ArrayList<Object> is the next common mixed collection shape.
-It prepares the project for broader mixed collection compatibility.
+byte[] is already supported.
+Primitive arrays are common in serialized payloads.
+int[] gives us a clean next DataSerializer shape to validate.
+Primitive arrays are narrower than PDX/DataSerializable and help continue expanding core type compatibility safely.
 ```
