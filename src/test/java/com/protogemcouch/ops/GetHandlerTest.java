@@ -135,6 +135,93 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_boolean_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-boolean-array-key"))
+                .thenReturn(StoredValue.booleanArrayValue(new boolean[] {
+                        true,
+                        false,
+                        true,
+                        true,
+                        false
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-boolean-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-boolean-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_char_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-char-array-key"))
+                .thenReturn(StoredValue.charArrayValue(new char[] {
+                        'A',
+                        'Z',
+                        '0',
+                        '\n',
+                        '\u2603'
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-char-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-char-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_short_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-short-array-key"))
+                .thenReturn(StoredValue.shortArrayValue(new short[] {
+                        1,
+                        42,
+                        -7,
+                        Short.MAX_VALUE,
+                        Short.MIN_VALUE
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-short-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-short-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_int_array_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -160,6 +247,94 @@ class GetHandlerTest {
         handler.handle(ctx, frame);
 
         verify(repository).get("/helloWorld::my-int-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_long_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-long-array-key"))
+                .thenReturn(StoredValue.longArrayValue(new long[] {
+                        1L,
+                        42L,
+                        -7L,
+                        9_876_543_210L,
+                        Long.MAX_VALUE,
+                        Long.MIN_VALUE
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-long-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-long-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_float_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-float-array-key"))
+                .thenReturn(StoredValue.floatArrayValue(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f,
+                        Float.MAX_VALUE,
+                        Float.MIN_VALUE
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-float-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-float-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_existing_double_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-double-array-key"))
+                .thenReturn(StoredValue.doubleArrayValue(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d,
+                        Double.MAX_VALUE,
+                        Double.MIN_VALUE
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-double-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-double-array-key");
         verify(ctx).writeAndFlush(any());
     }
 

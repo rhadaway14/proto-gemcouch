@@ -2,45 +2,63 @@
 
 ## Summary
 
-`ProtoGemCouch` has achieved a successful end-to-end CRUD and native contains demo milestone for the validated string-value sample path.
+`ProtoGemCouch` has achieved a successful end-to-end compatibility milestone for core operations and a broad supported type profile.
 
-The next goal is to move from:
+The current baseline includes:
 
-- working prototype
-- validated sample-path compatibility
-- targeted protocol captures and fixes
+- real Geode client integration
+- Docker-backed Couchbase persistence
+- typed value envelopes
+- primitive wrappers
+- primitive arrays
+- selected collections and maps
+- Serializable POJO preservation
+- Object[] preservation
+- ArrayList<Object> preservation
+- GET_ALL / PUT_ALL validation
 
-to:
-
-- clearly scoped production-ready compatibility profile
-- repeatable validation
-- operational hardening
-- supportable deployment model
-
-This document defines the production-readiness path, phases, deliverables, and exit criteria.
+The next goal is to move from a working prototype and validated compatibility profile to a clearly scoped, production-ready compatibility profile with repeatable validation, operational hardening, and a supportable deployment model.
 
 ---
 
 ## Current Verified Baseline
 
+Latest Docker-backed integration result:
+
+```text
+ProtoGemCouchCrudIntegrationTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+
+ProtoGemCouchSerializationIntegrationTest
+Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
+
+Total:
+Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
+
+BUILD SUCCESS
+```
+
 The current baseline already includes:
 
 - successful Geode client handshake with the shim
-- successful create/read/update/delete flow in the sample app
+- successful create/read/update/delete flow
 - successful backend persistence in Couchbase
-- native Java String read behavior for the supported path
-- deterministic Geode string request decoding for supported PUT values
+- native typed reads for supported values
+- deterministic request decoding for validated value families
 - working destroy/remove reply handling for the validated sample flow
 - native `containsKeyOnServer(...)` protocol path
 - native server-side contains-value-for-key protocol path
 - clean missing-document semantics for supported contains paths
+- PUT_ALL and GET_ALL validation for supported types
+- primitive array family support
+- Object[] support
+- ArrayList<Object> support
+- Serializable POJO support
 - structured logging
 - metrics summaries
 - startup validation
 - Docker-based deployment path
 - initial benchmark / soak / operational documentation
-
-This is a strong prototype baseline, but it is not yet broad enough to claim production readiness.
 
 ---
 
@@ -59,430 +77,226 @@ Production readiness for `ProtoGemCouch` means:
 
 ---
 
-## Scope Assumption for v1
+## Recommended v1 Support Boundary
 
-A realistic v1 production scope should be intentionally limited.
-
-### Recommended v1 support boundary
 - Geode client handshake
 - string keys
-- supported string values
-- create
-- read
-- update
-- delete
+- core region operations
+- put
+- get
+- putAll
+- getAll
+- remove
 - contains key / existence semantics
 - contains value-for-key semantics
-- basic missing-document semantics
+- sizeOnServer
+- keySetOnServer
+- missing-document semantics
+- supported scalar and array values
+- supported simple collections/maps
+- opaque preservation for selected complex object payloads
 - defined behavior for unsupported features
 
-### Not assumed for initial production scope
+## Supported v1 Value Profile
+
+```text
+String
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
+String[]
+ArrayList<String>
+HashMap<String,String>
+HashMap<String,Object>
+Serializable POJO
+Object[]
+ArrayList<Object>
+```
+
+## Not Assumed for Initial Production Scope
+
 - full Geode server parity
-- arbitrary Java object graphs
 - PDX parity
-- all bulk and collection operations
+- DataSerializable parity
+- all query semantics
+- all transaction semantics
 - listener/callback/event parity
 - advanced distributed-region semantics
-
-This scope should be refined and published as a formal support contract.
+- arbitrary object graph structural introspection
 
 ---
 
 # Phase 1 - Compatibility Completion for v1 Scope
 
-## Objective
-Finish native compatibility for the minimum supported v1 operation set.
+## Current status
 
-## Tasks
+Substantially complete for the current supported operation and type profile.
 
-### 1.1 Native GET type fidelity
-- Status: Complete for supported string values in the validated sample path.
-- Supported string-value reads return as native Java-compatible `java.lang.String` values.
-- Continue validating against additional real Geode client scenarios.
+Validated:
 
-### 1.2 Native contains semantics
-- Status: Complete for the validated sample path.
-- `containsKeyOnServer(...)` is validated through native `CONTAINS` mode `0`.
-- Server-side contains-value-for-key is validated through native `CONTAINS` mode `1`.
-- Expected missing-document cases return `false`.
-
-### 1.3 Missing/null response validation
-- Status: Partially complete.
-- Missing contains-key and contains-value-for-key behavior is validated.
-- Missing GET behavior still needs broader reply-shape validation and regression coverage.
-
-### 1.4 Operation-by-operation response validation
-Validate all reply headers, part counts, part types, and payload shapes for supported operations:
 - PUT
 - GET
+- PUT_ALL
+- GET_ALL
 - REMOVE
 - CONTAINS mode `0`
 - CONTAINS mode `1`
+- SIZE
+- KEY_SET
 
-### 1.5 Error reply semantics
-- Validate the protocol behavior for unsupported operations and malformed requests.
-- Decide whether to reply with explicit error frames or close the connection.
+## Remaining tasks
 
-## Deliverables
-- updated compatibility matrix
-- native supported operation set working without client workarounds for the validated path
-- regression tests for supported reply shapes
-- updated docs describing supported v1 behavior
-
-## Exit Criteria
-- supported v1 operations pass with a real Geode client
-- no required sample-client workaround remains for supported behaviors in the validated support profile
-- response wire shapes are captured and regression-tested
+- Broaden response-shape regression coverage.
+- Validate unsupported operation behavior.
+- Validate malformed request behavior.
+- Decide whether unsupported paths return explicit error frames or close the connection.
 
 ---
 
 # Phase 2 - Serialization and Type Strategy
 
-## Objective
-Define and harden the supported type model.
+## Current status
 
-## Tasks
+Strong baseline established.
 
-### 2.1 Decide serialization contract
-Choose and document one of:
-- native Geode serialization for supported types
-- constrained translation layer for supported value classes
-- limited compatibility profile with explicit exclusions
+Supported:
 
-### 2.2 Stabilize request decoding
-- Status: Complete for supported string PUT values.
-- Supported string-like requests are handled predictably through deterministic Geode string decoding.
-- DataSerializer fallback behavior should remain documented for unsupported or future object paths.
+- primitive wrappers
+- primitive arrays
+- Date
+- byte[]
+- String[]
+- ArrayList<String>
+- HashMap<String,String>
+- HashMap<String,Object>
+- Serializable POJO opaque preservation
+- Object[] opaque preservation
+- ArrayList<Object> opaque preservation
 
-### 2.3 Validate supported value classes
-Validate and document at least:
-- String
-- primitive-like simple values if in scope
-- null / missing handling
-- unsupported object behavior
+## Remaining tasks
 
-### 2.4 Document unsupported types
-Explicitly define behavior for:
-- arbitrary Java objects
-- PDX
+Validate and decide support strategy for:
+
+- Integer[]
+- Long[]
+- Boolean[]
+- Double[]
+- UUID
+- BigDecimal
+- BigInteger
+- Enum
+- java.time.Instant
+- java.time.LocalDate
+- java.time.LocalDateTime
+- DataSerializable
+- PDX / PdxInstance
 - custom serializers
-- collections/maps unless validated
-
-## Deliverables
-- serialization strategy decision
-- supported type matrix
-- tests for supported and unsupported types
-- updated limitations doc
-
-## Exit Criteria
-- supported types behave consistently
-- unsupported types fail in a defined and documented way
-- no hidden fallback behavior remains undocumented
+- arbitrary nested object graphs
 
 ---
 
 # Phase 3 - Regression and Integration Testing
 
-## Objective
-Make compatibility repeatable and safe to change.
+Tasks:
 
-## Tasks
-
-### 3.1 Golden-wire tests
-Turn real protocol captures into regression fixtures for:
-- PUT
-- GET
-- REMOVE
-- CONTAINS mode `0`
-- CONTAINS mode `1`
-- control frames
-- any additional supported operations
-
-### 3.2 Integration test harness
-Build repeatable integration tests using:
-- real Geode client
-- shim
-- Couchbase
-- containerized test environment
-
-### 3.3 End-to-end scenario tests
-Add scenarios for:
-- create/read/update/delete
-- missing document reads
-- contains key existing/missing
-- contains value-for-key existing/missing
-- repeated update/delete cycles
-- reconnect behavior
-- multiple consecutive client sessions
-
-### 3.4 Negative tests
-Add tests for:
-- malformed frames
-- unsupported operations
-- serialization failures
-- Couchbase misses and backend failures
-
-## Deliverables
-- repeatable integration suite
-- golden-wire regression fixtures
-- CI execution path for integration validation
-
-## Exit Criteria
-- supported compatibility claims are covered by automated tests
-- protocol regressions are caught before release
-- end-to-end validation is reproducible in CI/local environments
+- Turn real protocol captures into regression fixtures.
+- Maintain repeatable integration tests using real Geode client, shim, Couchbase, and containers.
+- Add negative tests for malformed frames, unsupported operations, serialization failures, Couchbase misses, and backend failures.
 
 ---
 
 # Phase 4 - Failure Handling and Robustness
 
-## Objective
-Ensure safe behavior under real-world failure conditions.
+Tasks:
 
-## Tasks
-
-### 4.1 Backend failure behavior
-Define and validate behavior for:
-- Couchbase unavailable at startup
-- Couchbase unavailable during requests
-- read/write timeouts
-- bucket/scope/collection misconfiguration
-
-### 4.2 Client/session failure behavior
-Define and validate behavior for:
-- connection drops
-- partial reads
-- malformed request frames
-- unsupported opcode handling
-- response serialization failures
-
-### 4.3 Recovery and reconnect behavior
-- Validate client reconnect behavior.
-- Validate shim stability after repeated client failures.
-
-### 4.4 Logging and metrics on failure
-For each failure class, ensure:
-- structured log event exists
-- metric increments appropriately
-- operational meaning is clear
-
-## Deliverables
-- failure behavior matrix
-- operational runbook updates
-- integration tests for major failure modes
-
-## Exit Criteria
-- major failure cases have deterministic behavior
-- logs and metrics are sufficient for triage
-- failure handling is documented and tested
+- Define backend failure behavior.
+- Define client/session failure behavior.
+- Validate reconnect behavior.
+- Ensure each failure class has structured logs and metrics.
 
 ---
 
 # Phase 5 - Observability and Operations Hardening
 
-## Objective
-Make the shim operable in production.
+Tasks:
 
-## Tasks
-
-### 5.1 Metrics expansion
-Add/verify:
-- per-operation request counts
-- per-operation success/error counts
-- latency histograms
-- fallback decode usage counts
-- unsupported operation counters
-- connection lifecycle metrics
-- expected-miss counters for read/contains paths if useful
-
-### 5.2 Health and readiness semantics
-- Ensure readiness reflects backend availability correctly.
-- Define liveness behavior clearly.
-
-### 5.3 Dashboards and alerts
-Create:
-- operational dashboards
-- alert thresholds for errors, latency, backend failures, and reconnect churn
-
-### 5.4 Runbook refinement
-Update runbooks for:
-- startup
-- health triage
-- backend failures
-- client compatibility issues
-- rollback and restart
-
-## Deliverables
-- observability dashboard definitions
-- alert recommendations
-- updated runbooks
-
-## Exit Criteria
-- operators can detect and diagnose major issues quickly
-- health/readiness are meaningful
-- metrics support troubleshooting and release confidence
+- Expand per-operation metrics.
+- Add decode strategy and opaque preservation counters.
+- Validate health and readiness semantics.
+- Create dashboards and alerts.
+- Update runbooks.
 
 ---
 
 # Phase 6 - Security and Deployment Hardening
 
-## Objective
-Prepare the service for safe deployment.
+Tasks:
 
-## Tasks
-
-### 6.1 Secret handling
-- remove any insecure config patterns
-- ensure secrets are injected securely
-- ensure logs redact sensitive values
-
-### 6.2 Transport security
-Decide and implement as needed:
-- TLS to Couchbase
-- TLS between client and shim
-- certificate handling guidance
-
-### 6.3 Image hardening
-- minimize container surface area
-- pin dependencies and base images
-- enable vulnerability scanning
-
-### 6.4 Deployment hardening
-- graceful shutdown
-- resource sizing guidance
-- deployment health checks
-- production compose / Kubernetes guidance if applicable
-
-## Deliverables
-- hardened Docker/deployment docs
-- security checklist
-- configuration guidance for production use
-
-## Exit Criteria
-- deployment guidance is production-safe
-- secret and transport practices are documented and enforced
-- image/config posture is acceptable for production review
+- Secure secret handling.
+- Decide TLS requirements.
+- Harden images.
+- Document Docker and Kubernetes deployment guidance.
+- Define graceful shutdown and resource sizing.
 
 ---
 
 # Phase 7 - Performance and Scale Qualification
 
-## Objective
-Quantify the supported production envelope.
+Tasks:
 
-## Tasks
-
-### 7.1 Re-run benchmarks on current compatibility baseline
-Measure:
-- single-client latency
-- concurrent throughput
-- CRUD mix latency
-- contains operation latency
-- remove path latency
-- reconnect churn behavior
-
-### 7.2 Soak and stability testing
-Run sustained tests for:
-- memory stability
-- connection stability
-- backend latency tolerance
-- long-duration request correctness
-
-### 7.3 Capacity characterization
-Document:
-- maximum tested concurrency
-- latency percentiles
-- failure thresholds
-- known bottlenecks
-
-## Deliverables
-- updated performance report
-- updated soak results
-- production sizing guidance
-
-## Exit Criteria
-- the supported envelope is measured and documented
-- no major stability regressions appear under sustained load
-- performance expectations are explicit
+- Re-run benchmarks on the current compatibility baseline.
+- Include putAll/getAll and primitive-array payload latency.
+- Run soak tests.
+- Document capacity envelope and bottlenecks.
 
 ---
 
 # Phase 8 - Release Management and Supportability
 
-## Objective
-Make shipping and supporting the service realistic.
+Tasks:
 
-## Tasks
-
-### 8.1 Publish support contract
-Document:
-- supported Geode client versions
-- supported operations
-- supported types
-- unsupported features
-- known differences from native Geode
-
-### 8.2 Release gating
-Define mandatory pre-release checks:
-- integration suite pass
-- golden-wire tests pass
-- benchmark/soak thresholds met
-- docs updated
-- limitations reviewed
-- security/deployment checks passed
-
-### 8.3 Versioning and changelog discipline
-- semantic or defined release versioning
-- changelog expectations
-- upgrade notes
-
-### 8.4 Support docs
-- troubleshooting guide
-- issue triage guide
-- known error signatures
-- escalation path
-
-## Deliverables
-- release checklist
-- support contract
-- changelog / release note template
-- operational support docs
-
-## Exit Criteria
-- releases can be gated consistently
-- support expectations are explicit
-- operators and engineers have enough documentation to maintain the system
+- Publish support contract.
+- Define release gating.
+- Add changelog discipline.
+- Finalize troubleshooting and issue triage docs.
 
 ---
 
-## Master Task List
+## Completed Current-Baseline Tasks
 
-## Completed current-baseline tasks
 1. Make GET return native string values for the supported path.
 2. Make native contains key semantics work for the supported path.
 3. Make native contains value-for-key semantics work for the supported path.
 4. Clean up expected Couchbase missing-document logging for supported contains paths.
 5. Stabilize deterministic string PUT decoding for the supported path.
+6. Validate PUT_ALL and GET_ALL with real Geode client integration tests.
+7. Add Serializable POJO opaque preservation.
+8. Add Object[] opaque preservation.
+9. Add ArrayList<Object> opaque preservation.
+10. Add int[] structural support.
+11. Add full primitive-array family structural support.
 
-## Immediate next tasks
-1. Convert real protocol captures into golden-wire regression tests.
-2. Build repeatable real-client integration tests.
-3. Validate GET_ALL and PUT_ALL against real Geode client behavior.
-4. Validate KEY_SET and SIZE behavior.
-5. Tighten not-found semantics for supported GET/read cases.
+## Immediate Next Tasks
 
-## Near-term hardening tasks
-6. Define serialization/type support policy.
-7. Expand failure-mode handling and tests.
-8. Expand metrics and operational visibility.
-9. Harden deployment and security configuration.
-
-## Late-stage production tasks
-10. Re-run performance and soak testing on the hardened compatibility baseline.
-11. Publish support contract and release criteria.
-12. Finalize runbooks, dashboards, and support docs.
-
----
+1. Add wrapper-array and common Java utility type support.
+2. Convert more real protocol captures into golden-wire regression tests.
+3. Expand negative tests for unsupported types and malformed frames.
+4. Validate failure behavior under Couchbase outage and timeouts.
+5. Re-run benchmark and soak tests against the current compatibility baseline.
 
 ## Production Readiness Exit Definition
 
@@ -496,13 +310,3 @@ Define mandatory pre-release checks:
 - observability is sufficient for live operations
 - performance envelope is measured and documented
 - release criteria are enforced before shipping
-
----
-
-## Recommended Next Step
-
-Start with:
-
-## Task 1 - Golden-wire and integration regression tests for the current validated baseline
-
-This is now the highest-value next task because native String GET, native contains semantics, deterministic string PUT decoding, remove handling, and expected-miss logging are all validated for the current sample path. The next risk is regression. The project should preserve this baseline with automated tests before expanding into broader operations.

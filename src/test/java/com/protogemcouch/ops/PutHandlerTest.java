@@ -177,6 +177,211 @@ class PutHandlerTest {
     }
 
     @Test
+    void handle_parses_boolean_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-boolean-array-key"),
+                objectPart("5"),
+                part(hexToBytes("1a050100010100")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-boolean-array-key"),
+                eq(StoredValue.booleanArrayValue(new boolean[] {
+                        true,
+                        false,
+                        true,
+                        true,
+                        false
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_char_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-char-array-key"),
+                objectPart("5"),
+                part(hexToBytes("1b050041005a0030000a2603")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-char-array-key"),
+                eq(StoredValue.charArrayValue(new char[] {
+                        'A',
+                        'Z',
+                        '0',
+                        '\n',
+                        '\u2603'
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_short_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-short-array-key"),
+                objectPart("5"),
+                part(hexToBytes("2f050001002afff97fff8000")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-short-array-key"),
+                eq(StoredValue.shortArrayValue(new short[] {
+                        1,
+                        42,
+                        -7,
+                        Short.MAX_VALUE,
+                        Short.MIN_VALUE
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_long_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-long-array-key"),
+                objectPart("5"),
+                part(hexToBytes("31060000000000000001000000000000002afffffffffffffff9000000024cb016ea7fffffffffffffff8000000000000000")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-long-array-key"),
+                eq(StoredValue.longArrayValue(new long[] {
+                        1L,
+                        42L,
+                        -7L,
+                        9_876_543_210L,
+                        Long.MAX_VALUE,
+                        Long.MIN_VALUE
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_float_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-float-array-key"),
+                objectPart("5"),
+                part(hexToBytes("32053f80000040e80000c0e800007f7fffff00000001")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-float-array-key"),
+                eq(StoredValue.floatArrayValue(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f,
+                        Float.MAX_VALUE,
+                        Float.MIN_VALUE
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
+    void handle_parses_double_array_put_and_stores_value() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        PutHandler handler = new PutHandler(repository);
+        GemFrame frame = mockFrame(
+                7,
+                stringPart("/helloWorld"),
+                part(new byte[]{0x0c}),
+                intPart(0),
+                stringPart("my-double-array-key"),
+                objectPart("5"),
+                part(hexToBytes("33053ff0000000000000401d000000000000c01d0000000000007fefffffffffffff0000000000000001")),
+                part(new byte[]{0x02, 0x00, 0x01})
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::my-double-array-key"),
+                eq(StoredValue.doubleArrayValue(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d,
+                        Double.MAX_VALUE,
+                        Double.MIN_VALUE
+                }))
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_empty_int_array_put_and_stores_value() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

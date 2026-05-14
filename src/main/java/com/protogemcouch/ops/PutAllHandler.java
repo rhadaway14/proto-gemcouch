@@ -159,7 +159,13 @@ public class PutAllHandler implements OperationHandler {
          *   Empty HashMap                          -> 43 00
          *   Non-empty LinkedHashMap                -> 2c ac ed 00 05 ...
          *   byte[] {1,2,3} via DataSerializer      -> 2e 03 01 02 03
-         *   int[] {1,42,-7}                         -> 30 03 00000001 0000002a fffffff9
+         *   boolean[] {true,false,true}              -> 1a 03 01 00 01
+         *   char[] {'A','Z'}                         -> 1b 02 0041 005a
+         *   short[] {1,42,-7}                        -> 2f 03 0001 002a fff9
+         *   int[] {1,42,-7}                          -> 30 03 00000001 0000002a fffffff9
+         *   long[] {1,42,-7}                         -> 31 03 0000000000000001 000000000000002a fffffffffffffff9
+         *   float[] {1.0,7.25,-7.25}                 -> 32 03 3f800000 40e80000 c0e80000
+         *   double[] {1.0,7.25,-7.25}                -> 33 03 3ff0000000000000 401d000000000000 c01d000000000000
          *   Boolean.TRUE                           -> 35 01
          *   Character 'A'                          -> 36 00 41
          *   Byte 7                                 -> 37 07
@@ -283,6 +289,45 @@ public class PutAllHandler implements OperationHandler {
             return StoredValue.byteArrayValue(byteArrayValue);
         }
 
+        boolean[] booleanArrayValue = ValueDecoding.decodeBooleanArrayValue(valuePayload);
+
+        if (booleanArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-boolean-array",
+                    "key", key,
+                    "valueType", "BOOLEAN_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.booleanArrayValue(booleanArrayValue);
+        }
+
+        char[] charArrayValue = ValueDecoding.decodeCharArrayValue(valuePayload);
+
+        if (charArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-char-array",
+                    "key", key,
+                    "valueType", "CHAR_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.charArrayValue(charArrayValue);
+        }
+
+        short[] shortArrayValue = ValueDecoding.decodeShortArrayValue(valuePayload);
+
+        if (shortArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-short-array",
+                    "key", key,
+                    "valueType", "SHORT_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.shortArrayValue(shortArrayValue);
+        }
+
         int[] intArrayValue = ValueDecoding.decodeIntArrayValue(valuePayload);
 
         if (intArrayValue != null) {
@@ -294,6 +339,45 @@ public class PutAllHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.intArrayValue(intArrayValue);
+        }
+
+        long[] longArrayValue = ValueDecoding.decodeLongArrayValue(valuePayload);
+
+        if (longArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-long-array",
+                    "key", key,
+                    "valueType", "LONG_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.longArrayValue(longArrayValue);
+        }
+
+        float[] floatArrayValue = ValueDecoding.decodeFloatArrayValue(valuePayload);
+
+        if (floatArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-float-array",
+                    "key", key,
+                    "valueType", "FLOAT_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.floatArrayValue(floatArrayValue);
+        }
+
+        double[] doubleArrayValue = ValueDecoding.decodeDoubleArrayValue(valuePayload);
+
+        if (doubleArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-double-array",
+                    "key", key,
+                    "valueType", "DOUBLE_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.doubleArrayValue(doubleArrayValue);
         }
 
         Boolean booleanValue = ValueDecoding.decodeBooleanValue(valuePayload);
@@ -504,6 +588,39 @@ public class PutAllHandler implements OperationHandler {
                 return StoredValue.byteArrayValue(byteArrayObject);
             }
 
+            if (rawValue instanceof boolean[] booleanArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "BOOLEAN_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.booleanArrayValue(booleanArrayObject);
+            }
+
+            if (rawValue instanceof char[] charArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "CHAR_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.charArrayValue(charArrayObject);
+            }
+
+            if (rawValue instanceof short[] shortArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "SHORT_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.shortArrayValue(shortArrayObject);
+            }
+
             if (rawValue instanceof int[] intArrayObject) {
                 log.info(StructuredLog.event(
                         "handler_put_all_value_deserialize_ok",
@@ -513,6 +630,39 @@ public class PutAllHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.intArrayValue(intArrayObject);
+            }
+
+            if (rawValue instanceof long[] longArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "LONG_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.longArrayValue(longArrayObject);
+            }
+
+            if (rawValue instanceof float[] floatArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "FLOAT_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.floatArrayValue(floatArrayObject);
+            }
+
+            if (rawValue instanceof double[] doubleArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "DOUBLE_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.doubleArrayValue(doubleArrayObject);
             }
 
             if (rawValue instanceof Boolean bool) {
@@ -773,6 +923,13 @@ public class PutAllHandler implements OperationHandler {
                 || value instanceof Double
                 || value instanceof Date
                 || value instanceof byte[]
+                || value instanceof boolean[]
+                || value instanceof char[]
+                || value instanceof short[]
+                || value instanceof int[]
+                || value instanceof long[]
+                || value instanceof float[]
+                || value instanceof double[]
                 || value instanceof String[]
                 || isSupportedStringArrayListObject(value);
     }
@@ -810,6 +967,48 @@ public class PutAllHandler implements OperationHandler {
         if (value instanceof byte[] bytes) {
             byte[] copy = new byte[bytes.length];
             System.arraycopy(bytes, 0, copy, 0, bytes.length);
+            return copy;
+        }
+
+        if (value instanceof boolean[] booleans) {
+            boolean[] copy = new boolean[booleans.length];
+            System.arraycopy(booleans, 0, copy, 0, booleans.length);
+            return copy;
+        }
+
+        if (value instanceof char[] chars) {
+            char[] copy = new char[chars.length];
+            System.arraycopy(chars, 0, copy, 0, chars.length);
+            return copy;
+        }
+
+        if (value instanceof short[] shorts) {
+            short[] copy = new short[shorts.length];
+            System.arraycopy(shorts, 0, copy, 0, shorts.length);
+            return copy;
+        }
+
+        if (value instanceof int[] ints) {
+            int[] copy = new int[ints.length];
+            System.arraycopy(ints, 0, copy, 0, ints.length);
+            return copy;
+        }
+
+        if (value instanceof long[] longs) {
+            long[] copy = new long[longs.length];
+            System.arraycopy(longs, 0, copy, 0, longs.length);
+            return copy;
+        }
+
+        if (value instanceof float[] floats) {
+            float[] copy = new float[floats.length];
+            System.arraycopy(floats, 0, copy, 0, floats.length);
+            return copy;
+        }
+
+        if (value instanceof double[] doubles) {
+            double[] copy = new double[doubles.length];
+            System.arraycopy(doubles, 0, copy, 0, doubles.length);
             return copy;
         }
 

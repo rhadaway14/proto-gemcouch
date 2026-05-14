@@ -73,6 +73,23 @@ public final class GemResponseWriter {
     private static final byte GEODE_INT_ARRAY_CODE = 0x30;
 
     /*
+     * Geode DataSerializer primitive array markers observed from PrimitiveArrayShapeTest:
+     *
+     *   boolean[]  -> 1a <length> <1-byte boolean values>
+     *   char[]     -> 1b <length> <2-byte big-endian char values>
+     *   short[]    -> 2f <length> <2-byte big-endian short values>
+     *   long[]     -> 31 <length> <8-byte big-endian long values>
+     *   float[]    -> 32 <length> <4-byte big-endian IEEE-754 float bits>
+     *   double[]   -> 33 <length> <8-byte big-endian IEEE-754 double bits>
+     */
+    private static final byte GEODE_BOOLEAN_ARRAY_CODE = 0x1a;
+    private static final byte GEODE_CHAR_ARRAY_CODE = 0x1b;
+    private static final byte GEODE_SHORT_ARRAY_CODE = 0x2f;
+    private static final byte GEODE_LONG_ARRAY_CODE = 0x31;
+    private static final byte GEODE_FLOAT_ARRAY_CODE = 0x32;
+    private static final byte GEODE_DOUBLE_ARRAY_CODE = 0x33;
+
+    /*
      * Geode DataSerializer String[] marker observed from StringArrayShapeTest:
      *
      *   new String[] {}                         -> 40 00
@@ -285,11 +302,59 @@ public final class GemResponseWriter {
         );
     }
 
+    public static byte[] buildBooleanArrayGetResponse(int txId, boolean[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedBooleanArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildCharArrayGetResponse(int txId, char[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedCharArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildShortArrayGetResponse(int txId, short[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedShortArray(value), (byte) 1))
+        );
+    }
+
     public static byte[] buildIntArrayGetResponse(int txId, int[] value) {
         return buildMessage(
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedIntArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildLongArrayGetResponse(int txId, long[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedLongArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildFloatArrayGetResponse(int txId, float[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedFloatArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildDoubleArrayGetResponse(int txId, double[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedDoubleArray(value), (byte) 1))
         );
     }
 
@@ -569,8 +634,32 @@ public final class GemResponseWriter {
             return StoredValue.byteArrayValue(byteArrayValue);
         }
 
+        if (rawValue instanceof boolean[] booleanArrayValue) {
+            return StoredValue.booleanArrayValue(booleanArrayValue);
+        }
+
+        if (rawValue instanceof char[] charArrayValue) {
+            return StoredValue.charArrayValue(charArrayValue);
+        }
+
+        if (rawValue instanceof short[] shortArrayValue) {
+            return StoredValue.shortArrayValue(shortArrayValue);
+        }
+
         if (rawValue instanceof int[] intArrayValue) {
             return StoredValue.intArrayValue(intArrayValue);
+        }
+
+        if (rawValue instanceof long[] longArrayValue) {
+            return StoredValue.longArrayValue(longArrayValue);
+        }
+
+        if (rawValue instanceof float[] floatArrayValue) {
+            return StoredValue.floatArrayValue(floatArrayValue);
+        }
+
+        if (rawValue instanceof double[] doubleArrayValue) {
+            return StoredValue.doubleArrayValue(doubleArrayValue);
         }
 
         if (rawValue instanceof String[] stringArrayValue) {
@@ -652,8 +741,32 @@ public final class GemResponseWriter {
             return geodeSerializedByteArray(value.asByteArray());
         }
 
+        if (value.type() == StoredValue.Type.BOOLEAN_ARRAY) {
+            return geodeSerializedBooleanArray(value.asBooleanArray());
+        }
+
+        if (value.type() == StoredValue.Type.CHAR_ARRAY) {
+            return geodeSerializedCharArray(value.asCharArray());
+        }
+
+        if (value.type() == StoredValue.Type.SHORT_ARRAY) {
+            return geodeSerializedShortArray(value.asShortArray());
+        }
+
         if (value.type() == StoredValue.Type.INT_ARRAY) {
             return geodeSerializedIntArray(value.asIntArray());
+        }
+
+        if (value.type() == StoredValue.Type.LONG_ARRAY) {
+            return geodeSerializedLongArray(value.asLongArray());
+        }
+
+        if (value.type() == StoredValue.Type.FLOAT_ARRAY) {
+            return geodeSerializedFloatArray(value.asFloatArray());
+        }
+
+        if (value.type() == StoredValue.Type.DOUBLE_ARRAY) {
+            return geodeSerializedDoubleArray(value.asDoubleArray());
         }
 
         if (value.type() == StoredValue.Type.STRING_ARRAY) {
@@ -770,6 +883,93 @@ public final class GemResponseWriter {
         }
     }
 
+    private static byte[] geodeSerializedBooleanArray(boolean[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("boolean[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated boolean[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_BOOLEAN_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (boolean item : value) {
+                buf.writeByte(item ? 0x01 : 0x00);
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedCharArray(char[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("char[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated char[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_CHAR_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (char item : value) {
+                buf.writeChar(item);
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedShortArray(short[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("short[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated short[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_SHORT_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (short item : value) {
+                buf.writeShort(item);
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
     private static byte[] geodeSerializedIntArray(int[] value) {
         if (value == null) {
             throw new IllegalArgumentException("int[] value must not be null");
@@ -798,6 +998,94 @@ public final class GemResponseWriter {
             buf.release();
         }
     }
+
+    private static byte[] geodeSerializedLongArray(long[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("long[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated long[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_LONG_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (long item : value) {
+                buf.writeLong(item);
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedFloatArray(float[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("float[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated float[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_FLOAT_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (float item : value) {
+                buf.writeInt(Float.floatToRawIntBits(item));
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
+    private static byte[] geodeSerializedDoubleArray(double[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("double[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated double[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_DOUBLE_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (double item : value) {
+                buf.writeLong(Double.doubleToRawLongBits(item));
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
 
 
     private static byte[] geodeSerializedStringArray(String[] value) {
@@ -1061,7 +1349,13 @@ public final class GemResponseWriter {
                 || value instanceof Double
                 || value instanceof Date
                 || value instanceof byte[]
+                || value instanceof boolean[]
+                || value instanceof char[]
+                || value instanceof short[]
                 || value instanceof int[]
+                || value instanceof long[]
+                || value instanceof float[]
+                || value instanceof double[]
                 || value instanceof String[]
                 || value instanceof ArrayList<?>
                 || value instanceof Map<?, ?>
@@ -1155,6 +1449,13 @@ public final class GemResponseWriter {
                 || value instanceof Double
                 || value instanceof Date
                 || value instanceof byte[]
+                || value instanceof boolean[]
+                || value instanceof char[]
+                || value instanceof short[]
+                || value instanceof int[]
+                || value instanceof long[]
+                || value instanceof float[]
+                || value instanceof double[]
                 || value instanceof String[]
                 || isSupportedStringArrayListObject(value);
     }
@@ -1192,6 +1493,48 @@ public final class GemResponseWriter {
         if (value instanceof byte[] bytes) {
             byte[] copy = new byte[bytes.length];
             System.arraycopy(bytes, 0, copy, 0, bytes.length);
+            return copy;
+        }
+
+        if (value instanceof boolean[] booleans) {
+            boolean[] copy = new boolean[booleans.length];
+            System.arraycopy(booleans, 0, copy, 0, booleans.length);
+            return copy;
+        }
+
+        if (value instanceof char[] chars) {
+            char[] copy = new char[chars.length];
+            System.arraycopy(chars, 0, copy, 0, chars.length);
+            return copy;
+        }
+
+        if (value instanceof short[] shorts) {
+            short[] copy = new short[shorts.length];
+            System.arraycopy(shorts, 0, copy, 0, shorts.length);
+            return copy;
+        }
+
+        if (value instanceof int[] ints) {
+            int[] copy = new int[ints.length];
+            System.arraycopy(ints, 0, copy, 0, ints.length);
+            return copy;
+        }
+
+        if (value instanceof long[] longs) {
+            long[] copy = new long[longs.length];
+            System.arraycopy(longs, 0, copy, 0, longs.length);
+            return copy;
+        }
+
+        if (value instanceof float[] floats) {
+            float[] copy = new float[floats.length];
+            System.arraycopy(floats, 0, copy, 0, floats.length);
+            return copy;
+        }
+
+        if (value instanceof double[] doubles) {
+            double[] copy = new double[doubles.length];
+            System.arraycopy(doubles, 0, copy, 0, doubles.length);
             return copy;
         }
 

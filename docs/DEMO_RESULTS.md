@@ -3,10 +3,10 @@
 ## Current Milestone
 
 ```text
-object-array-list-support-complete
+primitive-array-family-support-complete
 ```
 
-The project now supports opaque `ArrayList<Object>` round-tripping through the full stack:
+The project now supports structural primitive-array round-tripping through the full stack:
 
 ```text
 Geode Java client
@@ -15,7 +15,21 @@ Couchbase typed storage envelope
 Geode-compatible response encoding
 ```
 
-This includes and builds on the previous completed `Object[]` milestone.
+This includes:
+
+```text
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
+```
+
+`byte[]` remains supported through the existing byte-array path.
+
+This milestone builds on the previous completed `int[]`, `ArrayList<Object>`, and `Object[]` milestones.
 
 Verification completed successfully:
 
@@ -31,10 +45,10 @@ ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -53,6 +67,13 @@ Float
 Double
 java.util.Date
 byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
 String[]
 ArrayList<String>
 HashMap<String,String>
@@ -62,9 +83,101 @@ Object[]
 ArrayList<Object>
 ```
 
-## ArrayList<Object> Demo
+## Primitive Array Demo
 
 Client-side example:
+
+```java
+int[] value = new int[] {
+    1,
+    42,
+    -7,
+    Integer.MAX_VALUE,
+    Integer.MIN_VALUE
+};
+
+region.put("int-array-demo-key", value);
+Object actual = region.get("int-array-demo-key");
+```
+
+Observed Geode shape:
+
+```text
+3005000000010000002afffffff97fffffff80000000
+```
+
+Decoded meaning:
+
+```text
+0x30        int[] marker
+05          array length
+00000001    1
+0000002a    42
+fffffff9    -7
+7fffffff    Integer.MAX_VALUE
+80000000    Integer.MIN_VALUE
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "intArray",
+  "value": [1, 42, -7, 2147483647, -2147483648],
+  "length": 5
+}
+```
+
+## Primitive Array Runtime Strategy
+
+```text
+Client sends:
+<array-marker> <length> <big-endian primitive values...>
+
+Shim decodes:
+typed primitive array
+
+Shim stores:
+typed JSON array envelope
+
+Shim returns:
+<array-marker> <length> <big-endian primitive values...>
+
+Client receives:
+same primitive array type
+```
+
+## Primitive Array Shapes
+
+```text
+boolean[]  -> 0x1a
+char[]     -> 0x1b
+byte[]     -> 0x2e
+short[]    -> 0x2f
+int[]      -> 0x30
+long[]     -> 0x31
+float[]    -> 0x32
+double[]   -> 0x33
+```
+
+## Validated Primitive Array Scenarios
+
+```text
+boolean[] in put/get
+char[] in put/get
+short[] in put/get
+int[] in put/get
+empty int[] in put/get
+long[] in put/get
+float[] in put/get
+double[] in put/get
+primitive arrays in putAll/get
+primitive arrays in getAll
+primitive arrays inside HashMap<String,Object>
+primitive arrays inside full mixed typed putAll/getAll
+```
+
+## ArrayList<Object> Demo
 
 ```java
 ArrayList<Object> value = new ArrayList<>();
@@ -74,22 +187,6 @@ value.add(Boolean.TRUE);
 
 region.put("object-array-list-demo-key", value);
 Object actual = region.get("object-array-list-demo-key");
-```
-
-Observed Geode shape:
-
-```text
-41035700036f6e65390000002a3501
-```
-
-Decoded meaning:
-
-```text
-0x41         ArrayList/list marker
-03           list length
-57 0003 one  String element
-39 0000002a  Integer 42
-35 01        Boolean true
 ```
 
 Couchbase envelope:
@@ -102,53 +199,27 @@ Couchbase envelope:
 }
 ```
 
-## ArrayList<Object> Runtime Strategy
+## Object[] Demo
 
-```text
-Client sends:
-41 <length> <elements...>
+```java
+Object[] value = new Object[] {
+    "one",
+    Integer.valueOf(42),
+    Boolean.TRUE
+};
 
-Shim stores:
-same full 41... payload as Base64
-
-Shim returns:
-same full 41... payload
-
-Client receives:
-ArrayList<Object>
+region.put("object-array-demo-key", value);
+Object actual = region.get("object-array-demo-key");
 ```
 
-## Why Opaque ArrayList<Object> Storage
+Couchbase envelope:
 
-`ArrayList<Object>` may contain nested POJOs, maps, arrays, lists, byte arrays, Date values, and scalar values. Parsing it fully would require handling Java serialization stream boundaries and potentially classloading customer objects.
-
-The compatibility-first approach is:
-
-```text
-Try ArrayList<String> structured decoding first
-If that fails and the payload starts with 0x41, recognize it as ArrayList<Object>
-Store original encoded payload
-Return original encoded payload
-Let the Geode client deserialize normally
-```
-
-## Validated ArrayList<Object> Scenarios
-
-```text
-Simple ArrayList<Object> with String, Integer, Boolean
-ArrayList<Object> with null element
-ArrayList<Object> with scalar wrappers
-ArrayList<Object> with Date
-ArrayList<Object> with byte[]
-ArrayList<Object> with nested String[]
-ArrayList<Object> with nested Object[]
-ArrayList<Object> with nested ArrayList<String>
-ArrayList<Object> with nested HashMap<String,Object>
-ArrayList<Object> with nested Serializable POJO
-ArrayList<Object> in put/get
-ArrayList<Object> in putAll/get
-ArrayList<Object> in getAll
-ArrayList<Object> inside full mixed typed putAll/getAll
+```json
+{
+  "type": "objectArray",
+  "valueBase64": "NA...",
+  "length": 37
+}
 ```
 
 ## Full Mixed Demo Path
@@ -160,6 +231,13 @@ String
 Character
 Byte
 byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
 String[]
 ArrayList<String>
 HashMap<String,String>
@@ -186,6 +264,7 @@ Core region operations
 PUT / GET / PUT_ALL / GET_ALL
 Couchbase KV persistence
 Typed storage envelopes
+Structural primitive-array preservation
 Opaque POJO preservation
 Opaque Object[] preservation
 Opaque ArrayList<Object> preservation
@@ -199,8 +278,11 @@ Not yet validated:
 Nested Object[] inside structured Map<String,Object>
 Nested POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
-Primitive arrays beyond byte[]
 Wrapper arrays
+BigDecimal / BigInteger
+UUID
+Enum
+java.time values
 DataSerializable
 PDX / PdxInstance
 Queries
@@ -214,11 +296,5 @@ High-concurrency load testing
 ## Suggested Next Demo Target
 
 ```text
-primitive arrays beyond byte[]
-```
-
-Recommended first type:
-
-```text
-int[]
+wrapper arrays and common Java utility values
 ```

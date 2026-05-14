@@ -13,7 +13,13 @@ public record StoredValue(
         Character characterValue,
         Byte byteValue,
         byte[] byteArrayValue,
+        boolean[] booleanArrayValue,
+        char[] charArrayValue,
+        short[] shortArrayValue,
         int[] intArrayValue,
+        long[] longArrayValue,
+        float[] floatArrayValue,
+        double[] doubleArrayValue,
         String[] stringArrayValue,
         ArrayList<String> stringArrayListValue,
         LinkedHashMap<String, String> stringHashMapValue,
@@ -36,7 +42,13 @@ public record StoredValue(
         CHARACTER,
         BYTE,
         BYTE_ARRAY,
+        BOOLEAN_ARRAY,
+        CHAR_ARRAY,
+        SHORT_ARRAY,
         INT_ARRAY,
+        LONG_ARRAY,
+        FLOAT_ARRAY,
+        DOUBLE_ARRAY,
         STRING_ARRAY,
         STRING_ARRAY_LIST,
         STRING_HASH_MAP,
@@ -54,79 +66,103 @@ public record StoredValue(
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue characterValue(Character value) {
-        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteValue(Byte value) {
-        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteArrayValue(byte[] value) {
-        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue booleanArrayValue(boolean[] value) {
+        return new StoredValue(Type.BOOLEAN_ARRAY, null, null, null, null, copyBooleanArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue charArrayValue(char[] value) {
+        return new StoredValue(Type.CHAR_ARRAY, null, null, null, null, null, copyCharArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue shortArrayValue(short[] value) {
+        return new StoredValue(Type.SHORT_ARRAY, null, null, null, null, null, null, copyShortArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue intArrayValue(int[] value) {
-        return new StoredValue(Type.INT_ARRAY, null, null, null, null, copyIntArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.INT_ARRAY, null, null, null, null, null, null, null, copyIntArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue longArrayValue(long[] value) {
+        return new StoredValue(Type.LONG_ARRAY, null, null, null, null, null, null, null, null, copyLongArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue floatArrayValue(float[] value) {
+        return new StoredValue(Type.FLOAT_ARRAY, null, null, null, null, null, null, null, null, null, copyFloatArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue doubleArrayValue(double[] value) {
+        return new StoredValue(Type.DOUBLE_ARRAY, null, null, null, null, null, null, null, null, null, null, copyDoubleArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayValue(String[] value) {
-        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, null, null, null, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayListValue(ArrayList<String> value) {
-        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringHashMapValue(Map<String, String> value) {
-        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringObjectHashMapValue(Map<String, Object> value) {
-        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue javaSerializedObjectValue(String className, byte[] serializedValue) {
-        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayValue(byte[] encodedObjectArrayValue) {
-        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayListValue(byte[] encodedObjectArrayListValue) {
-        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
     }
 
     public static StoredValue dateValue(Date value) {
-        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
+        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
     }
 
     public StoredValue {
@@ -136,8 +172,32 @@ public record StoredValue(
             byteArrayValue = copyByteArray(byteArrayValue);
         }
 
+        if (booleanArrayValue != null) {
+            booleanArrayValue = copyBooleanArray(booleanArrayValue);
+        }
+
+        if (charArrayValue != null) {
+            charArrayValue = copyCharArray(charArrayValue);
+        }
+
+        if (shortArrayValue != null) {
+            shortArrayValue = copyShortArray(shortArrayValue);
+        }
+
         if (intArrayValue != null) {
             intArrayValue = copyIntArray(intArrayValue);
+        }
+
+        if (longArrayValue != null) {
+            longArrayValue = copyLongArray(longArrayValue);
+        }
+
+        if (floatArrayValue != null) {
+            floatArrayValue = copyFloatArray(floatArrayValue);
+        }
+
+        if (doubleArrayValue != null) {
+            doubleArrayValue = copyDoubleArray(doubleArrayValue);
         }
 
         if (stringArrayValue != null) {
@@ -188,8 +248,32 @@ public record StoredValue(
             throw new IllegalArgumentException("BYTE_ARRAY StoredValue requires byteArrayValue");
         }
 
+        if (type == Type.BOOLEAN_ARRAY && booleanArrayValue == null) {
+            throw new IllegalArgumentException("BOOLEAN_ARRAY StoredValue requires booleanArrayValue");
+        }
+
+        if (type == Type.CHAR_ARRAY && charArrayValue == null) {
+            throw new IllegalArgumentException("CHAR_ARRAY StoredValue requires charArrayValue");
+        }
+
+        if (type == Type.SHORT_ARRAY && shortArrayValue == null) {
+            throw new IllegalArgumentException("SHORT_ARRAY StoredValue requires shortArrayValue");
+        }
+
         if (type == Type.INT_ARRAY && intArrayValue == null) {
             throw new IllegalArgumentException("INT_ARRAY StoredValue requires intArrayValue");
+        }
+
+        if (type == Type.LONG_ARRAY && longArrayValue == null) {
+            throw new IllegalArgumentException("LONG_ARRAY StoredValue requires longArrayValue");
+        }
+
+        if (type == Type.FLOAT_ARRAY && floatArrayValue == null) {
+            throw new IllegalArgumentException("FLOAT_ARRAY StoredValue requires floatArrayValue");
+        }
+
+        if (type == Type.DOUBLE_ARRAY && doubleArrayValue == null) {
+            throw new IllegalArgumentException("DOUBLE_ARRAY StoredValue requires doubleArrayValue");
         }
 
         if (type == Type.STRING_ARRAY && stringArrayValue == null) {
@@ -273,8 +357,38 @@ public record StoredValue(
     }
 
     @Override
+    public boolean[] booleanArrayValue() {
+        return copyBooleanArray(booleanArrayValue);
+    }
+
+    @Override
+    public char[] charArrayValue() {
+        return copyCharArray(charArrayValue);
+    }
+
+    @Override
+    public short[] shortArrayValue() {
+        return copyShortArray(shortArrayValue);
+    }
+
+    @Override
     public int[] intArrayValue() {
         return copyIntArray(intArrayValue);
+    }
+
+    @Override
+    public long[] longArrayValue() {
+        return copyLongArray(longArrayValue);
+    }
+
+    @Override
+    public float[] floatArrayValue() {
+        return copyFloatArray(floatArrayValue);
+    }
+
+    @Override
+    public double[] doubleArrayValue() {
+        return copyDoubleArray(doubleArrayValue);
     }
 
     @Override
@@ -341,12 +455,60 @@ public record StoredValue(
         return copyByteArray(byteArrayValue);
     }
 
+    public boolean[] asBooleanArray() {
+        if (type != Type.BOOLEAN_ARRAY) {
+            throw new IllegalStateException("StoredValue is not BOOLEAN_ARRAY. Actual type: " + type);
+        }
+
+        return copyBooleanArray(booleanArrayValue);
+    }
+
+    public char[] asCharArray() {
+        if (type != Type.CHAR_ARRAY) {
+            throw new IllegalStateException("StoredValue is not CHAR_ARRAY. Actual type: " + type);
+        }
+
+        return copyCharArray(charArrayValue);
+    }
+
+    public short[] asShortArray() {
+        if (type != Type.SHORT_ARRAY) {
+            throw new IllegalStateException("StoredValue is not SHORT_ARRAY. Actual type: " + type);
+        }
+
+        return copyShortArray(shortArrayValue);
+    }
+
     public int[] asIntArray() {
         if (type != Type.INT_ARRAY) {
             throw new IllegalStateException("StoredValue is not INT_ARRAY. Actual type: " + type);
         }
 
         return copyIntArray(intArrayValue);
+    }
+
+    public long[] asLongArray() {
+        if (type != Type.LONG_ARRAY) {
+            throw new IllegalStateException("StoredValue is not LONG_ARRAY. Actual type: " + type);
+        }
+
+        return copyLongArray(longArrayValue);
+    }
+
+    public float[] asFloatArray() {
+        if (type != Type.FLOAT_ARRAY) {
+            throw new IllegalStateException("StoredValue is not FLOAT_ARRAY. Actual type: " + type);
+        }
+
+        return copyFloatArray(floatArrayValue);
+    }
+
+    public double[] asDoubleArray() {
+        if (type != Type.DOUBLE_ARRAY) {
+            throw new IllegalStateException("StoredValue is not DOUBLE_ARRAY. Actual type: " + type);
+        }
+
+        return copyDoubleArray(doubleArrayValue);
     }
 
     public String[] asStringArray() {
@@ -484,7 +646,13 @@ public record StoredValue(
                 && Objects.equals(characterValue, that.characterValue)
                 && Objects.equals(byteValue, that.byteValue)
                 && Arrays.equals(byteArrayValue, that.byteArrayValue)
+                && Arrays.equals(booleanArrayValue, that.booleanArrayValue)
+                && Arrays.equals(charArrayValue, that.charArrayValue)
+                && Arrays.equals(shortArrayValue, that.shortArrayValue)
                 && Arrays.equals(intArrayValue, that.intArrayValue)
+                && Arrays.equals(longArrayValue, that.longArrayValue)
+                && Arrays.equals(floatArrayValue, that.floatArrayValue)
+                && Arrays.equals(doubleArrayValue, that.doubleArrayValue)
                 && Arrays.equals(stringArrayValue, that.stringArrayValue)
                 && Objects.equals(stringArrayListValue, that.stringArrayListValue)
                 && Objects.equals(stringHashMapValue, that.stringHashMapValue)
@@ -522,7 +690,13 @@ public record StoredValue(
         );
 
         result = 31 * result + Arrays.hashCode(byteArrayValue);
+        result = 31 * result + Arrays.hashCode(booleanArrayValue);
+        result = 31 * result + Arrays.hashCode(charArrayValue);
+        result = 31 * result + Arrays.hashCode(shortArrayValue);
         result = 31 * result + Arrays.hashCode(intArrayValue);
+        result = 31 * result + Arrays.hashCode(longArrayValue);
+        result = 31 * result + Arrays.hashCode(floatArrayValue);
+        result = 31 * result + Arrays.hashCode(doubleArrayValue);
         result = 31 * result + Arrays.hashCode(stringArrayValue);
         result = 31 * result + stringObjectHashMapHashCode(stringObjectHashMapValue);
         result = 31 * result + Arrays.hashCode(javaSerializedValue);
@@ -536,7 +710,31 @@ public record StoredValue(
         return value == null ? null : Arrays.copyOf(value, value.length);
     }
 
+    private static boolean[] copyBooleanArray(boolean[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static char[] copyCharArray(char[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static short[] copyShortArray(short[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
     private static int[] copyIntArray(int[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static long[] copyLongArray(long[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static float[] copyFloatArray(float[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static double[] copyDoubleArray(double[] value) {
         return value == null ? null : Arrays.copyOf(value, value.length);
     }
 
@@ -569,6 +767,34 @@ public record StoredValue(
     private static Object copySupportedMapObjectValue(Object value) {
         if (value instanceof byte[] bytes) {
             return copyByteArray(bytes);
+        }
+
+        if (value instanceof boolean[] booleans) {
+            return copyBooleanArray(booleans);
+        }
+
+        if (value instanceof char[] chars) {
+            return copyCharArray(chars);
+        }
+
+        if (value instanceof short[] shorts) {
+            return copyShortArray(shorts);
+        }
+
+        if (value instanceof int[] ints) {
+            return copyIntArray(ints);
+        }
+
+        if (value instanceof long[] longs) {
+            return copyLongArray(longs);
+        }
+
+        if (value instanceof float[] floats) {
+            return copyFloatArray(floats);
+        }
+
+        if (value instanceof double[] doubles) {
+            return copyDoubleArray(doubles);
         }
 
         if (value instanceof String[] strings) {
@@ -628,6 +854,34 @@ public record StoredValue(
             return Arrays.equals(leftBytes, rightBytes);
         }
 
+        if (left instanceof boolean[] leftBooleans && right instanceof boolean[] rightBooleans) {
+            return Arrays.equals(leftBooleans, rightBooleans);
+        }
+
+        if (left instanceof char[] leftChars && right instanceof char[] rightChars) {
+            return Arrays.equals(leftChars, rightChars);
+        }
+
+        if (left instanceof short[] leftShorts && right instanceof short[] rightShorts) {
+            return Arrays.equals(leftShorts, rightShorts);
+        }
+
+        if (left instanceof int[] leftInts && right instanceof int[] rightInts) {
+            return Arrays.equals(leftInts, rightInts);
+        }
+
+        if (left instanceof long[] leftLongs && right instanceof long[] rightLongs) {
+            return Arrays.equals(leftLongs, rightLongs);
+        }
+
+        if (left instanceof float[] leftFloats && right instanceof float[] rightFloats) {
+            return Arrays.equals(leftFloats, rightFloats);
+        }
+
+        if (left instanceof double[] leftDoubles && right instanceof double[] rightDoubles) {
+            return Arrays.equals(leftDoubles, rightDoubles);
+        }
+
         if (left instanceof String[] leftStrings && right instanceof String[] rightStrings) {
             return Arrays.equals(leftStrings, rightStrings);
         }
@@ -653,6 +907,34 @@ public record StoredValue(
     private static int mapObjectValueHashCode(Object value) {
         if (value instanceof byte[] bytes) {
             return Arrays.hashCode(bytes);
+        }
+
+        if (value instanceof boolean[] booleans) {
+            return Arrays.hashCode(booleans);
+        }
+
+        if (value instanceof char[] chars) {
+            return Arrays.hashCode(chars);
+        }
+
+        if (value instanceof short[] shorts) {
+            return Arrays.hashCode(shorts);
+        }
+
+        if (value instanceof int[] ints) {
+            return Arrays.hashCode(ints);
+        }
+
+        if (value instanceof long[] longs) {
+            return Arrays.hashCode(longs);
+        }
+
+        if (value instanceof float[] floats) {
+            return Arrays.hashCode(floats);
+        }
+
+        if (value instanceof double[] doubles) {
+            return Arrays.hashCode(doubles);
         }
 
         if (value instanceof String[] strings) {

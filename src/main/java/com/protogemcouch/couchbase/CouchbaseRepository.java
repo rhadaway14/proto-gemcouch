@@ -43,7 +43,13 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_CHARACTER = "character";
     private static final String TYPE_BYTE = "byte";
     private static final String TYPE_BYTE_ARRAY = "byteArray";
+    private static final String TYPE_BOOLEAN_ARRAY = "booleanArray";
+    private static final String TYPE_CHAR_ARRAY = "charArray";
+    private static final String TYPE_SHORT_ARRAY = "shortArray";
     private static final String TYPE_INT_ARRAY = "intArray";
+    private static final String TYPE_LONG_ARRAY = "longArray";
+    private static final String TYPE_FLOAT_ARRAY = "floatArray";
+    private static final String TYPE_DOUBLE_ARRAY = "doubleArray";
     private static final String TYPE_STRING_ARRAY = "stringArray";
     private static final String TYPE_STRING_ARRAY_LIST = "stringArrayList";
     private static final String TYPE_STRING_HASH_MAP = "stringHashMap";
@@ -369,6 +375,48 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.BOOLEAN_ARRAY) {
+            boolean[] booleanArray = value.asBooleanArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (boolean item : booleanArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_BOOLEAN_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, booleanArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.CHAR_ARRAY) {
+            char[] charArray = value.asCharArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (char item : charArray) {
+                jsonArray.add(String.valueOf(item));
+            }
+
+            body.put(FIELD_TYPE, TYPE_CHAR_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, charArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.SHORT_ARRAY) {
+            short[] shortArray = value.asShortArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (short item : shortArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_SHORT_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, shortArray.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.INT_ARRAY) {
             int[] intArray = value.asIntArray();
             JsonArray jsonArray = JsonArray.create();
@@ -380,6 +428,48 @@ public class CouchbaseRepository implements Repository {
             body.put(FIELD_TYPE, TYPE_INT_ARRAY);
             body.put(FIELD_VALUE, jsonArray);
             body.put(FIELD_LENGTH, intArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.LONG_ARRAY) {
+            long[] longArray = value.asLongArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (long item : longArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_LONG_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, longArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.FLOAT_ARRAY) {
+            float[] floatArray = value.asFloatArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (float item : floatArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_FLOAT_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, floatArray.length);
+            return body;
+        }
+
+        if (value.type() == StoredValue.Type.DOUBLE_ARRAY) {
+            double[] doubleArray = value.asDoubleArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (double item : doubleArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_DOUBLE_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, doubleArray.length);
             return body;
         }
 
@@ -590,8 +680,32 @@ public class CouchbaseRepository implements Repository {
             return decodeByteArrayStoredValue(content, rawValue);
         }
 
+        if (TYPE_BOOLEAN_ARRAY.equalsIgnoreCase(type)) {
+            return decodeBooleanArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_CHAR_ARRAY.equalsIgnoreCase(type)) {
+            return decodeCharArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_SHORT_ARRAY.equalsIgnoreCase(type)) {
+            return decodeShortArrayStoredValue(content, rawValue);
+        }
+
         if (TYPE_INT_ARRAY.equalsIgnoreCase(type)) {
             return decodeIntArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_LONG_ARRAY.equalsIgnoreCase(type)) {
+            return decodeLongArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_FLOAT_ARRAY.equalsIgnoreCase(type)) {
+            return decodeFloatArrayStoredValue(content, rawValue);
+        }
+
+        if (TYPE_DOUBLE_ARRAY.equalsIgnoreCase(type)) {
+            return decodeDoubleArrayStoredValue(content, rawValue);
         }
 
         if (TYPE_STRING_ARRAY.equalsIgnoreCase(type)) {
@@ -754,6 +868,123 @@ public class CouchbaseRepository implements Repository {
         return null;
     }
 
+
+    private static StoredValue decodeBooleanArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        boolean[] decoded = new boolean[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Boolean bool) {
+                decoded[i] = bool;
+            } else if (item instanceof String text) {
+                if ("true".equalsIgnoreCase(text)) {
+                    decoded[i] = true;
+                } else if ("false".equalsIgnoreCase(text)) {
+                    decoded[i] = false;
+                } else {
+                    log.warn(StructuredLog.event(
+                            "repository_boolean_array_decode_failed",
+                            "reason", "non_boolean_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_boolean_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_boolean_array_length_mismatch", decoded.length);
+        return StoredValue.booleanArrayValue(decoded);
+    }
+
+    private static StoredValue decodeCharArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        char[] decoded = new char[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof String text && text.length() == 1) {
+                decoded[i] = text.charAt(0);
+            } else if (item instanceof Character character) {
+                decoded[i] = character;
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_char_array_decode_failed",
+                        "reason", "unsupported_item_type_or_length",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName(),
+                        "value", item == null ? "null" : String.valueOf(item)
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_char_array_length_mismatch", decoded.length);
+        return StoredValue.charArrayValue(decoded);
+    }
+
+    private static StoredValue decodeShortArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        short[] decoded = new short[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Number number) {
+                decoded[i] = number.shortValue();
+            } else if (item instanceof String text) {
+                try {
+                    decoded[i] = Short.parseShort(text);
+                } catch (NumberFormatException e) {
+                    log.warn(StructuredLog.event(
+                            "repository_short_array_decode_failed",
+                            "reason", "non_short_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_short_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_short_array_length_mismatch", decoded.length);
+        return StoredValue.shortArrayValue(decoded);
+    }
+
     private static StoredValue decodeIntArrayStoredValue(JsonObject content, Object rawValue) {
         List<?> rawList = null;
 
@@ -808,6 +1039,154 @@ public class CouchbaseRepository implements Repository {
 
         return StoredValue.intArrayValue(decoded);
     }
+
+    private static StoredValue decodeLongArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        long[] decoded = new long[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Number number) {
+                decoded[i] = number.longValue();
+            } else if (item instanceof String text) {
+                try {
+                    decoded[i] = Long.parseLong(text);
+                } catch (NumberFormatException e) {
+                    log.warn(StructuredLog.event(
+                            "repository_long_array_decode_failed",
+                            "reason", "non_long_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_long_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_long_array_length_mismatch", decoded.length);
+        return StoredValue.longArrayValue(decoded);
+    }
+
+    private static StoredValue decodeFloatArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        float[] decoded = new float[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Number number) {
+                decoded[i] = number.floatValue();
+            } else if (item instanceof String text) {
+                try {
+                    decoded[i] = Float.parseFloat(text);
+                } catch (NumberFormatException e) {
+                    log.warn(StructuredLog.event(
+                            "repository_float_array_decode_failed",
+                            "reason", "non_float_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_float_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_float_array_length_mismatch", decoded.length);
+        return StoredValue.floatArrayValue(decoded);
+    }
+
+    private static StoredValue decodeDoubleArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = rawListFromValue(rawValue);
+
+        if (rawList == null) {
+            return null;
+        }
+
+        double[] decoded = new double[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Number number) {
+                decoded[i] = number.doubleValue();
+            } else if (item instanceof String text) {
+                try {
+                    decoded[i] = Double.parseDouble(text);
+                } catch (NumberFormatException e) {
+                    log.warn(StructuredLog.event(
+                            "repository_double_array_decode_failed",
+                            "reason", "non_double_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_double_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        warnLengthMismatch(content, "repository_double_array_length_mismatch", decoded.length);
+        return StoredValue.doubleArrayValue(decoded);
+    }
+
+    private static List<?> rawListFromValue(Object rawValue) {
+        if (rawValue instanceof JsonArray jsonArray) {
+            return jsonArray.toList();
+        }
+
+        if (rawValue instanceof List<?> list) {
+            return list;
+        }
+
+        return null;
+    }
+
+    private static void warnLengthMismatch(JsonObject content, String eventName, int actualLength) {
+        Object rawLength = content.get(FIELD_LENGTH);
+
+        if (rawLength instanceof Number number && number.intValue() != actualLength) {
+            log.warn(StructuredLog.event(
+                    eventName,
+                    "expectedLength", number.intValue(),
+                    "actualLength", actualLength
+            ));
+        }
+    }
+
 
 
     private static StoredValue decodeStringArrayStoredValue(JsonObject content, Object rawValue) {
@@ -1167,6 +1546,45 @@ public class CouchbaseRepository implements Repository {
             return out;
         }
 
+        if (value instanceof boolean[] booleans) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (boolean item : booleans) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_BOOLEAN_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, booleans.length);
+            return out;
+        }
+
+        if (value instanceof char[] chars) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (char item : chars) {
+                jsonArray.add(String.valueOf(item));
+            }
+
+            out.put(FIELD_TYPE, TYPE_CHAR_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, chars.length);
+            return out;
+        }
+
+        if (value instanceof short[] shorts) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (short item : shorts) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_SHORT_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, shorts.length);
+            return out;
+        }
+
         if (value instanceof int[] ints) {
             JsonArray jsonArray = JsonArray.create();
 
@@ -1177,6 +1595,45 @@ public class CouchbaseRepository implements Repository {
             out.put(FIELD_TYPE, TYPE_INT_ARRAY);
             out.put(FIELD_VALUE, jsonArray);
             out.put(FIELD_LENGTH, ints.length);
+            return out;
+        }
+
+        if (value instanceof long[] longs) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (long item : longs) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_LONG_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, longs.length);
+            return out;
+        }
+
+        if (value instanceof float[] floats) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (float item : floats) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_FLOAT_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, floats.length);
+            return out;
+        }
+
+        if (value instanceof double[] doubles) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (double item : doubles) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_DOUBLE_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, doubles.length);
             return out;
         }
 
@@ -1422,6 +1879,86 @@ public class CouchbaseRepository implements Repository {
             return null;
         }
 
+        if (TYPE_BOOLEAN_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            boolean[] decoded = new boolean[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Boolean bool) {
+                    decoded[i] = bool;
+                } else if (item instanceof String text) {
+                    if ("true".equalsIgnoreCase(text)) {
+                        decoded[i] = true;
+                    } else if ("false".equalsIgnoreCase(text)) {
+                        decoded[i] = false;
+                    } else {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_CHAR_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            char[] decoded = new char[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof String text && text.length() == 1) {
+                    decoded[i] = text.charAt(0);
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_SHORT_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            short[] decoded = new short[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Number number) {
+                    decoded[i] = number.shortValue();
+                } else if (item instanceof String text) {
+                    try {
+                        decoded[i] = Short.parseShort(text);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
         if (TYPE_INT_ARRAY.equalsIgnoreCase(type)) {
             List<?> rawList = null;
 
@@ -1445,6 +1982,90 @@ public class CouchbaseRepository implements Repository {
                 } else if (item instanceof String text) {
                     try {
                         decoded[i] = Integer.parseInt(text);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_LONG_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            long[] decoded = new long[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Number number) {
+                    decoded[i] = number.longValue();
+                } else if (item instanceof String text) {
+                    try {
+                        decoded[i] = Long.parseLong(text);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_FLOAT_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            float[] decoded = new float[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Number number) {
+                    decoded[i] = number.floatValue();
+                } else if (item instanceof String text) {
+                    try {
+                        decoded[i] = Float.parseFloat(text);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_DOUBLE_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            double[] decoded = new double[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Number number) {
+                    decoded[i] = number.doubleValue();
+                } else if (item instanceof String text) {
+                    try {
+                        decoded[i] = Double.parseDouble(text);
                     } catch (NumberFormatException e) {
                         return null;
                     }

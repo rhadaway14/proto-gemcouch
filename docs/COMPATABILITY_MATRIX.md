@@ -3,18 +3,34 @@
 ## Current Milestone
 
 ```text
-object-array-list-support-complete
+primitive-array-family-support-complete
 ```
 
-`ArrayList<Object>` support is now implemented and validated. The shim preserves mixed `ArrayList<Object>` values as opaque Geode DataSerializer list payloads, stores the full encoded payload in Couchbase as Base64, and returns the same payload to the Geode client.
+Primitive array family support is now implemented and validated end-to-end.
 
-Previous completed milestone:
+This milestone adds structural support for:
 
 ```text
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
+```
+
+`byte[]` remains supported through the existing byte-array path.
+
+Previous completed milestones:
+
+```text
+int-array-support-complete
+object-array-list-support-complete
 object-array-support-complete
 ```
 
-Latest verification completed successfully:
+Latest verification:
 
 ```powershell
 mvn clean test
@@ -28,10 +44,10 @@ ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -67,6 +83,13 @@ BUILD SUCCESS
 | `Double` | `0x3c` | Yes | Yes | Yes |
 | `java.util.Date` | `0x3d` | Yes | Yes | Yes |
 | `byte[]` | `0x2e` or raw bytes | Yes | Yes | Yes |
+| `boolean[]` | `0x1a` | Yes | Yes | Yes |
+| `char[]` | `0x1b` | Yes | Yes | Yes |
+| `short[]` | `0x2f` | Yes | Yes | Yes |
+| `int[]` | `0x30` | Yes | Yes | Yes |
+| `long[]` | `0x31` | Yes | Yes | Yes |
+| `float[]` | `0x32` | Yes | Yes | Yes |
+| `double[]` | `0x33` | Yes | Yes | Yes |
 | `String[]` | `0x40` | Yes | Yes | Yes |
 | `ArrayList<String>` | `0x41` string-only list | Yes | Yes | Yes |
 | `HashMap<String,String>` | `0x43` empty or `0x2c aced...` | Yes | Yes | Yes |
@@ -74,30 +97,67 @@ BUILD SUCCESS
 | Serializable POJO | `0x2c aced...` | Yes | Yes | Yes |
 | `Object[]` | `0x34 ... java.lang.Object ...` | Yes | Yes | Yes |
 | `ArrayList<Object>` | `0x41 ... mixed elements ...` | Yes | Yes | Yes |
-| primitive arrays beyond `byte[]` | TBD | Not yet | Not yet | Not yet |
 | wrapper arrays | TBD | Not yet | Not yet | Not yet |
+| BigDecimal / BigInteger | TBD | Not yet | Not yet | Not yet |
+| UUID | TBD | Not yet | Not yet | Not yet |
+| Enum | TBD | Not yet | Not yet | Not yet |
+| `java.time` values | TBD | Not yet | Not yet | Not yet |
 | DataSerializable | TBD | Not yet | Not yet | Not yet |
 | PDX / PdxInstance | TBD | Not yet | Not yet | Not yet |
 
-## ArrayList<Object> Support
+## Primitive Array Support
 
-Observed simple mixed-list wire shape:
-
-```text
-41035700036f6e65390000002a3501
-```
-
-Meaning:
+Primitive arrays use dedicated Geode DataSerializer markers:
 
 ```text
-0x41            Geode ArrayList/list marker
-03              list length
-57 0003 one     String element
-39 0000002a     Integer 42
-35 01           Boolean true
+boolean[]  -> 0x1a
+char[]     -> 0x1b
+byte[]     -> 0x2e
+short[]    -> 0x2f
+int[]      -> 0x30
+long[]     -> 0x31
+float[]    -> 0x32
+double[]   -> 0x33
 ```
 
-Storage envelope:
+The general wire pattern is:
+
+```text
+<marker> <length> <big-endian primitive values...>
+```
+
+Primitive arrays are decoded structurally and stored in Couchbase as typed JSON array envelopes.
+
+Example `int[]` envelope:
+
+```json
+{
+  "type": "intArray",
+  "value": [1, 42, -7, 2147483647, -2147483648],
+  "length": 5
+}
+```
+
+Example `char[]` envelope:
+
+```json
+{
+  "type": "charArray",
+  "value": ["A", "Z", "0"],
+  "length": 3
+}
+```
+
+Design decision:
+
+```text
+Primitive arrays are simple fixed-width payloads, so they are stored structurally.
+Object[] and ArrayList<Object> remain opaque because parsing them fully can involve nested Java serialization, customer classes, and object graph boundaries.
+```
+
+## Opaque Object Support
+
+### ArrayList<Object>
 
 ```json
 {
@@ -107,25 +167,7 @@ Storage envelope:
 }
 ```
 
-Design decision:
-
-```text
-ArrayList<Object> values are stored opaquely.
-ArrayList<String> still uses the existing structured string-list path.
-The decoder first attempts ArrayList<String>.
-If string-list decoding fails and the payload starts with 0x41, the shim preserves it as ArrayList<Object>.
-The shim returns the original Geode-compatible 0x41 payload.
-```
-
-## Object[] Support
-
-Observed wire shape:
-
-```text
-34 <length> 2b 57 0010 6a6176612e6c616e672e4f626a656374 <elements...>
-```
-
-Storage envelope:
+### Object[]
 
 ```json
 {
@@ -135,17 +177,7 @@ Storage envelope:
 }
 ```
 
-## Serializable POJO Support
-
-Serializable POJOs are stored opaquely, but without the leading Geode `0x2c` marker:
-
-```text
-Client sends:  2c ac ed 00 05 ...
-Stored bytes:     ac ed 00 05 ...
-Returned:      2c ac ed 00 05 ...
-```
-
-Storage envelope:
+### Serializable POJO
 
 ```json
 {
@@ -173,6 +205,13 @@ Float
 Double
 java.util.Date
 byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
 String[]
 ArrayList<String>
 ```
@@ -189,7 +228,7 @@ Top-level `Object[]`, top-level `ArrayList<Object>`, and top-level Serializable 
 
 ## Runtime Coverage
 
-| Component | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Arrays/lists | Date |
+| Component | Primitive Arrays | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Date |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
@@ -202,15 +241,21 @@ Top-level `Object[]`, top-level `ArrayList<Object>`, and top-level Serializable 
 | `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Docker integration | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
-## ArrayList<Object> Integration Coverage
+## Primitive Array Integration Coverage
 
 ```text
-objectArrayListValueShouldRoundTripThroughShimAndCouchbase
-objectArrayListWithNullElementShouldRoundTripThroughShimAndCouchbase
-objectArrayListWithNestedValuesShouldRoundTripThroughShimAndCouchbase
-putAllWithObjectArrayListValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithObjectArrayListValuesShouldReturnArrayLists
-mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+booleanArrayValueShouldRoundTripThroughShimAndCouchbase
+charArrayValueShouldRoundTripThroughShimAndCouchbase
+shortArrayValueShouldRoundTripThroughShimAndCouchbase
+intArrayValueShouldRoundTripThroughShimAndCouchbase
+emptyIntArrayValueShouldRoundTripThroughShimAndCouchbase
+longArrayValueShouldRoundTripThroughShimAndCouchbase
+floatArrayValueShouldRoundTripThroughShimAndCouchbase
+doubleArrayValueShouldRoundTripThroughShimAndCouchbase
+putAllWithPrimitiveArrayFamilyValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithPrimitiveArrayFamilyValuesShouldReturnPrimitiveArrays
+stringObjectHashMapWithArrayValuesShouldRoundTripThroughShimAndCouchbase
+mixedStringCharacterBytePrimitiveArraysStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
 ```
 
 ## Known Limitations
@@ -219,7 +264,6 @@ mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringOb
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
-Primitive arrays beyond byte[]
 Wrapper arrays
 BigDecimal / BigInteger
 UUID
@@ -240,20 +284,21 @@ High-concurrency load and soak testing
 ## Recommended Next Target
 
 ```text
-primitive arrays beyond byte[]
+wrapper arrays and common Java utility value types
 ```
 
-Start with:
+Recommended next types:
 
 ```text
-int[]
-```
-
-Reason:
-
-```text
-byte[] is already supported.
-Primitive arrays are common in serialized payloads.
-int[] gives us a clean next DataSerializer shape to validate.
-Primitive arrays are narrower than PDX/DataSerializable and help continue expanding core type compatibility safely.
+Integer[]
+Long[]
+Boolean[]
+Double[]
+UUID
+BigDecimal
+BigInteger
+Enum
+java.time.Instant
+java.time.LocalDate
+java.time.LocalDateTime
 ```

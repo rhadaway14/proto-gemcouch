@@ -2,163 +2,202 @@
 
 ## Summary
 
-`ProtoGemCouch` has reached a successful demo milestone, but it is not yet a full Apache Geode server replacement.
+`ProtoGemCouch` has reached a broader compatibility milestone, but it is not yet a full Apache Geode server replacement.
 
-The current implementation supports an effective end-to-end demo path for supported string values and backend CRUD behavior against Couchbase. Destroy/remove reply compatibility, native String reads, native contains key semantics, and native contains value-for-key semantics have been validated for the current sample path.
+The current implementation now supports a validated end-to-end path for core region operations, Couchbase persistence, typed value envelopes, simple scalar values, primitive arrays, selected collections/maps, Serializable POJOs, `Object[]`, and `ArrayList<Object>`.
 
-Broader protocol coverage and type-fidelity gaps still remain.
-
----
-
-## 1. Destroy / Remove Reply Compatibility
-
-### Current state
-The shim successfully processes remove requests and returns a Geode-compatible destroy reply for the validated sample flow.
-
-### Validated behavior
-- `RemoveHandler` executes successfully
-- Couchbase delete succeeds
-- the Geode client `region.remove(...)` returns normally in the tested sample app flow
-- follow-up native contains checks confirm the document is absent
-
-### Remaining limitation
-This is currently validated for the tested string-value sample path. It is not yet proven across broader object types, concurrency situations, or all client-side destroy variants.
+Broader Geode server behavior, advanced serialization modes, distributed semantics, and production-hardening gaps still remain.
 
 ---
 
-## 2. Response Type Fidelity Has Improved but Is Still Narrow
+## 1. Scope Is Still a Compatibility Profile, Not Full Geode Parity
 
-### Current state
-Supported string reads now return to the sample app as native `java.lang.String`.
+Validated operation paths include:
 
-### Validated behavior
-- created string values are read back as `java.lang.String`
-- updated string values are read back as `java.lang.String`
-- the sample app no longer needs byte-array normalization for the validated String read path
+- connect / handshake
+- region access
+- put
+- get
+- putAll
+- getAll
+- remove
+- containsKey
+- sizeOnServer
+- keySetOnServer
+- unsupported / unknown opcode logging
 
-### Remaining limitation
-This is validated for supported string values only.
+Not yet validated or implemented:
+
+- queries
+- transactions
+- continuous queries
+- interest registration
+- server-side functions
+- full partitioned-region metadata behavior
+- listener/callback/event semantics
+- full distributed-region semantics
+
+---
+
+## 2. Response Type Fidelity Has Improved but Is Not Universal
+
+Validated value families include:
+
+- primitive wrappers
+- `java.util.Date`
+- `byte[]`
+- `boolean[]`
+- `char[]`
+- `short[]`
+- `int[]`
+- `long[]`
+- `float[]`
+- `double[]`
+- `String[]`
+- `ArrayList<String>`
+- `HashMap<String,String>`
+- `HashMap<String,Object>`
+- Serializable POJOs
+- `Object[]`
+- `ArrayList<Object>`
 
 Not yet validated:
-- arbitrary Java objects
-- PDX objects
-- custom serialized objects
-- collection/map payloads
-- nested object graphs
-- broader Geode serialization compatibility
+
+- wrapper arrays such as `Integer[]`, `Long[]`, `Boolean[]`, `Double[]`
+- BigDecimal / BigInteger
+- UUID
+- Enum
+- `java.time` values
+- PDX / PdxInstance
+- DataSerializable
+- arbitrary Java object graphs
+- nested opaque object values inside structured map envelopes
 
 ---
 
-## 3. Geode DataSerializer Initialization Is Not Reliable in the Shim Runtime
+## 3. Opaque vs. Structural Storage Is Intentional
 
-### Current state
-`org.apache.geode.DataSerializer` initialization can still fail in the shim runtime.
+Structural storage:
 
-### Updated behavior
-The supported string PUT path no longer depends on DataSerializer. It now uses deterministic Geode string decoding and logs cleanly.
+- primitive wrappers
+- `java.util.Date`
+- `byte[]`
+- primitive arrays
+- `String[]`
+- `ArrayList<String>`
+- `HashMap<String,String>`
+- `HashMap<String,Object>`
 
-### Impact
-- current demo path works for supported string values
-- noisy fallback warnings have been removed from the validated string PUT path
-- general object serialization/deserialization compatibility is still incomplete
-- arbitrary complex Geode object types are not yet supported
+Opaque storage:
 
----
+- Serializable POJO
+- `Object[]`
+- `ArrayList<Object>`
 
-## 4. Supported Data Shape Is Still Narrow
-
-### Current state
-The currently validated path is primarily for:
-
-- region name
-- string key
-- supported string value payloads
-
-### Not yet validated
-- arbitrary object graphs
-- custom serialized types
-- PDX objects
-- collections / maps with full Geode serialization fidelity
-- callbacks and listener semantics
-- event metadata fidelity beyond the currently captured paths
-- versioning / concurrency semantics beyond the current subset
+Opaque storage preserves compatibility but limits Couchbase-side queryability of the internal object structure.
 
 ---
 
-## 5. Compatibility Coverage Is Partial
+## 4. Structured Map Support Has Known Nested Gaps
 
-### Current state
-A small but important set of operations is now working for the demo path, including:
+`HashMap<String,Object>` supports a useful set of nested structured values:
 
-- create
-- read
-- update
-- delete
-- native key existence checks
-- native value-for-key existence checks
-- missing-document handling for contains checks
+```text
+null
+String
+Boolean
+Character
+Byte
+Short
+Integer
+Long
+Float
+Double
+java.util.Date
+byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
+String[]
+ArrayList<String>
+```
 
-### Still needed
-Broader operation-by-operation validation is still required, including areas such as:
+The following are not yet supported inside structured `HashMap<String,Object>` envelopes:
 
-- bulk operations
-- key set / size semantics
-- error cases
-- reconnect and retry behavior
-- richer object types and serialization modes
-- unsupported operation behavior
+```text
+Object[]
+Serializable POJO
+ArrayList<Object>
+```
+
+Top-level `Object[]`, top-level `ArrayList<Object>`, and top-level Serializable POJOs are supported.
 
 ---
 
-## 6. Public `containsValueForKey(...)` Behavior Requires Careful Positioning
+## 5. Geode DataSerializer Compatibility Is Still Selective
 
-### Current state
-The native server-side contains-value-for-key protocol path is validated.
+The shim uses deterministic decoding for many validated payloads and opaque preservation for more complex payloads.
 
-However, the public Geode API call:
+Still not covered:
 
-- `region.containsValueForKey(key)`
+- every Geode DataSerializer marker
+- custom DataSerializable implementations
+- PDX / PdxInstance
+- all nested Java serialization boundary cases
+- all customer classloading scenarios
 
-may resolve locally depending on the client region shortcut and may not always send a server request.
+---
 
-### Current validation approach
-The sample app validates the native server protocol path by invoking the server proxy through reflection.
+## 6. Public API Behavior Requires Careful Positioning
 
-### Impact
-This is acceptable for protocol validation, but support claims should be precise:
+Native protocol paths for supported operations have been validated through real Geode client integration tests.
 
-- native mode `1` contains protocol path is validated
-- public application-level behavior across all region shortcuts is not yet broadly validated
+Some public Geode client API methods may resolve locally depending on client region configuration, shortcut type, and local state.
+
+Support claims should remain precise:
+
+```text
+The shim validates specific native protocol paths and supported client behavior.
+It does not guarantee all public Geode API behavior across all region configurations.
+```
 
 ---
 
 ## 7. Production Readiness Is Still Partial
 
-### Already present
-The project already includes major production-oriented building blocks such as:
+Already present:
 
 - structured logging
 - metrics
 - startup validation
+- Docker-backed integration environment
 - benchmark and soak testing work
 - deployment packaging
 - runbooks and launch criteria
-- clean expected-miss logging for supported contains paths
+- compatibility matrix
+- current limitations documentation
+- repeatable test suite
 
-### Still missing for true production readiness
+Still missing for true production readiness:
+
 - broader native Geode wire compatibility validation
-- broader compatibility testing with real Geode clients
-- richer integration and regression coverage around real protocol captures
-- clearer guarantees around supported and unsupported data types
-- final hardening for reconnect behavior, failures, and compatibility guarantees
+- formal support contract
+- stronger failure-mode tests
+- performance characterization under realistic load
+- concurrency and soak validation against the current compatibility baseline
+- final deployment and security hardening
 
 ---
 
-## 8. Current Positioning
+## Current Positioning
 
 The project should currently be described as:
 
-**A working Geode-to-Couchbase protocol shim prototype with successful end-to-end CRUD and native contains demonstration for supported string values, including native Java String reads, working destroy/remove replies, native contains key checks, native value-for-key checks, and clean expected-miss handling for the validated sample flow, but not yet a fully native Geode-compatible server replacement.**
+**A working Geode-to-Couchbase protocol shim prototype with successful end-to-end validation for core region operations and a broad supported type profile, including primitive wrappers, primitive arrays, selected collections/maps, Serializable POJOs, `Object[]`, and `ArrayList<Object>`, backed by Docker-based real-client integration tests, but not yet a fully native Geode-compatible server replacement.**
 
 ---
 
@@ -166,23 +205,18 @@ The project should currently be described as:
 
 The next highest-priority engineering task is:
 
-## Broaden operation coverage beyond the validated CRUD + contains sample path
+## Expand wrapper-array and common Java utility type coverage
 
-That work should include:
+Recommended next targets:
 
-- validating GET_ALL and PUT_ALL against real Geode client behavior
-- validating KEY_SET and SIZE
-- expanding the compatibility matrix
-- validating more payload and object types
-- hardening regression coverage around captured real protocol responses
-
----
-
-## Definition of Done for the Current Limitation Area
-
-The next compatibility phase will be considered successful when:
-
-- the validated CRUD + contains sample continues to pass
-- additional Geode client operations are verified without special-case workarounds
-- broader response types are surfaced correctly as native Java objects where expected
-- compatibility claims are backed by regression tests and captured wire comparisons
+- `Integer[]`
+- `Long[]`
+- `Boolean[]`
+- `Double[]`
+- UUID
+- BigDecimal
+- BigInteger
+- Enum
+- `java.time.Instant`
+- `java.time.LocalDate`
+- `java.time.LocalDateTime`

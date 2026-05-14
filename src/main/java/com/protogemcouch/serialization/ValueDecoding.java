@@ -105,6 +105,23 @@ public final class ValueDecoding {
      */
     private static final int GEODE_INT_ARRAY_CODE = 0x30;
 
+    /*
+     * Geode DataSerializer primitive array markers observed from PrimitiveArrayShapeTest:
+     *
+     *   boolean[]  -> 1a <length> <1-byte boolean values>
+     *   char[]     -> 1b <length> <2-byte big-endian char values>
+     *   short[]    -> 2f <length> <2-byte big-endian short values>
+     *   long[]     -> 31 <length> <8-byte big-endian long values>
+     *   float[]    -> 32 <length> <4-byte big-endian IEEE-754 float bits>
+     *   double[]   -> 33 <length> <8-byte big-endian IEEE-754 double bits>
+     */
+    private static final int GEODE_BOOLEAN_ARRAY_CODE = 0x1a;
+    private static final int GEODE_CHAR_ARRAY_CODE = 0x1b;
+    private static final int GEODE_SHORT_ARRAY_CODE = 0x2f;
+    private static final int GEODE_LONG_ARRAY_CODE = 0x31;
+    private static final int GEODE_FLOAT_ARRAY_CODE = 0x32;
+    private static final int GEODE_DOUBLE_ARRAY_CODE = 0x33;
+
     private static final int GEODE_BOOLEAN_CODE = 0x35;
     private static final int GEODE_CHARACTER_CODE = 0x36;
     private static final int GEODE_BYTE_CODE = 0x37;
@@ -557,6 +574,200 @@ public final class ValueDecoding {
         return values;
     }
 
+    public static boolean[] decodeBooleanArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_BOOLEAN_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + length) {
+            return null;
+        }
+
+        boolean[] values = new boolean[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            int raw = payload[offset] & 0xff;
+
+            if (raw == 0x00) {
+                values[i] = false;
+            } else if (raw == 0x01) {
+                values[i] = true;
+            } else {
+                return null;
+            }
+
+            offset++;
+        }
+
+        return values;
+    }
+
+    public static char[] decodeCharArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_CHAR_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Character.BYTES)) {
+            return null;
+        }
+
+        char[] values = new char[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            int value = ((payload[offset] & 0xff) << 8)
+                    | (payload[offset + 1] & 0xff);
+
+            values[i] = (char) value;
+            offset += Character.BYTES;
+        }
+
+        return values;
+    }
+
+    public static short[] decodeShortArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_SHORT_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Short.BYTES)) {
+            return null;
+        }
+
+        short[] values = new short[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            int value = ((payload[offset] & 0xff) << 8)
+                    | (payload[offset + 1] & 0xff);
+
+            values[i] = (short) value;
+            offset += Short.BYTES;
+        }
+
+        return values;
+    }
+
+    public static long[] decodeLongArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_LONG_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Long.BYTES)) {
+            return null;
+        }
+
+        long[] values = new long[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            values[i] = ((long) (payload[offset] & 0xff) << 56)
+                    | ((long) (payload[offset + 1] & 0xff) << 48)
+                    | ((long) (payload[offset + 2] & 0xff) << 40)
+                    | ((long) (payload[offset + 3] & 0xff) << 32)
+                    | ((long) (payload[offset + 4] & 0xff) << 24)
+                    | ((long) (payload[offset + 5] & 0xff) << 16)
+                    | ((long) (payload[offset + 6] & 0xff) << 8)
+                    | ((long) (payload[offset + 7] & 0xff));
+
+            offset += Long.BYTES;
+        }
+
+        return values;
+    }
+
+    public static float[] decodeFloatArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_FLOAT_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Float.BYTES)) {
+            return null;
+        }
+
+        float[] values = new float[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            int bits = ((payload[offset] & 0xff) << 24)
+                    | ((payload[offset + 1] & 0xff) << 16)
+                    | ((payload[offset + 2] & 0xff) << 8)
+                    | (payload[offset + 3] & 0xff);
+
+            values[i] = Float.intBitsToFloat(bits);
+            offset += Float.BYTES;
+        }
+
+        return values;
+    }
+
+    public static double[] decodeDoubleArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_DOUBLE_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Double.BYTES)) {
+            return null;
+        }
+
+        double[] values = new double[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            long bits = ((long) (payload[offset] & 0xff) << 56)
+                    | ((long) (payload[offset + 1] & 0xff) << 48)
+                    | ((long) (payload[offset + 2] & 0xff) << 40)
+                    | ((long) (payload[offset + 3] & 0xff) << 32)
+                    | ((long) (payload[offset + 4] & 0xff) << 24)
+                    | ((long) (payload[offset + 5] & 0xff) << 16)
+                    | ((long) (payload[offset + 6] & 0xff) << 8)
+                    | ((long) (payload[offset + 7] & 0xff));
+
+            values[i] = Double.longBitsToDouble(bits);
+            offset += Double.BYTES;
+        }
+
+        return values;
+    }
+
+
     public static byte[] decodeRawByteArrayValue(byte[] payload) {
         if (payload == null) {
             return null;
@@ -577,7 +788,13 @@ public final class ValueDecoding {
                 || first == GEODE_HASH_MAP_CODE
                 || first == GEODE_JAVA_SERIALIZED_CODE
                 || first == GEODE_BYTE_ARRAY_CODE
+                || first == GEODE_BOOLEAN_ARRAY_CODE
+                || first == GEODE_CHAR_ARRAY_CODE
+                || first == GEODE_SHORT_ARRAY_CODE
                 || first == GEODE_INT_ARRAY_CODE
+                || first == GEODE_LONG_ARRAY_CODE
+                || first == GEODE_FLOAT_ARRAY_CODE
+                || first == GEODE_DOUBLE_ARRAY_CODE
                 || first == GEODE_BOOLEAN_CODE
                 || first == GEODE_CHARACTER_CODE
                 || first == GEODE_BYTE_CODE
@@ -828,6 +1045,30 @@ public final class ValueDecoding {
             return null;
         }
 
+        if (decodeBooleanArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeCharArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeShortArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeLongArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeFloatArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeDoubleArrayValue(payload) != null) {
+            return null;
+        }
+
         if (decodeBooleanValue(payload) != null) {
             return null;
         }
@@ -1035,6 +1276,13 @@ public final class ValueDecoding {
                 || value instanceof Double
                 || value instanceof Date
                 || value instanceof byte[]
+                || value instanceof boolean[]
+                || value instanceof char[]
+                || value instanceof short[]
+                || value instanceof int[]
+                || value instanceof long[]
+                || value instanceof float[]
+                || value instanceof double[]
                 || value instanceof String[]
                 || isSupportedStringArrayListObject(value);
     }
@@ -1072,6 +1320,34 @@ public final class ValueDecoding {
     private static Object copySupportedMapObjectValue(Object value) {
         if (value instanceof byte[] bytes) {
             return Arrays.copyOf(bytes, bytes.length);
+        }
+
+        if (value instanceof boolean[] booleans) {
+            return Arrays.copyOf(booleans, booleans.length);
+        }
+
+        if (value instanceof char[] chars) {
+            return Arrays.copyOf(chars, chars.length);
+        }
+
+        if (value instanceof short[] shorts) {
+            return Arrays.copyOf(shorts, shorts.length);
+        }
+
+        if (value instanceof int[] ints) {
+            return Arrays.copyOf(ints, ints.length);
+        }
+
+        if (value instanceof long[] longs) {
+            return Arrays.copyOf(longs, longs.length);
+        }
+
+        if (value instanceof float[] floats) {
+            return Arrays.copyOf(floats, floats.length);
+        }
+
+        if (value instanceof double[] doubles) {
+            return Arrays.copyOf(doubles, doubles.length);
         }
 
         if (value instanceof String[] strings) {

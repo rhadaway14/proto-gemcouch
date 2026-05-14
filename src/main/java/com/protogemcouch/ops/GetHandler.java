@@ -67,10 +67,40 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asByteArray()
             );
+        } else if (value.type() == StoredValue.Type.BOOLEAN_ARRAY) {
+            response = GemResponseWriter.buildBooleanArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asBooleanArray()
+            );
+        } else if (value.type() == StoredValue.Type.CHAR_ARRAY) {
+            response = GemResponseWriter.buildCharArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asCharArray()
+            );
+        } else if (value.type() == StoredValue.Type.SHORT_ARRAY) {
+            response = GemResponseWriter.buildShortArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asShortArray()
+            );
         } else if (value.type() == StoredValue.Type.INT_ARRAY) {
             response = GemResponseWriter.buildIntArrayGetResponse(
                     frame.getTransactionId(),
                     value.asIntArray()
+            );
+        } else if (value.type() == StoredValue.Type.LONG_ARRAY) {
+            response = GemResponseWriter.buildLongArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asLongArray()
+            );
+        } else if (value.type() == StoredValue.Type.FLOAT_ARRAY) {
+            response = GemResponseWriter.buildFloatArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asFloatArray()
+            );
+        } else if (value.type() == StoredValue.Type.DOUBLE_ARRAY) {
+            response = GemResponseWriter.buildDoubleArrayGetResponse(
+                    frame.getTransactionId(),
+                    value.asDoubleArray()
             );
         } else if (value.type() == StoredValue.Type.STRING_ARRAY) {
             response = GemResponseWriter.buildStringArrayGetResponse(

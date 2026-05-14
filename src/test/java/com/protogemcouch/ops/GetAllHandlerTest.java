@@ -163,6 +163,82 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_remaining_primitive_array_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("boolean-array-key", StoredValue.booleanArrayValue(new boolean[] {
+                true,
+                false,
+                true,
+                true,
+                false
+        }));
+        repoResult.put("char-array-key", StoredValue.charArrayValue(new char[] {
+                'A',
+                'Z',
+                '0',
+                '\n',
+                '\u2603'
+        }));
+        repoResult.put("short-array-key", StoredValue.shortArrayValue(new short[] {
+                1,
+                42,
+                -7,
+                Short.MAX_VALUE,
+                Short.MIN_VALUE
+        }));
+        repoResult.put("long-array-key", StoredValue.longArrayValue(new long[] {
+                1L,
+                42L,
+                -7L,
+                9_876_543_210L,
+                Long.MAX_VALUE,
+                Long.MIN_VALUE
+        }));
+        repoResult.put("float-array-key", StoredValue.floatArrayValue(new float[] {
+                1.0f,
+                7.25f,
+                -7.25f,
+                Float.MAX_VALUE,
+                Float.MIN_VALUE
+        }));
+        repoResult.put("double-array-key", StoredValue.doubleArrayValue(new double[] {
+                1.0d,
+                7.25d,
+                -7.25d,
+                Double.MAX_VALUE,
+                Double.MIN_VALUE
+        }));
+
+        List<String> keys = List.of(
+                "boolean-array-key",
+                "char-array-key",
+                "short-array-key",
+                "long-array-key",
+                "float-array-key",
+                "double-array-key"
+        );
+
+        when(repository.getAll("/helloWorld", keys)).thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(keys),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll("/helloWorld", keys);
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_int_array_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -690,10 +766,40 @@ class GetAllHandlerTest {
         repoResult.put("byte-array-key", StoredValue.byteArrayValue(new byte[] {
                 0x01, 0x02, 0x03, 0x04, 0x05
         }));
+        repoResult.put("boolean-array-key", StoredValue.booleanArrayValue(new boolean[] {
+                true,
+                false,
+                true
+        }));
+        repoResult.put("char-array-key", StoredValue.charArrayValue(new char[] {
+                'A',
+                'Z',
+                '0'
+        }));
+        repoResult.put("short-array-key", StoredValue.shortArrayValue(new short[] {
+                1,
+                42,
+                -7
+        }));
         repoResult.put("int-array-key", StoredValue.intArrayValue(new int[] {
                 1,
                 42,
                 -7
+        }));
+        repoResult.put("long-array-key", StoredValue.longArrayValue(new long[] {
+                1L,
+                42L,
+                -7L
+        }));
+        repoResult.put("float-array-key", StoredValue.floatArrayValue(new float[] {
+                1.0f,
+                7.25f,
+                -7.25f
+        }));
+        repoResult.put("double-array-key", StoredValue.doubleArrayValue(new double[] {
+                1.0d,
+                7.25d,
+                -7.25d
         }));
         repoResult.put("string-array-key", StoredValue.stringArrayValue(new String[] {
                 "one",
@@ -726,7 +832,13 @@ class GetAllHandlerTest {
                 "character-key",
                 "byte-key",
                 "byte-array-key",
+                "boolean-array-key",
+                "char-array-key",
+                "short-array-key",
                 "int-array-key",
+                "long-array-key",
+                "float-array-key",
+                "double-array-key",
                 "string-array-key",
                 "string-array-list-key",
                 "string-hash-map-key",

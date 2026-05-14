@@ -164,6 +164,128 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_remaining_primitive_array_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                6,
+                entry("boolean-array-key", geodeBooleanArray(new boolean[] {
+                        true,
+                        false,
+                        true,
+                        true,
+                        false
+                })),
+                entry("char-array-key", geodeCharArray(new char[] {
+                        'A',
+                        'Z',
+                        '0',
+                        '\n',
+                        '\u2603'
+                })),
+                entry("short-array-key", geodeShortArray(new short[] {
+                        1,
+                        42,
+                        -7,
+                        Short.MAX_VALUE,
+                        Short.MIN_VALUE
+                })),
+                entry("long-array-key", geodeLongArray(new long[] {
+                        1L,
+                        42L,
+                        -7L,
+                        9_876_543_210L,
+                        Long.MAX_VALUE,
+                        Long.MIN_VALUE
+                })),
+                entry("float-array-key", geodeFloatArray(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f,
+                        Float.MAX_VALUE,
+                        Float.MIN_VALUE
+                })),
+                entry("double-array-key", geodeDoubleArray(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d,
+                        Double.MAX_VALUE,
+                        Double.MIN_VALUE
+                }))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::boolean-array-key"),
+                eq(StoredValue.booleanArrayValue(new boolean[] {
+                        true,
+                        false,
+                        true,
+                        true,
+                        false
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::char-array-key"),
+                eq(StoredValue.charArrayValue(new char[] {
+                        'A',
+                        'Z',
+                        '0',
+                        '\n',
+                        '\u2603'
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::short-array-key"),
+                eq(StoredValue.shortArrayValue(new short[] {
+                        1,
+                        42,
+                        -7,
+                        Short.MAX_VALUE,
+                        Short.MIN_VALUE
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::long-array-key"),
+                eq(StoredValue.longArrayValue(new long[] {
+                        1L,
+                        42L,
+                        -7L,
+                        9_876_543_210L,
+                        Long.MAX_VALUE,
+                        Long.MIN_VALUE
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::float-array-key"),
+                eq(StoredValue.floatArrayValue(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f,
+                        Float.MAX_VALUE,
+                        Float.MIN_VALUE
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::double-array-key"),
+                eq(StoredValue.doubleArrayValue(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d,
+                        Double.MAX_VALUE,
+                        Double.MIN_VALUE
+                }))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_int_array_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -642,7 +764,7 @@ class PutAllHandlerTest {
 
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                19,
+                25,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
@@ -650,10 +772,40 @@ class PutAllHandlerTest {
                 entry("byte-array-key", geodeByteArray(new byte[] {
                         0x01, 0x02, 0x03, 0x04, 0x05
                 })),
+                entry("boolean-array-key", geodeBooleanArray(new boolean[] {
+                        true,
+                        false,
+                        true
+                })),
+                entry("char-array-key", geodeCharArray(new char[] {
+                        'A',
+                        'Z',
+                        '0'
+                })),
+                entry("short-array-key", geodeShortArray(new short[] {
+                        1,
+                        42,
+                        -7
+                })),
                 entry("int-array-key", geodeIntArray(new int[] {
                         1,
                         42,
                         -7
+                })),
+                entry("long-array-key", geodeLongArray(new long[] {
+                        1L,
+                        42L,
+                        -7L
+                })),
+                entry("float-array-key", geodeFloatArray(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f
+                })),
+                entry("double-array-key", geodeDoubleArray(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d
                 })),
                 entry("string-array-key", geodeStringArray(new String[] {
                         "one",
@@ -704,11 +856,65 @@ class PutAllHandlerTest {
         );
 
         verify(repository).put(
+                eq("/helloWorld::boolean-array-key"),
+                eq(StoredValue.booleanArrayValue(new boolean[] {
+                        true,
+                        false,
+                        true
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::char-array-key"),
+                eq(StoredValue.charArrayValue(new char[] {
+                        'A',
+                        'Z',
+                        '0'
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::short-array-key"),
+                eq(StoredValue.shortArrayValue(new short[] {
+                        1,
+                        42,
+                        -7
+                }))
+        );
+
+        verify(repository).put(
                 eq("/helloWorld::int-array-key"),
                 eq(StoredValue.intArrayValue(new int[] {
                         1,
                         42,
                         -7
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::long-array-key"),
+                eq(StoredValue.longArrayValue(new long[] {
+                        1L,
+                        42L,
+                        -7L
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::float-array-key"),
+                eq(StoredValue.floatArrayValue(new float[] {
+                        1.0f,
+                        7.25f,
+                        -7.25f
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::double-array-key"),
+                eq(StoredValue.doubleArrayValue(new double[] {
+                        1.0d,
+                        7.25d,
+                        -7.25d
                 }))
         );
 
@@ -955,6 +1161,80 @@ class PutAllHandlerTest {
         return out;
     }
 
+    private static byte[] geodeBooleanArray(boolean[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("boolean[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports boolean[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + value.length];
+        out[0] = 0x1a;
+        out[1] = (byte) value.length;
+
+        for (int i = 0; i < value.length; i++) {
+            out[i + 2] = (byte) (value[i] ? 0x01 : 0x00);
+        }
+
+        return out;
+    }
+
+    private static byte[] geodeCharArray(char[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("char[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports char[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Character.BYTES)];
+        out[0] = 0x1b;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (char item : value) {
+            out[offset] = (byte) ((item >>> 8) & 0xff);
+            out[offset + 1] = (byte) (item & 0xff);
+            offset += Character.BYTES;
+        }
+
+        return out;
+    }
+
+    private static byte[] geodeShortArray(short[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("short[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports short[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Short.BYTES)];
+        out[0] = 0x2f;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (short item : value) {
+            out[offset] = (byte) ((item >>> 8) & 0xff);
+            out[offset + 1] = (byte) (item & 0xff);
+            offset += Short.BYTES;
+        }
+
+        return out;
+    }
+
     private static byte[] geodeIntArray(int[] value) {
         if (value == null) {
             throw new IllegalArgumentException("int[] value must not be null");
@@ -978,6 +1258,100 @@ class PutAllHandlerTest {
             out[offset + 2] = (byte) ((item >>> 8) & 0xff);
             out[offset + 3] = (byte) (item & 0xff);
             offset += Integer.BYTES;
+        }
+
+        return out;
+    }
+
+    private static byte[] geodeLongArray(long[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("long[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports long[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Long.BYTES)];
+        out[0] = 0x31;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (long item : value) {
+            out[offset] = (byte) ((item >>> 56) & 0xff);
+            out[offset + 1] = (byte) ((item >>> 48) & 0xff);
+            out[offset + 2] = (byte) ((item >>> 40) & 0xff);
+            out[offset + 3] = (byte) ((item >>> 32) & 0xff);
+            out[offset + 4] = (byte) ((item >>> 24) & 0xff);
+            out[offset + 5] = (byte) ((item >>> 16) & 0xff);
+            out[offset + 6] = (byte) ((item >>> 8) & 0xff);
+            out[offset + 7] = (byte) (item & 0xff);
+            offset += Long.BYTES;
+        }
+
+        return out;
+    }
+
+    private static byte[] geodeFloatArray(float[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("float[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports float[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Float.BYTES)];
+        out[0] = 0x32;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (float item : value) {
+            int bits = Float.floatToRawIntBits(item);
+            out[offset] = (byte) ((bits >>> 24) & 0xff);
+            out[offset + 1] = (byte) ((bits >>> 16) & 0xff);
+            out[offset + 2] = (byte) ((bits >>> 8) & 0xff);
+            out[offset + 3] = (byte) (bits & 0xff);
+            offset += Float.BYTES;
+        }
+
+        return out;
+    }
+
+    private static byte[] geodeDoubleArray(double[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("double[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports double[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Double.BYTES)];
+        out[0] = 0x33;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (double item : value) {
+            long bits = Double.doubleToRawLongBits(item);
+            out[offset] = (byte) ((bits >>> 56) & 0xff);
+            out[offset + 1] = (byte) ((bits >>> 48) & 0xff);
+            out[offset + 2] = (byte) ((bits >>> 40) & 0xff);
+            out[offset + 3] = (byte) ((bits >>> 32) & 0xff);
+            out[offset + 4] = (byte) ((bits >>> 24) & 0xff);
+            out[offset + 5] = (byte) ((bits >>> 16) & 0xff);
+            out[offset + 6] = (byte) ((bits >>> 8) & 0xff);
+            out[offset + 7] = (byte) (bits & 0xff);
+            offset += Double.BYTES;
         }
 
         return out;

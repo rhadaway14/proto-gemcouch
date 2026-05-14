@@ -7,7 +7,7 @@ The goal is to let an existing Java Geode client application change only its con
 ## Current Status
 
 ```text
-object-array-list-support-complete
+primitive-array-family-support-complete
 ```
 
 Latest verification:
@@ -17,7 +17,7 @@ mvn clean test
 mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
 ```
 
-Both completed successfully after adding `ArrayList<Object>` support.
+Both completed successfully after adding support for the remaining primitive array family.
 
 Latest Docker-backed integration result:
 
@@ -26,10 +26,10 @@ ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 76, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -64,6 +64,13 @@ Float
 Double
 java.util.Date
 byte[]
+boolean[]
+char[]
+short[]
+int[]
+long[]
+float[]
+double[]
 String[]
 ArrayList<String>
 HashMap<String,String>
@@ -72,6 +79,56 @@ Serializable POJO
 Object[]
 ArrayList<Object>
 ```
+
+## Primitive Array Support
+
+Primitive arrays are supported structurally using Geode DataSerializer primitive-array payloads.
+
+Supported markers:
+
+```text
+boolean[]  -> 0x1a
+char[]     -> 0x1b
+byte[]     -> 0x2e
+short[]    -> 0x2f
+int[]      -> 0x30
+long[]     -> 0x31
+float[]    -> 0x32
+double[]   -> 0x33
+```
+
+Example:
+
+```java
+int[] value = new int[] {
+    1,
+    42,
+    -7,
+    Integer.MAX_VALUE,
+    Integer.MIN_VALUE
+};
+
+region.put("int-array-demo-key", value);
+Object actual = region.get("int-array-demo-key");
+```
+
+Example encoded payload:
+
+```text
+3005000000010000002afffffff97fffffff80000000
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "intArray",
+  "value": [1, 42, -7, 2147483647, -2147483648],
+  "length": 5
+}
+```
+
+The shim decodes primitive arrays structurally, stores them as typed JSON array envelopes, and re-encodes them as Geode-compatible primitive-array payloads when returning data to the client.
 
 ## ArrayList<Object> Support
 
@@ -83,24 +140,6 @@ Observed wire shape:
 41 <length> <elements...>
 ```
 
-Example:
-
-```java
-ArrayList<Object> value = new ArrayList<>();
-value.add("one");
-value.add(Integer.valueOf(42));
-value.add(Boolean.TRUE);
-
-region.put("object-array-list-demo-key", value);
-Object actual = region.get("object-array-list-demo-key");
-```
-
-Example encoded payload:
-
-```text
-41035700036f6e65390000002a3501
-```
-
 Couchbase envelope:
 
 ```json
@@ -110,8 +149,6 @@ Couchbase envelope:
   "length": 14
 }
 ```
-
-The shim stores and returns the full `0x41...` payload for mixed object lists.
 
 Important decode rule:
 
@@ -140,11 +177,9 @@ Couchbase envelope:
 }
 ```
 
-The shim stores and returns the full `0x34...` payload.
-
 ## Serializable POJO Support
 
-Serializable POJOs are also preserved opaquely.
+Serializable POJOs are preserved opaquely.
 
 ```text
 Client sends:  2c ac ed 00 05 ...
@@ -187,6 +222,32 @@ com.protogemcouch.couchbase     repository and Couchbase persistence
 ```
 
 ## Couchbase Document Examples
+
+### Primitive array
+
+```json
+{
+  "type": "booleanArray",
+  "value": [true, false, true],
+  "length": 3
+}
+```
+
+```json
+{
+  "type": "charArray",
+  "value": ["A", "Z", "0"],
+  "length": 3
+}
+```
+
+```json
+{
+  "type": "intArray",
+  "value": [1, 42, -7, 2147483647, -2147483648],
+  "length": 5
+}
+```
 
 ### ArrayList<Object>
 
@@ -232,9 +293,14 @@ com.protogemcouch.couchbase     repository and Couchbase persistence
     "age": {
       "type": "integer",
       "value": 42
+    },
+    "intItems": {
+      "type": "intArray",
+      "value": [1, 42, -7],
+      "length": 3
     }
   },
-  "length": 2
+  "length": 3
 }
 ```
 
@@ -266,6 +332,13 @@ Validated:
 ```text
 Primitive wrapper round trips
 byte[] round trips
+boolean[] round trips
+char[] round trips
+short[] round trips
+int[] round trips
+long[] round trips
+float[] round trips
+double[] round trips
 String[] round trips
 ArrayList<String> round trips
 HashMap<String,String> round trips
@@ -285,7 +358,6 @@ Not yet implemented or validated:
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
-Primitive arrays beyond byte[]
 Wrapper arrays
 BigDecimal / BigInteger
 UUID
@@ -305,25 +377,5 @@ High-concurrency load and soak testing
 ## Next Target
 
 ```text
-primitive arrays beyond byte[]
-```
-
-Suggested first target:
-
-```text
-int[]
-```
-
-Suggested implementation sequence:
-
-```text
-Shape test
-ValueDecoding support
-StoredValue representation
-GemResponseWriter GET / GET_ALL support
-PutHandler / PutAllHandler support
-GetHandler / GetAllHandler support
-CouchbaseRepository persistence / hydration
-Docker-backed integration tests
-Docs update
+wrapper arrays and common Java utility values
 ```
