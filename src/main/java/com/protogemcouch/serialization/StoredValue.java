@@ -13,6 +13,7 @@ public record StoredValue(
         Character characterValue,
         Byte byteValue,
         byte[] byteArrayValue,
+        int[] intArrayValue,
         String[] stringArrayValue,
         ArrayList<String> stringArrayListValue,
         LinkedHashMap<String, String> stringHashMapValue,
@@ -35,6 +36,7 @@ public record StoredValue(
         CHARACTER,
         BYTE,
         BYTE_ARRAY,
+        INT_ARRAY,
         STRING_ARRAY,
         STRING_ARRAY_LIST,
         STRING_HASH_MAP,
@@ -52,75 +54,79 @@ public record StoredValue(
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue characterValue(Character value) {
-        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteValue(Byte value) {
-        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteArrayValue(byte[] value) {
-        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue intArrayValue(int[] value) {
+        return new StoredValue(Type.INT_ARRAY, null, null, null, null, copyIntArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayValue(String[] value) {
-        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayListValue(ArrayList<String> value) {
-        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringHashMapValue(Map<String, String> value) {
-        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringObjectHashMapValue(Map<String, Object> value) {
-        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue javaSerializedObjectValue(String className, byte[] serializedValue) {
-        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayValue(byte[] encodedObjectArrayValue) {
-        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayListValue(byte[] encodedObjectArrayListValue) {
-        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
     }
 
     public static StoredValue dateValue(Date value) {
-        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
+        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
     }
 
     public StoredValue {
@@ -128,6 +134,10 @@ public record StoredValue(
 
         if (byteArrayValue != null) {
             byteArrayValue = copyByteArray(byteArrayValue);
+        }
+
+        if (intArrayValue != null) {
+            intArrayValue = copyIntArray(intArrayValue);
         }
 
         if (stringArrayValue != null) {
@@ -176,6 +186,10 @@ public record StoredValue(
 
         if (type == Type.BYTE_ARRAY && byteArrayValue == null) {
             throw new IllegalArgumentException("BYTE_ARRAY StoredValue requires byteArrayValue");
+        }
+
+        if (type == Type.INT_ARRAY && intArrayValue == null) {
+            throw new IllegalArgumentException("INT_ARRAY StoredValue requires intArrayValue");
         }
 
         if (type == Type.STRING_ARRAY && stringArrayValue == null) {
@@ -259,6 +273,11 @@ public record StoredValue(
     }
 
     @Override
+    public int[] intArrayValue() {
+        return copyIntArray(intArrayValue);
+    }
+
+    @Override
     public String[] stringArrayValue() {
         return copyStringArray(stringArrayValue);
     }
@@ -320,6 +339,14 @@ public record StoredValue(
         }
 
         return copyByteArray(byteArrayValue);
+    }
+
+    public int[] asIntArray() {
+        if (type != Type.INT_ARRAY) {
+            throw new IllegalStateException("StoredValue is not INT_ARRAY. Actual type: " + type);
+        }
+
+        return copyIntArray(intArrayValue);
     }
 
     public String[] asStringArray() {
@@ -457,6 +484,7 @@ public record StoredValue(
                 && Objects.equals(characterValue, that.characterValue)
                 && Objects.equals(byteValue, that.byteValue)
                 && Arrays.equals(byteArrayValue, that.byteArrayValue)
+                && Arrays.equals(intArrayValue, that.intArrayValue)
                 && Arrays.equals(stringArrayValue, that.stringArrayValue)
                 && Objects.equals(stringArrayListValue, that.stringArrayListValue)
                 && Objects.equals(stringHashMapValue, that.stringHashMapValue)
@@ -494,6 +522,7 @@ public record StoredValue(
         );
 
         result = 31 * result + Arrays.hashCode(byteArrayValue);
+        result = 31 * result + Arrays.hashCode(intArrayValue);
         result = 31 * result + Arrays.hashCode(stringArrayValue);
         result = 31 * result + stringObjectHashMapHashCode(stringObjectHashMapValue);
         result = 31 * result + Arrays.hashCode(javaSerializedValue);
@@ -504,6 +533,10 @@ public record StoredValue(
     }
 
     private static byte[] copyByteArray(byte[] value) {
+        return value == null ? null : Arrays.copyOf(value, value.length);
+    }
+
+    private static int[] copyIntArray(int[] value) {
         return value == null ? null : Arrays.copyOf(value, value.length);
     }
 

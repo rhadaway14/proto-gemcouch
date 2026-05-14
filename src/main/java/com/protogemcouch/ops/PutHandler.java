@@ -118,6 +118,7 @@ public class PutHandler implements OperationHandler {
          *   Empty HashMap                          -> 43 00
          *   Non-empty LinkedHashMap                -> 2c ac ed 00 05 ...
          *   byte[] {1,2,3} via DataSerializer      -> 2e 03 01 02 03
+         *   int[] {1,42,-7}                         -> 30 03 00000001 0000002a fffffff9
          *   Boolean.TRUE                           -> 35 01
          *   Character 'A'                          -> 36 00 41
          *   Byte 7                                 -> 37 07
@@ -231,6 +232,18 @@ public class PutHandler implements OperationHandler {
                     "txId", txId
             ));
             return StoredValue.byteArrayValue(byteArrayValue);
+        }
+
+        int[] intArrayValue = ValueDecoding.decodeIntArrayValue(valuePayload);
+
+        if (intArrayValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-int-array",
+                    "valueType", "INT_ARRAY",
+                    "txId", txId
+            ));
+            return StoredValue.intArrayValue(intArrayValue);
         }
 
         Boolean booleanValue = ValueDecoding.decodeBooleanValue(valuePayload);
@@ -428,6 +441,17 @@ public class PutHandler implements OperationHandler {
                         "txId", txId
                 ));
                 return StoredValue.byteArrayValue(byteArrayObject);
+            }
+
+            if (rawValue instanceof int[] intArrayObject) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer",
+                        "type", rawValue.getClass().getName(),
+                        "valueType", "INT_ARRAY",
+                        "txId", txId
+                ));
+                return StoredValue.intArrayValue(intArrayObject);
             }
 
             if (rawValue instanceof Boolean bool) {

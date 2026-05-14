@@ -164,6 +164,42 @@ class PutAllHandlerTest {
     }
 
     @Test
+    void handle_parses_int_array_values_and_stores_them() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("int-array-key-1", geodeIntArray(new int[] {})),
+                entry("int-array-key-2", geodeIntArray(new int[] {
+                        1,
+                        42,
+                        -7,
+                        Integer.MAX_VALUE,
+                        Integer.MIN_VALUE
+                }))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).put(
+                eq("/helloWorld::int-array-key-1"),
+                eq(StoredValue.intArrayValue(new int[] {}))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::int-array-key-2"),
+                eq(StoredValue.intArrayValue(new int[] {
+                        1,
+                        42,
+                        -7,
+                        Integer.MAX_VALUE,
+                        Integer.MIN_VALUE
+                }))
+        );
+
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_parses_string_array_values_and_stores_them() {
         GemFrame frame = putAllFrame(
                 "/helloWorld",
@@ -606,13 +642,18 @@ class PutAllHandlerTest {
 
         GemFrame frame = putAllFrame(
                 "/helloWorld",
-                18,
+                19,
                 entry("string-key", ValueEncoding.encodeGeodeStringValue("value-1")),
                 entry("boolean-key", geodeBoolean(true)),
                 entry("character-key", geodeCharacter('A')),
                 entry("byte-key", geodeByte((byte) 7)),
                 entry("byte-array-key", geodeByteArray(new byte[] {
                         0x01, 0x02, 0x03, 0x04, 0x05
+                })),
+                entry("int-array-key", geodeIntArray(new int[] {
+                        1,
+                        42,
+                        -7
                 })),
                 entry("string-array-key", geodeStringArray(new String[] {
                         "one",
@@ -659,6 +700,15 @@ class PutAllHandlerTest {
                 eq("/helloWorld::byte-array-key"),
                 eq(StoredValue.byteArrayValue(new byte[] {
                         0x01, 0x02, 0x03, 0x04, 0x05
+                }))
+        );
+
+        verify(repository).put(
+                eq("/helloWorld::int-array-key"),
+                eq(StoredValue.intArrayValue(new int[] {
+                        1,
+                        42,
+                        -7
                 }))
         );
 
@@ -901,6 +951,34 @@ class PutAllHandlerTest {
         out[0] = 0x2e;
         out[1] = (byte) value.length;
         System.arraycopy(value, 0, out, 2, value.length);
+
+        return out;
+    }
+
+    private static byte[] geodeIntArray(int[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("int[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Test helper currently supports int[] lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        byte[] out = new byte[2 + (value.length * Integer.BYTES)];
+        out[0] = 0x30;
+        out[1] = (byte) value.length;
+
+        int offset = 2;
+
+        for (int item : value) {
+            out[offset] = (byte) ((item >>> 24) & 0xff);
+            out[offset + 1] = (byte) ((item >>> 16) & 0xff);
+            out[offset + 2] = (byte) ((item >>> 8) & 0xff);
+            out[offset + 3] = (byte) (item & 0xff);
+            offset += Integer.BYTES;
+        }
 
         return out;
     }

@@ -63,6 +63,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_BYTE_ARRAY_CODE = 0x2e;
 
     /*
+     * Geode DataSerializer int[] marker observed from PrimitiveArrayShapeTest:
+     *
+     *   new int[] {}                                      -> 30 00
+     *   new int[] {1,42,-7,Integer.MAX_VALUE,MIN_VALUE}   -> 30 05 00000001 0000002a fffffff9 7fffffff 80000000
+     *
+     * Values are stored big-endian, four bytes per int.
+     */
+    private static final byte GEODE_INT_ARRAY_CODE = 0x30;
+
+    /*
      * Geode DataSerializer String[] marker observed from StringArrayShapeTest:
      *
      *   new String[] {}                         -> 40 00
@@ -272,6 +282,14 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedByteArray(value), (byte) 1))
+        );
+    }
+
+    public static byte[] buildIntArrayGetResponse(int txId, int[] value) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedIntArray(value), (byte) 1))
         );
     }
 
@@ -551,6 +569,10 @@ public final class GemResponseWriter {
             return StoredValue.byteArrayValue(byteArrayValue);
         }
 
+        if (rawValue instanceof int[] intArrayValue) {
+            return StoredValue.intArrayValue(intArrayValue);
+        }
+
         if (rawValue instanceof String[] stringArrayValue) {
             return StoredValue.stringArrayValue(stringArrayValue);
         }
@@ -628,6 +650,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.BYTE_ARRAY) {
             return geodeSerializedByteArray(value.asByteArray());
+        }
+
+        if (value.type() == StoredValue.Type.INT_ARRAY) {
+            return geodeSerializedIntArray(value.asIntArray());
         }
 
         if (value.type() == StoredValue.Type.STRING_ARRAY) {
@@ -743,6 +769,36 @@ public final class GemResponseWriter {
             buf.release();
         }
     }
+
+    private static byte[] geodeSerializedIntArray(int[] value) {
+        if (value == null) {
+            throw new IllegalArgumentException("int[] value must not be null");
+        }
+
+        if (value.length > 0x7f) {
+            throw new IllegalArgumentException(
+                    "Validated int[] writer currently supports lengths from 0 to 127. Actual: " + value.length
+            );
+        }
+
+        ByteBuf buf = Unpooled.buffer();
+
+        try {
+            buf.writeByte(GEODE_INT_ARRAY_CODE);
+            buf.writeByte((byte) value.length);
+
+            for (int item : value) {
+                buf.writeInt(item);
+            }
+
+            byte[] bytes = new byte[buf.readableBytes()];
+            buf.getBytes(0, bytes);
+            return bytes;
+        } finally {
+            buf.release();
+        }
+    }
+
 
     private static byte[] geodeSerializedStringArray(String[] value) {
         if (value == null) {
@@ -1005,6 +1061,7 @@ public final class GemResponseWriter {
                 || value instanceof Double
                 || value instanceof Date
                 || value instanceof byte[]
+                || value instanceof int[]
                 || value instanceof String[]
                 || value instanceof ArrayList<?>
                 || value instanceof Map<?, ?>

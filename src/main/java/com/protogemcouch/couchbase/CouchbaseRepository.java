@@ -43,6 +43,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_CHARACTER = "character";
     private static final String TYPE_BYTE = "byte";
     private static final String TYPE_BYTE_ARRAY = "byteArray";
+    private static final String TYPE_INT_ARRAY = "intArray";
     private static final String TYPE_STRING_ARRAY = "stringArray";
     private static final String TYPE_STRING_ARRAY_LIST = "stringArrayList";
     private static final String TYPE_STRING_HASH_MAP = "stringHashMap";
@@ -368,6 +369,20 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.INT_ARRAY) {
+            int[] intArray = value.asIntArray();
+            JsonArray jsonArray = JsonArray.create();
+
+            for (int item : intArray) {
+                jsonArray.add(item);
+            }
+
+            body.put(FIELD_TYPE, TYPE_INT_ARRAY);
+            body.put(FIELD_VALUE, jsonArray);
+            body.put(FIELD_LENGTH, intArray.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.STRING_ARRAY) {
             String[] stringArray = value.asStringArray();
             JsonArray jsonArray = JsonArray.create();
@@ -575,6 +590,10 @@ public class CouchbaseRepository implements Repository {
             return decodeByteArrayStoredValue(content, rawValue);
         }
 
+        if (TYPE_INT_ARRAY.equalsIgnoreCase(type)) {
+            return decodeIntArrayStoredValue(content, rawValue);
+        }
+
         if (TYPE_STRING_ARRAY.equalsIgnoreCase(type)) {
             return decodeStringArrayStoredValue(content, rawValue);
         }
@@ -734,6 +753,62 @@ public class CouchbaseRepository implements Repository {
 
         return null;
     }
+
+    private static StoredValue decodeIntArrayStoredValue(JsonObject content, Object rawValue) {
+        List<?> rawList = null;
+
+        if (rawValue instanceof JsonArray jsonArray) {
+            rawList = jsonArray.toList();
+        } else if (rawValue instanceof List<?> list) {
+            rawList = list;
+        }
+
+        if (rawList == null) {
+            return null;
+        }
+
+        int[] decoded = new int[rawList.size()];
+
+        for (int i = 0; i < rawList.size(); i++) {
+            Object item = rawList.get(i);
+
+            if (item instanceof Number number) {
+                decoded[i] = number.intValue();
+            } else if (item instanceof String text) {
+                try {
+                    decoded[i] = Integer.parseInt(text);
+                } catch (NumberFormatException e) {
+                    log.warn(StructuredLog.event(
+                            "repository_int_array_decode_failed",
+                            "reason", "non_integer_string_item",
+                            "index", i,
+                            "value", text
+                    ));
+                    return null;
+                }
+            } else {
+                log.warn(StructuredLog.event(
+                        "repository_int_array_decode_failed",
+                        "reason", "unsupported_item_type",
+                        "index", i,
+                        "itemType", item == null ? "null" : item.getClass().getName()
+                ));
+                return null;
+            }
+        }
+
+        Object rawLength = content.get(FIELD_LENGTH);
+        if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+            log.warn(StructuredLog.event(
+                    "repository_int_array_length_mismatch",
+                    "expectedLength", number.intValue(),
+                    "actualLength", decoded.length
+            ));
+        }
+
+        return StoredValue.intArrayValue(decoded);
+    }
+
 
     private static StoredValue decodeStringArrayStoredValue(JsonObject content, Object rawValue) {
         List<?> rawList = null;
@@ -1092,6 +1167,19 @@ public class CouchbaseRepository implements Repository {
             return out;
         }
 
+        if (value instanceof int[] ints) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (int item : ints) {
+                jsonArray.add(item);
+            }
+
+            out.put(FIELD_TYPE, TYPE_INT_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, ints.length);
+            return out;
+        }
+
         if (value instanceof String[] strings) {
             JsonArray jsonArray = JsonArray.create();
 
@@ -1332,6 +1420,40 @@ public class CouchbaseRepository implements Repository {
             }
 
             return null;
+        }
+
+        if (TYPE_INT_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = null;
+
+            if (value instanceof JsonArray jsonArray) {
+                rawList = jsonArray.toList();
+            } else if (value instanceof List<?> list) {
+                rawList = list;
+            }
+
+            if (rawList == null) {
+                return null;
+            }
+
+            int[] decoded = new int[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                Object item = rawList.get(i);
+
+                if (item instanceof Number number) {
+                    decoded[i] = number.intValue();
+                } else if (item instanceof String text) {
+                    try {
+                        decoded[i] = Integer.parseInt(text);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            return decoded;
         }
 
         if (TYPE_STRING_ARRAY.equalsIgnoreCase(type)) {

@@ -135,6 +135,35 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_int_array_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        when(repository.get("/helloWorld::my-int-array-key"))
+                .thenReturn(StoredValue.intArrayValue(new int[] {
+                        1,
+                        42,
+                        -7,
+                        Integer.MAX_VALUE,
+                        Integer.MIN_VALUE
+                }));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-int-array-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-int-array-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_string_array_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

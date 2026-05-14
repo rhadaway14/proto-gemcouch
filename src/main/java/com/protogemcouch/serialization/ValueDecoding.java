@@ -95,6 +95,16 @@ public final class ValueDecoding {
      */
     private static final int GEODE_BYTE_ARRAY_CODE = 0x2e;
 
+    /*
+     * Geode DataSerializer primitive int[] marker observed from PrimitiveArrayShapeTest:
+     *
+     *   new int[] {}                                      -> 30 00
+     *   new int[] {1,42,-7,Integer.MAX_VALUE,MIN_VALUE}   -> 30 05 00000001 0000002a fffffff9 7fffffff 80000000
+     *
+     * Values are stored big-endian, four bytes per int.
+     */
+    private static final int GEODE_INT_ARRAY_CODE = 0x30;
+
     private static final int GEODE_BOOLEAN_CODE = 0x35;
     private static final int GEODE_CHARACTER_CODE = 0x36;
     private static final int GEODE_BYTE_CODE = 0x37;
@@ -517,6 +527,36 @@ public final class ValueDecoding {
         return Arrays.copyOfRange(payload, 2, payload.length);
     }
 
+    public static int[] decodeIntArrayValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_INT_ARRAY_CODE) {
+            return null;
+        }
+
+        int length = payload[1] & 0xff;
+
+        if (payload.length != 2 + (length * Integer.BYTES)) {
+            return null;
+        }
+
+        int[] values = new int[length];
+        int offset = 2;
+
+        for (int i = 0; i < length; i++) {
+            values[i] = ((payload[offset] & 0xff) << 24)
+                    | ((payload[offset + 1] & 0xff) << 16)
+                    | ((payload[offset + 2] & 0xff) << 8)
+                    | (payload[offset + 3] & 0xff);
+
+            offset += Integer.BYTES;
+        }
+
+        return values;
+    }
+
     public static byte[] decodeRawByteArrayValue(byte[] payload) {
         if (payload == null) {
             return null;
@@ -537,6 +577,7 @@ public final class ValueDecoding {
                 || first == GEODE_HASH_MAP_CODE
                 || first == GEODE_JAVA_SERIALIZED_CODE
                 || first == GEODE_BYTE_ARRAY_CODE
+                || first == GEODE_INT_ARRAY_CODE
                 || first == GEODE_BOOLEAN_CODE
                 || first == GEODE_CHARACTER_CODE
                 || first == GEODE_BYTE_CODE
@@ -780,6 +821,10 @@ public final class ValueDecoding {
         }
 
         if (decodeByteArrayValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeIntArrayValue(payload) != null) {
             return null;
         }
 

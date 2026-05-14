@@ -163,6 +163,44 @@ class GetAllHandlerTest {
     }
 
     @Test
+    void handle_int_array_values_in_repository_result_are_encoded_in_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        Map<String, StoredValue> repoResult = new LinkedHashMap<>();
+        repoResult.put("int-array-key-1", StoredValue.intArrayValue(new int[] {}));
+        repoResult.put("int-array-key-2", StoredValue.intArrayValue(new int[] {
+                1,
+                42,
+                -7,
+                Integer.MAX_VALUE,
+                Integer.MIN_VALUE
+        }));
+
+        when(repository.getAll(
+                "/helloWorld",
+                List.of("int-array-key-1", "int-array-key-2")
+        )).thenReturn(repoResult);
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetAllHandler handler = new GetAllHandler(repository);
+        GemFrame frame = mockFrame(
+                100,
+                stringPart("/helloWorld"),
+                objectPart(List.of("int-array-key-1", "int-array-key-2")),
+                intPart(0)
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).getAll(
+                "/helloWorld",
+                List.of("int-array-key-1", "int-array-key-2")
+        );
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_string_array_values_in_repository_result_are_encoded_in_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
@@ -652,6 +690,11 @@ class GetAllHandlerTest {
         repoResult.put("byte-array-key", StoredValue.byteArrayValue(new byte[] {
                 0x01, 0x02, 0x03, 0x04, 0x05
         }));
+        repoResult.put("int-array-key", StoredValue.intArrayValue(new int[] {
+                1,
+                42,
+                -7
+        }));
         repoResult.put("string-array-key", StoredValue.stringArrayValue(new String[] {
                 "one",
                 null,
@@ -683,6 +726,7 @@ class GetAllHandlerTest {
                 "character-key",
                 "byte-key",
                 "byte-array-key",
+                "int-array-key",
                 "string-array-key",
                 "string-array-list-key",
                 "string-hash-map-key",

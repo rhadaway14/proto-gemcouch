@@ -1553,6 +1553,162 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void intArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-int-array-value-" + suffix;
+
+        int[] expected = new int[] {
+                1,
+                42,
+                -7,
+                Integer.MAX_VALUE,
+                Integer.MIN_VALUE
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(int[].class, actual);
+            assertArrayEquals(expected, (int[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INT_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void emptyIntArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-empty-int-array-value-" + suffix;
+
+        int[] expected = new int[] {};
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(int[].class, actual);
+            assertArrayEquals(expected, (int[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after EMPTY INT_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithIntArrayValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-putall-int-array-1-" + suffix;
+        String key2 = "it-putall-int-array-2-" + suffix;
+        String key3 = "it-putall-int-array-3-" + suffix;
+
+        int[] expected1 = new int[] {};
+        int[] expected2 = new int[] {1, 42, -7};
+        int[] expected3 = new int[] {
+                1,
+                42,
+                -7,
+                Integer.MAX_VALUE,
+                Integer.MIN_VALUE
+        };
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(key1, expected1);
+        entries.put(key2, expected2);
+        entries.put(key3, expected3);
+
+        try {
+            region.putAll(entries);
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+            Object actual3 = region.get(key3);
+
+            assertInstanceOf(int[].class, actual1);
+            assertInstanceOf(int[].class, actual2);
+            assertInstanceOf(int[].class, actual3);
+
+            assertArrayEquals(expected1, (int[]) actual1);
+            assertArrayEquals(expected2, (int[]) actual2);
+            assertArrayEquals(expected3, (int[]) actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INT_ARRAY PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithIntArrayValuesShouldReturnIntArrays() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-getall-int-array-1-" + suffix;
+        String key2 = "it-getall-int-array-2-" + suffix;
+        String key3 = "it-getall-int-array-3-" + suffix;
+
+        int[] expected1 = new int[] {};
+        int[] expected2 = new int[] {1, 42, -7};
+        int[] expected3 = new int[] {
+                1,
+                42,
+                -7,
+                Integer.MAX_VALUE,
+                Integer.MIN_VALUE
+        };
+
+        try {
+            region.put(key1, expected1);
+            region.put(key2, expected2);
+            region.put(key3, expected3);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            Object actual1 = results.get(key1);
+            Object actual2 = results.get(key2);
+            Object actual3 = results.get(key3);
+
+            assertInstanceOf(int[].class, actual1);
+            assertInstanceOf(int[].class, actual2);
+            assertInstanceOf(int[].class, actual3);
+
+            assertArrayEquals(expected1, (int[]) actual1);
+            assertArrayEquals(expected2, (int[]) actual2);
+            assertArrayEquals(expected3, (int[]) actual3);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INT_ARRAY GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void stringArrayValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
         String key = "it-string-array-value-" + suffix;
@@ -1703,6 +1859,7 @@ class ProtoGemCouchSerializationIntegrationTest {
 
         LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
         expected.put("payload", new byte[] {0x01, 0x02, 0x03, 0x04, 0x05});
+        expected.put("intItems", new int[] {1, 42, -7});
         expected.put("items", new String[] {"one", null, "three"});
         expected.put("list", list);
 
@@ -3056,33 +3213,35 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
-    void mixedStringCharacterByteByteArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
+    void mixedStringCharacterByteByteArrayIntArrayStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes() {
         String suffix = UUID.randomUUID().toString();
 
-        String stringKey = "it-mixed17-string-" + suffix;
-        String characterKey = "it-mixed17-character-" + suffix;
-        String byteKey = "it-mixed17-byte-" + suffix;
-        String byteArrayKey = "it-mixed17-byte-array-" + suffix;
-        String stringArrayKey = "it-mixed17-string-array-" + suffix;
-        String stringArrayListKey = "it-mixed17-string-array-list-" + suffix;
-        String stringHashMapKey = "it-mixed17-string-hash-map-" + suffix;
-        String stringObjectHashMapKey = "it-mixed17-string-object-hash-map-" + suffix;
-        String serializablePojoKey = "it-mixed17-serializable-pojo-" + suffix;
-        String objectArrayKey = "it-mixed17-object-array-" + suffix;
-        String objectArrayListKey = "it-mixed17-object-array-list-" + suffix;
-        String shortKey = "it-mixed17-short-" + suffix;
-        String integerKey = "it-mixed17-integer-" + suffix;
-        String booleanTrueKey = "it-mixed17-bool-true-" + suffix;
-        String booleanFalseKey = "it-mixed17-bool-false-" + suffix;
-        String longPositiveKey = "it-mixed17-long-positive-" + suffix;
-        String longNegativeKey = "it-mixed17-long-negative-" + suffix;
-        String floatPositiveKey = "it-mixed17-float-positive-" + suffix;
-        String floatNegativeKey = "it-mixed17-float-negative-" + suffix;
-        String doublePositiveKey = "it-mixed17-double-positive-" + suffix;
-        String doubleNegativeKey = "it-mixed17-double-negative-" + suffix;
-        String dateKey = "it-mixed17-date-" + suffix;
+        String stringKey = "it-mixed18-string-" + suffix;
+        String characterKey = "it-mixed18-character-" + suffix;
+        String byteKey = "it-mixed18-byte-" + suffix;
+        String byteArrayKey = "it-mixed18-byte-array-" + suffix;
+        String intArrayKey = "it-mixed18-int-array-" + suffix;
+        String stringArrayKey = "it-mixed18-string-array-" + suffix;
+        String stringArrayListKey = "it-mixed18-string-array-list-" + suffix;
+        String stringHashMapKey = "it-mixed18-string-hash-map-" + suffix;
+        String stringObjectHashMapKey = "it-mixed18-string-object-hash-map-" + suffix;
+        String serializablePojoKey = "it-mixed18-serializable-pojo-" + suffix;
+        String objectArrayKey = "it-mixed18-object-array-" + suffix;
+        String objectArrayListKey = "it-mixed18-object-array-list-" + suffix;
+        String shortKey = "it-mixed18-short-" + suffix;
+        String integerKey = "it-mixed18-integer-" + suffix;
+        String booleanTrueKey = "it-mixed18-bool-true-" + suffix;
+        String booleanFalseKey = "it-mixed18-bool-false-" + suffix;
+        String longPositiveKey = "it-mixed18-long-positive-" + suffix;
+        String longNegativeKey = "it-mixed18-long-negative-" + suffix;
+        String floatPositiveKey = "it-mixed18-float-positive-" + suffix;
+        String floatNegativeKey = "it-mixed18-float-negative-" + suffix;
+        String doublePositiveKey = "it-mixed18-double-positive-" + suffix;
+        String doubleNegativeKey = "it-mixed18-double-negative-" + suffix;
+        String dateKey = "it-mixed18-date-" + suffix;
 
         byte[] expectedByteArray = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05};
+        int[] expectedIntArray = new int[] {1, 42, -7, Integer.MAX_VALUE, Integer.MIN_VALUE};
         String[] expectedStringArray = new String[] {"one", null, "three"};
 
         ArrayList<String> expectedStringArrayList = new ArrayList<>();
@@ -3101,6 +3260,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         expectedStringObjectHashMap.put("active", Boolean.TRUE);
         expectedStringObjectHashMap.put("createdAt", new Date(1_000L));
         expectedStringObjectHashMap.put("payload", new byte[] {0x01, 0x02, 0x03});
+        expectedStringObjectHashMap.put("intItems", new int[] {1, 42, -7});
         expectedStringObjectHashMap.put("items", new String[] {"one", null, "three"});
         expectedStringObjectHashMap.put("list", expectedStringArrayList);
 
@@ -3133,6 +3293,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         entries.put(characterKey, Character.valueOf('A'));
         entries.put(byteKey, Byte.valueOf((byte) 7));
         entries.put(byteArrayKey, expectedByteArray);
+        entries.put(intArrayKey, expectedIntArray);
         entries.put(stringArrayKey, expectedStringArray);
         entries.put(stringArrayListKey, expectedStringArrayList);
         entries.put(stringHashMapKey, expectedStringHashMap);
@@ -3160,6 +3321,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             keys.add(characterKey);
             keys.add(byteKey);
             keys.add(byteArrayKey);
+            keys.add(intArrayKey);
             keys.add(stringArrayKey);
             keys.add(stringArrayListKey);
             keys.add(stringHashMapKey);
@@ -3185,6 +3347,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             Object characterActual = results.get(characterKey);
             Object byteActual = results.get(byteKey);
             Object byteArrayActual = results.get(byteArrayKey);
+            Object intArrayActual = results.get(intArrayKey);
             Object stringArrayActual = results.get(stringArrayKey);
             Object stringArrayListActual = results.get(stringArrayListKey);
             Object stringHashMapActual = results.get(stringHashMapKey);
@@ -3208,6 +3371,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertInstanceOf(Character.class, characterActual);
             assertInstanceOf(Byte.class, byteActual);
             assertInstanceOf(byte[].class, byteArrayActual);
+            assertInstanceOf(int[].class, intArrayActual);
             assertInstanceOf(String[].class, stringArrayActual);
             assertInstanceOf(ArrayList.class, stringArrayListActual);
             assertInstanceOf(Map.class, stringHashMapActual);
@@ -3231,6 +3395,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertEquals(Character.valueOf('A'), characterActual);
             assertEquals(Byte.valueOf((byte) 7), byteActual);
             assertArrayEquals(expectedByteArray, (byte[]) byteArrayActual);
+            assertArrayEquals(expectedIntArray, (int[]) intArrayActual);
             assertArrayEquals(expectedStringArray, (String[]) stringArrayActual);
             assertEquals(expectedStringArrayList, stringArrayListActual);
             assertEquals(expectedStringHashMap, stringHashMapActual);
@@ -3251,7 +3416,7 @@ class ProtoGemCouchSerializationIntegrationTest {
             assertEquals(expectedDate, dateActual);
         } catch (RuntimeException | AssertionError e) {
             System.err.println();
-            System.err.println("========== protogemcouch-shim logs after MIXED OBJECT_ARRAY_LIST PUT_ALL/GET_ALL failure ==========");
+            System.err.println("========== protogemcouch-shim logs after MIXED INT_ARRAY PUT_ALL/GET_ALL failure ==========");
             dumpShimLogs();
             System.err.println("========== end protogemcouch-shim logs ==========");
             System.err.println();
@@ -3519,6 +3684,9 @@ class ProtoGemCouchSerializationIntegrationTest {
             if (expectedItem instanceof byte[] expectedBytes) {
                 assertInstanceOf(byte[].class, actualItem, "ArrayList<Object> item " + i + " should be byte[]");
                 assertArrayEquals(expectedBytes, (byte[]) actualItem, "ArrayList<Object> byte[] item mismatch at index " + i);
+            } else if (expectedItem instanceof int[] expectedInts) {
+                assertInstanceOf(int[].class, actualItem, "ArrayList<Object> item " + i + " should be int[]");
+                assertArrayEquals(expectedInts, (int[]) actualItem, "ArrayList<Object> int[] item mismatch at index " + i);
             } else if (expectedItem instanceof String[] expectedStrings) {
                 assertInstanceOf(String[].class, actualItem, "ArrayList<Object> item " + i + " should be String[]");
                 assertArrayEquals(expectedStrings, (String[]) actualItem, "ArrayList<Object> String[] item mismatch at index " + i);
@@ -3547,6 +3715,9 @@ class ProtoGemCouchSerializationIntegrationTest {
             if (expectedItem instanceof byte[] expectedBytes) {
                 assertInstanceOf(byte[].class, actualItem, "Object[] item " + i + " should be byte[]");
                 assertArrayEquals(expectedBytes, (byte[]) actualItem, "Object[] byte[] item mismatch at index " + i);
+            } else if (expectedItem instanceof int[] expectedInts) {
+                assertInstanceOf(int[].class, actualItem, "Object[] item " + i + " should be int[]");
+                assertArrayEquals(expectedInts, (int[]) actualItem, "Object[] int[] item mismatch at index " + i);
             } else if (expectedItem instanceof String[] expectedStrings) {
                 assertInstanceOf(String[].class, actualItem, "Object[] item " + i + " should be String[]");
                 assertArrayEquals(expectedStrings, (String[]) actualItem, "Object[] String[] item mismatch at index " + i);
@@ -3572,6 +3743,9 @@ class ProtoGemCouchSerializationIntegrationTest {
             if (expectedValue instanceof byte[] expectedBytes) {
                 assertInstanceOf(byte[].class, actualValue);
                 assertArrayEquals(expectedBytes, (byte[]) actualValue);
+            } else if (expectedValue instanceof int[] expectedInts) {
+                assertInstanceOf(int[].class, actualValue);
+                assertArrayEquals(expectedInts, (int[]) actualValue);
             } else if (expectedValue instanceof String[] expectedStrings) {
                 assertInstanceOf(String[].class, actualValue);
                 assertArrayEquals(expectedStrings, (String[]) actualValue);
