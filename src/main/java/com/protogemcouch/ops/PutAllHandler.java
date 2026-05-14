@@ -276,6 +276,24 @@ public class PutAllHandler implements OperationHandler {
             );
         }
 
+        ValueDecoding.OpaqueGeodeValue opaqueGeodeValue =
+                ValueDecoding.decodeOpaqueStandaloneUtilityValue(valuePayload);
+
+        if (opaqueGeodeValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_all_value_decode_ok",
+                    "encoding", "geode-opaque-standalone-utility",
+                    "key", key,
+                    "type", opaqueGeodeValue.typeName(),
+                    "valueType", "OPAQUE_GEODE_VALUE",
+                    "txId", txId
+            ));
+            return StoredValue.opaqueGeodeValue(
+                    opaqueGeodeValue.typeName(),
+                    opaqueGeodeValue.encodedValue()
+            );
+        }
+
         byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
 
         if (byteArrayValue != null) {
@@ -807,6 +825,24 @@ public class PutAllHandler implements OperationHandler {
                 return StoredValue.javaSerializedObjectValue(
                         fallbackJavaSerializedObjectValue.className(),
                         fallbackJavaSerializedObjectValue.serializedValue()
+                );
+            }
+
+            ValueDecoding.OpaqueGeodeValue fallbackOpaqueGeodeValue =
+                    ValueDecoding.decodeOpaqueStandaloneUtilityValue(valuePayload);
+
+            if (fallbackOpaqueGeodeValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_all_value_deserialize_ok",
+                        "key", key,
+                        "encoding", "geode-dataserializer-opaque-standalone-utility",
+                        "type", fallbackOpaqueGeodeValue.typeName(),
+                        "valueType", "OPAQUE_GEODE_VALUE",
+                        "txId", txId
+                ));
+                return StoredValue.opaqueGeodeValue(
+                        fallbackOpaqueGeodeValue.typeName(),
+                        fallbackOpaqueGeodeValue.encodedValue()
                 );
             }
 

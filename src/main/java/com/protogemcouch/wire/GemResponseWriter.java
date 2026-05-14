@@ -414,6 +414,14 @@ public final class GemResponseWriter {
         );
     }
 
+    public static byte[] buildOpaqueGeodeValueGetResponse(int txId, byte[] encodedOpaqueGeodeValue) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedOpaqueGeodeValue(encodedOpaqueGeodeValue), (byte) 1))
+        );
+    }
+
     public static byte[] buildShortGetResponse(int txId, short value) {
         return buildMessage(
                 MessageTypes.RESPONSE,
@@ -795,6 +803,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.OBJECT_ARRAY_LIST) {
             return geodeSerializedObjectArrayList(value.asObjectArrayListValue());
+        }
+
+        if (value.type() == StoredValue.Type.OPAQUE_GEODE_VALUE) {
+            return geodeSerializedOpaqueGeodeValue(value.asOpaqueGeodeValue());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -1305,6 +1317,29 @@ public final class GemResponseWriter {
 
         byte[] copy = new byte[encodedObjectArrayListValue.length];
         System.arraycopy(encodedObjectArrayListValue, 0, copy, 0, encodedObjectArrayListValue.length);
+
+        return copy;
+    }
+
+    private static byte[] geodeSerializedOpaqueGeodeValue(byte[] encodedOpaqueGeodeValue) {
+        if (encodedOpaqueGeodeValue == null || encodedOpaqueGeodeValue.length == 0) {
+            throw new IllegalArgumentException("Opaque Geode encoded bytes must not be null or empty");
+        }
+
+        /*
+         * Opaque standalone utility values already include their original Geode
+         * DataSerializer marker. Return the exact payload unchanged so the Geode
+         * client deserializes the original type.
+         *
+         * Currently used for standalone utility markers:
+         *
+         *   BigInteger -> 0x5f
+         *   BigDecimal -> 0x60
+         *   UUID       -> 0x62
+         *   Enum       -> 0x65
+         */
+        byte[] copy = new byte[encodedOpaqueGeodeValue.length];
+        System.arraycopy(encodedOpaqueGeodeValue, 0, copy, 0, encodedOpaqueGeodeValue.length);
 
         return copy;
     }

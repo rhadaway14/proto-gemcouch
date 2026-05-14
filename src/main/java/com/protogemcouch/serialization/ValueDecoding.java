@@ -132,6 +132,22 @@ public final class ValueDecoding {
     private static final int GEODE_DOUBLE_CODE = 0x3c;
     private static final int GEODE_DATE_CODE = 0x3d;
 
+    /*
+     * Standalone utility value markers observed from WrapperArrayAndUtilityShapeTest:
+     *
+     *   BigInteger  -> 0x5f
+     *   BigDecimal  -> 0x60
+     *   UUID        -> 0x62
+     *   Enum        -> 0x65
+     *
+     * These are preserved opaquely first. The Geode client can deserialize them
+     * correctly when the original marker + payload bytes are returned.
+     */
+    private static final int GEODE_BIG_INTEGER_CODE = 0x5f;
+    private static final int GEODE_BIG_DECIMAL_CODE = 0x60;
+    private static final int GEODE_UUID_CODE = 0x62;
+    private static final int GEODE_ENUM_CODE = 0x65;
+
     private ValueDecoding() {
     }
 
@@ -184,6 +200,25 @@ public final class ValueDecoding {
         }
     }
 
+    public record OpaqueGeodeValue(String typeName, byte[] encodedValue) {
+        public OpaqueGeodeValue {
+            if (typeName == null || typeName.isBlank()) {
+                throw new IllegalArgumentException("typeName must not be blank");
+            }
+
+            if (encodedValue == null || encodedValue.length == 0) {
+                throw new IllegalArgumentException("encodedValue must not be null or empty");
+            }
+
+            encodedValue = Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+
+        @Override
+        public byte[] encodedValue() {
+            return Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+    }
+
 
 
     public static ObjectArray decodeObjectArrayValue(byte[] payload) {
@@ -200,26 +235,23 @@ public final class ValueDecoding {
          *
          *   34 <length> 2b <component-type-string> <elements...>
          *
-         * Earlier support only accepted:
+         * This covers both Object[] and component-specific wrapper / utility
+         * arrays such as:
          *
-         *   34 ... java.lang.Object ...
+         *   java.lang.Integer[]
+         *   java.lang.Long[]
+         *   java.lang.Boolean[]
+         *   java.lang.Double[]
+         *   java.util.UUID[]
+         *   java.math.BigInteger[]
+         *   java.math.BigDecimal[]
+         *   java.time.Instant[]
+         *   java.time.LocalDate[]
+         *   java.time.LocalDateTime[]
          *
-         * Shape discovery for wrapper and utility arrays showed the same 0x34
-         * array envelope is also used for component-specific arrays such as:
-         *
-         *   java.lang.Integer
-         *   java.lang.Long
-         *   java.lang.Boolean
-         *   java.lang.Double
-         *   java.util.UUID
-         *   java.math.BigInteger
-         *   java.math.BigDecimal
-         *   java.time.Instant
-         *   java.time.LocalDate
-         *   java.time.LocalDateTime
-         *
-         * Keep all of these 0x34 payloads opaque. Returning the original Geode
-         * payload allows the client to deserialize the exact original array type.
+         * Preserve the whole payload opaquely. Returning the original 0x34
+         * payload lets the Geode client deserialize the exact original array
+         * type.
          */
         int offset = 1;
 
@@ -247,10 +279,9 @@ public final class ValueDecoding {
         }
 
         /*
-         * Do not try to parse the element stream. Elements can include nulls,
-         * primitive wrappers, utility values, enums, Java-serialized objects,
-         * and customer classes. Opaque preservation is safer and gives Geode's
-         * client deserializer the exact bytes it originally produced.
+         * Do not parse the element stream. Elements can include nulls, primitive
+         * wrappers, utility values, enums, Java-serialized objects, and customer
+         * classes. Opaque preservation is safer.
          */
         return new ObjectArray(payload);
     }
@@ -551,6 +582,42 @@ public final class ValueDecoding {
         return null;
     }
 
+    public static OpaqueGeodeValue decodeOpaqueStandaloneUtilityValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        int first = payload[0] & 0xff;
+
+        if (first == GEODE_UUID_CODE) {
+            /*
+             * Observed UUID shape:
+             *
+             *   62 <16 UUID bytes>
+             */
+            if (payload.length != 17) {
+                return null;
+            }
+
+            return new OpaqueGeodeValue("uuid", payload);
+        }
+
+        if (first == GEODE_BIG_INTEGER_CODE) {
+            return new OpaqueGeodeValue("bigInteger", payload);
+        }
+
+        if (first == GEODE_BIG_DECIMAL_CODE) {
+            return new OpaqueGeodeValue("bigDecimal", payload);
+        }
+
+        if (first == GEODE_ENUM_CODE) {
+            return new OpaqueGeodeValue("enum", payload);
+        }
+
+        return null;
+    }
+
+
 
     public static byte[] decodeByteArrayValue(byte[] payload) {
         if (payload == null || payload.length < 2) {
@@ -831,6 +898,10 @@ public final class ValueDecoding {
                 || first == GEODE_FLOAT_CODE
                 || first == GEODE_DOUBLE_CODE
                 || first == GEODE_DATE_CODE
+                || first == GEODE_BIG_INTEGER_CODE
+                || first == GEODE_BIG_DECIMAL_CODE
+                || first == GEODE_UUID_CODE
+                || first == GEODE_ENUM_CODE
                 || first == GEODE_STRING_CODE) {
             return null;
         }
@@ -1061,6 +1132,10 @@ public final class ValueDecoding {
         }
 
         if (decodeJavaSerializedObjectValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeOpaqueStandaloneUtilityValue(payload) != null) {
             return null;
         }
 

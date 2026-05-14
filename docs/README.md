@@ -7,7 +7,7 @@ The goal is to let an existing Java Geode client application change only its con
 ## Current Status
 
 ```text
-primitive-array-family-support-complete
+standalone-utility-value-support-complete
 ```
 
 Latest verification:
@@ -17,8 +17,6 @@ mvn clean test
 mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
 ```
 
-Both completed successfully after adding support for the remaining primitive array family.
-
 Latest Docker-backed integration result:
 
 ```text
@@ -26,10 +24,10 @@ ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 110, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -72,12 +70,30 @@ long[]
 float[]
 double[]
 String[]
+Integer[]
+Long[]
+Boolean[]
+Double[]
+UUID[]
+BigInteger[]
+BigDecimal[]
+Enum[]
+Instant[]
+LocalDate[]
+LocalDateTime[]
 ArrayList<String>
 HashMap<String,String>
 HashMap<String,Object>
 Serializable POJO
 Object[]
 ArrayList<Object>
+UUID
+BigInteger
+BigDecimal
+Enum
+java.time.Instant
+java.time.LocalDate
+java.time.LocalDateTime
 ```
 
 ## Primitive Array Support
@@ -112,12 +128,6 @@ region.put("int-array-demo-key", value);
 Object actual = region.get("int-array-demo-key");
 ```
 
-Example encoded payload:
-
-```text
-3005000000010000002afffffff97fffffff80000000
-```
-
 Couchbase envelope:
 
 ```json
@@ -129,6 +139,74 @@ Couchbase envelope:
 ```
 
 The shim decodes primitive arrays structurally, stores them as typed JSON array envelopes, and re-encodes them as Geode-compatible primitive-array payloads when returning data to the client.
+
+## Wrapper and Utility Array Support
+
+Wrapper and utility arrays are supported through generalized `0x34` object-array preservation.
+
+Examples:
+
+```text
+Integer[]        -> 0x34 ... java.lang.Integer ...
+Long[]           -> 0x34 ... java.lang.Long ...
+Boolean[]        -> 0x34 ... java.lang.Boolean ...
+Double[]         -> 0x34 ... java.lang.Double ...
+UUID[]           -> 0x34 ... java.util.UUID ...
+BigInteger[]     -> 0x34 ... java.math.BigInteger ...
+BigDecimal[]     -> 0x34 ... java.math.BigDecimal ...
+Enum[]           -> 0x34 ... <enum-class> ...
+Instant[]        -> 0x34 ... java.time.Instant ...
+LocalDate[]      -> 0x34 ... java.time.LocalDate ...
+LocalDateTime[]  -> 0x34 ... java.time.LocalDateTime ...
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "objectArray",
+  "valueBase64": "NA...",
+  "length": 123
+}
+```
+
+The shim stores and returns the full `0x34...` payload, allowing the Geode client to deserialize the original array type.
+
+## Standalone Utility Value Support
+
+Standalone utility values are supported through either dedicated opaque Geode marker preservation or the existing Java-serialized-object path.
+
+Supported standalone utility markers:
+
+```text
+BigInteger              -> 0x5f
+BigDecimal              -> 0x60
+UUID                    -> 0x62
+Enum                    -> 0x65
+java.time.Instant       -> 0x2c Java serialized
+java.time.LocalDate     -> 0x2c Java serialized
+java.time.LocalDateTime -> 0x2c Java serialized
+```
+
+Example:
+
+```java
+UUID value = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+
+region.put("uuid-demo-key", value);
+Object actual = region.get("uuid-demo-key");
+```
+
+Couchbase envelope:
+
+```json
+{
+  "type": "opaqueGeodeValue",
+  "opaqueGeodeTypeName": "uuid",
+  "valueBase64": "YhI+RWfomxLTpFZCZhQXQAA=",
+  "length": 17
+}
+```
 
 ## ArrayList<Object> Support
 
@@ -159,12 +237,12 @@ If that fails and the payload starts with 0x41, the value is treated as opaque A
 
 ## Object[] Support
 
-`Object[]` is supported as an opaque Geode DataSerializer payload.
+`Object[]` and component-specific object arrays are supported as opaque Geode DataSerializer payloads.
 
 Observed wire shape:
 
 ```text
-34 <length> 2b 57 0010 java.lang.Object <elements...>
+34 <length> 2b <component-type-string> <elements...>
 ```
 
 Couchbase envelope:
@@ -246,6 +324,27 @@ com.protogemcouch.couchbase     repository and Couchbase persistence
   "type": "intArray",
   "value": [1, 42, -7, 2147483647, -2147483648],
   "length": 5
+}
+```
+
+### Wrapper / utility array
+
+```json
+{
+  "type": "objectArray",
+  "valueBase64": "NA...",
+  "length": 123
+}
+```
+
+### Standalone utility value
+
+```json
+{
+  "type": "opaqueGeodeValue",
+  "opaqueGeodeTypeName": "uuid",
+  "valueBase64": "YhI+RWfomxLTpFZCZhQXQAA=",
+  "length": 17
 }
 ```
 
@@ -340,12 +439,14 @@ long[] round trips
 float[] round trips
 double[] round trips
 String[] round trips
+Wrapper / utility array round trips
 ArrayList<String> round trips
 HashMap<String,String> round trips
 HashMap<String,Object> round trips
 Serializable POJO round trips
 Object[] round trips
 ArrayList<Object> round trips
+Standalone utility value round trips
 java.util.Date round trips
 Couchbase typed envelopes
 GET_ALL VersionedObjectList-compatible responses
@@ -358,11 +459,8 @@ Not yet implemented or validated:
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
-Wrapper arrays
-BigDecimal / BigInteger
-UUID
-Enum
-java.time values
+Nested wrapper / utility arrays inside structured Map<String,Object>
+Nested opaque standalone utility values inside structured Map<String,Object>
 DataSerializable
 PDX / PdxInstance
 Transactions
@@ -377,5 +475,5 @@ High-concurrency load and soak testing
 ## Next Target
 
 ```text
-wrapper arrays and common Java utility values
+nested opaque values inside HashMap<String,Object>
 ```

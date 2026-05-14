@@ -228,6 +228,23 @@ public class PutHandler implements OperationHandler {
             );
         }
 
+        ValueDecoding.OpaqueGeodeValue opaqueGeodeValue =
+                ValueDecoding.decodeOpaqueStandaloneUtilityValue(valuePayload);
+
+        if (opaqueGeodeValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-opaque-standalone-utility",
+                    "type", opaqueGeodeValue.typeName(),
+                    "valueType", "OPAQUE_GEODE_VALUE",
+                    "txId", txId
+            ));
+            return StoredValue.opaqueGeodeValue(
+                    opaqueGeodeValue.typeName(),
+                    opaqueGeodeValue.encodedValue()
+            );
+        }
+
         byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
 
         if (byteArrayValue != null) {
@@ -737,6 +754,23 @@ public class PutHandler implements OperationHandler {
                 return StoredValue.javaSerializedObjectValue(
                         fallbackJavaSerializedObjectValue.className(),
                         fallbackJavaSerializedObjectValue.serializedValue()
+                );
+            }
+
+            ValueDecoding.OpaqueGeodeValue fallbackOpaqueGeodeValue =
+                    ValueDecoding.decodeOpaqueStandaloneUtilityValue(valuePayload);
+
+            if (fallbackOpaqueGeodeValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer-opaque-standalone-utility",
+                        "type", fallbackOpaqueGeodeValue.typeName(),
+                        "valueType", "OPAQUE_GEODE_VALUE",
+                        "txId", txId
+                ));
+                return StoredValue.opaqueGeodeValue(
+                        fallbackOpaqueGeodeValue.typeName(),
+                        fallbackOpaqueGeodeValue.encodedValue()
                 );
             }
 

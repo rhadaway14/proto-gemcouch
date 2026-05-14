@@ -1531,6 +1531,260 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void uuidValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-uuid-value-" + suffix;
+        UUID expected = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(UUID.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after UUID round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void bigIntegerValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-big-integer-value-" + suffix;
+        BigInteger expected = new BigInteger("123456789012345678901234567890");
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(BigInteger.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BIG_INTEGER round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void bigDecimalValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-big-decimal-value-" + suffix;
+        BigDecimal expected = new BigDecimal("1234567890.123456789");
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(BigDecimal.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BIG_DECIMAL round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void enumValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-enum-value-" + suffix;
+        DemoStatus expected = DemoStatus.ACTIVE;
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(DemoStatus.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after ENUM round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void instantValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-instant-value-" + suffix;
+        Instant expected = Instant.parse("2026-05-13T20:37:37Z");
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(Instant.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INSTANT round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void localDateValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-local-date-value-" + suffix;
+        LocalDate expected = LocalDate.of(2026, 5, 13);
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(LocalDate.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after LOCAL_DATE round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void localDateTimeValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-local-date-time-value-" + suffix;
+        LocalDateTime expected = LocalDateTime.of(2026, 5, 13, 20, 37, 37);
+
+        try {
+            region.put(key, expected);
+            Object actual = region.get(key);
+            assertInstanceOf(LocalDateTime.class, actual);
+            assertEquals(expected, actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after LOCAL_DATE_TIME round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithStandaloneUtilityValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String uuidKey = "it-putall-uuid-value-" + suffix;
+        String bigIntegerKey = "it-putall-big-integer-value-" + suffix;
+        String bigDecimalKey = "it-putall-big-decimal-value-" + suffix;
+        String enumKey = "it-putall-enum-value-" + suffix;
+        String instantKey = "it-putall-instant-value-" + suffix;
+        String localDateKey = "it-putall-local-date-value-" + suffix;
+        String localDateTimeKey = "it-putall-local-date-time-value-" + suffix;
+
+        UUID expectedUuid = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        BigInteger expectedBigInteger = new BigInteger("123456789012345678901234567890");
+        BigDecimal expectedBigDecimal = new BigDecimal("1234567890.123456789");
+        DemoStatus expectedEnum = DemoStatus.ACTIVE;
+        Instant expectedInstant = Instant.parse("2026-05-13T20:37:37Z");
+        LocalDate expectedLocalDate = LocalDate.of(2026, 5, 13);
+        LocalDateTime expectedLocalDateTime = LocalDateTime.of(2026, 5, 13, 20, 37, 37);
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(uuidKey, expectedUuid);
+        entries.put(bigIntegerKey, expectedBigInteger);
+        entries.put(bigDecimalKey, expectedBigDecimal);
+        entries.put(enumKey, expectedEnum);
+        entries.put(instantKey, expectedInstant);
+        entries.put(localDateKey, expectedLocalDate);
+        entries.put(localDateTimeKey, expectedLocalDateTime);
+
+        try {
+            region.putAll(entries);
+
+            assertEquals(expectedUuid, region.get(uuidKey));
+            assertEquals(expectedBigInteger, region.get(bigIntegerKey));
+            assertEquals(expectedBigDecimal, region.get(bigDecimalKey));
+            assertEquals(expectedEnum, region.get(enumKey));
+            assertEquals(expectedInstant, region.get(instantKey));
+            assertEquals(expectedLocalDate, region.get(localDateKey));
+            assertEquals(expectedLocalDateTime, region.get(localDateTimeKey));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after STANDALONE_UTILITY PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithStandaloneUtilityValuesShouldReturnValues() {
+        String suffix = UUID.randomUUID().toString();
+
+        String uuidKey = "it-getall-uuid-value-" + suffix;
+        String bigIntegerKey = "it-getall-big-integer-value-" + suffix;
+        String bigDecimalKey = "it-getall-big-decimal-value-" + suffix;
+        String enumKey = "it-getall-enum-value-" + suffix;
+        String instantKey = "it-getall-instant-value-" + suffix;
+        String localDateKey = "it-getall-local-date-value-" + suffix;
+        String localDateTimeKey = "it-getall-local-date-time-value-" + suffix;
+
+        UUID expectedUuid = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        BigInteger expectedBigInteger = new BigInteger("123456789012345678901234567890");
+        BigDecimal expectedBigDecimal = new BigDecimal("1234567890.123456789");
+        DemoStatus expectedEnum = DemoStatus.ACTIVE;
+        Instant expectedInstant = Instant.parse("2026-05-13T20:37:37Z");
+        LocalDate expectedLocalDate = LocalDate.of(2026, 5, 13);
+        LocalDateTime expectedLocalDateTime = LocalDateTime.of(2026, 5, 13, 20, 37, 37);
+
+        try {
+            region.put(uuidKey, expectedUuid);
+            region.put(bigIntegerKey, expectedBigInteger);
+            region.put(bigDecimalKey, expectedBigDecimal);
+            region.put(enumKey, expectedEnum);
+            region.put(instantKey, expectedInstant);
+            region.put(localDateKey, expectedLocalDate);
+            region.put(localDateTimeKey, expectedLocalDateTime);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(uuidKey);
+            keys.add(bigIntegerKey);
+            keys.add(bigDecimalKey);
+            keys.add(enumKey);
+            keys.add(instantKey);
+            keys.add(localDateKey);
+            keys.add(localDateTimeKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertEquals(expectedUuid, results.get(uuidKey));
+            assertEquals(expectedBigInteger, results.get(bigIntegerKey));
+            assertEquals(expectedBigDecimal, results.get(bigDecimalKey));
+            assertEquals(expectedEnum, results.get(enumKey));
+            assertEquals(expectedInstant, results.get(instantKey));
+            assertEquals(expectedLocalDate, results.get(localDateKey));
+            assertEquals(expectedLocalDateTime, results.get(localDateTimeKey));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after STANDALONE_UTILITY GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+            throw e;
+        }
+    }
+
+
+    @Test
     void byteArrayValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
         String key = "it-byte-array-value-" + suffix;

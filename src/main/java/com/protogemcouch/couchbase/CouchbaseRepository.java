@@ -37,6 +37,7 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_LENGTH = "length";
     private static final String FIELD_TYPE = "type";
     private static final String FIELD_EPOCH_MILLIS = "epochMillis";
+    private static final String FIELD_OPAQUE_GEODE_TYPE_NAME = "opaqueGeodeTypeName";
 
     private static final String TYPE_STRING = "string";
     private static final String TYPE_BOOLEAN = "boolean";
@@ -57,6 +58,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_JAVA_SERIALIZED_OBJECT = "javaSerializedObject";
     private static final String TYPE_OBJECT_ARRAY = "objectArray";
     private static final String TYPE_OBJECT_ARRAY_LIST = "objectArrayList";
+    private static final String TYPE_OPAQUE_GEODE_VALUE = "opaqueGeodeValue";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -568,6 +570,16 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.OPAQUE_GEODE_VALUE) {
+            byte[] encodedOpaqueGeodeValue = value.asOpaqueGeodeValue();
+
+            body.put(FIELD_TYPE, TYPE_OPAQUE_GEODE_VALUE);
+            body.put(FIELD_OPAQUE_GEODE_TYPE_NAME, value.asOpaqueGeodeTypeName());
+            body.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(encodedOpaqueGeodeValue));
+            body.put(FIELD_LENGTH, encodedOpaqueGeodeValue.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -734,6 +746,10 @@ public class CouchbaseRepository implements Repository {
 
         if (TYPE_OBJECT_ARRAY_LIST.equalsIgnoreCase(type)) {
             return decodeObjectArrayListStoredValue(content);
+        }
+
+        if (TYPE_OPAQUE_GEODE_VALUE.equalsIgnoreCase(type)) {
+            return decodeOpaqueGeodeValueStoredValue(content);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -1468,6 +1484,61 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+
+
+    private static StoredValue decodeOpaqueGeodeValueStoredValue(JsonObject content) {
+        Object rawTypeName = content.get(FIELD_OPAQUE_GEODE_TYPE_NAME);
+        Object rawBase64 = content.get(FIELD_VALUE_BASE64);
+
+        if (!(rawTypeName instanceof String typeName) || typeName.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_opaque_geode_value_decode_failed",
+                    "reason", "missing_or_blank_opaqueGeodeTypeName"
+            ));
+            return null;
+        }
+
+        if (!(rawBase64 instanceof String base64Text) || base64Text.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_opaque_geode_value_decode_failed",
+                    "reason", "missing_or_blank_valueBase64",
+                    "opaqueGeodeTypeName", typeName
+            ));
+            return null;
+        }
+
+        try {
+            byte[] decoded = Base64.getDecoder().decode(base64Text);
+
+            if (decoded.length == 0) {
+                log.warn(StructuredLog.event(
+                        "repository_opaque_geode_value_decode_failed",
+                        "reason", "decoded_value_empty",
+                        "opaqueGeodeTypeName", typeName
+                ));
+                return null;
+            }
+
+            Object rawLength = content.get(FIELD_LENGTH);
+            if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+                log.warn(StructuredLog.event(
+                        "repository_opaque_geode_value_length_mismatch",
+                        "opaqueGeodeTypeName", typeName,
+                        "expectedLength", number.intValue(),
+                        "actualLength", decoded.length
+                ));
+            }
+
+            return StoredValue.opaqueGeodeValue(typeName, decoded);
+        } catch (IllegalArgumentException e) {
+            log.warn(StructuredLog.event(
+                    "repository_opaque_geode_value_decode_failed",
+                    "opaqueGeodeTypeName", typeName,
+                    "error", e.getMessage()
+            ));
+            return null;
+        }
+    }
 
 
     private static JsonObject encodeMapObjectValue(Object value) {

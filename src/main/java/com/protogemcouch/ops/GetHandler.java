@@ -137,6 +137,11 @@ public class GetHandler implements OperationHandler {
                     frame.getTransactionId(),
                     value.asObjectArrayListValue()
             );
+        } else if (value.type() == StoredValue.Type.OPAQUE_GEODE_VALUE) {
+            response = GemResponseWriter.buildOpaqueGeodeValueGetResponse(
+                    frame.getTransactionId(),
+                    value.asOpaqueGeodeValue()
+            );
         } else if (value.type() == StoredValue.Type.SHORT) {
             response = GemResponseWriter.buildShortGetResponse(
                     frame.getTransactionId(),

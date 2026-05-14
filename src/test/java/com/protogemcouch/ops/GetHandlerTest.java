@@ -529,6 +529,33 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_opaque_geode_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        byte[] uuidPayload = hexToBytes(
+                "62123e4567e89b12d3a456426614174000"
+        );
+
+        when(repository.get("/helloWorld::my-uuid-key"))
+                .thenReturn(StoredValue.opaqueGeodeValue("uuid", uuidPayload));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-uuid-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-uuid-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_short_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

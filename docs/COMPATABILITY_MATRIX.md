@@ -3,28 +3,44 @@
 ## Current Milestone
 
 ```text
-primitive-array-family-support-complete
+standalone-utility-value-support-complete
 ```
 
-Primitive array family support is now implemented and validated end-to-end.
+Standalone Java utility value support is now implemented and validated end-to-end.
 
-This milestone adds structural support for:
+This milestone adds support for standalone:
 
 ```text
-boolean[]
-char[]
-short[]
-int[]
-long[]
-float[]
-double[]
+UUID
+BigInteger
+BigDecimal
+Enum
+java.time.Instant
+java.time.LocalDate
+java.time.LocalDateTime
 ```
 
-`byte[]` remains supported through the existing byte-array path.
+It also preserves the completed wrapper/utility array milestone through generalized `0x34` object-array preservation:
+
+```text
+Integer[]
+Long[]
+Boolean[]
+Double[]
+UUID[]
+BigInteger[]
+BigDecimal[]
+Enum[]
+Instant[]
+LocalDate[]
+LocalDateTime[]
+```
 
 Previous completed milestones:
 
 ```text
+wrapper-and-utility-array-support-complete
+primitive-array-family-support-complete
 int-array-support-complete
 object-array-list-support-complete
 object-array-support-complete
@@ -44,10 +60,10 @@ ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 88, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 110, Failures: 0, Errors: 0, Skipped: 0
 
 BUILD SUCCESS
 ```
@@ -91,17 +107,30 @@ BUILD SUCCESS
 | `float[]` | `0x32` | Yes | Yes | Yes |
 | `double[]` | `0x33` | Yes | Yes | Yes |
 | `String[]` | `0x40` | Yes | Yes | Yes |
+| `Integer[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `Long[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `Boolean[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `Double[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `UUID[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `BigInteger[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `BigDecimal[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `Enum[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `Instant[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `LocalDate[]` | `0x34` object-array envelope | Yes | Yes | Yes |
+| `LocalDateTime[]` | `0x34` object-array envelope | Yes | Yes | Yes |
 | `ArrayList<String>` | `0x41` string-only list | Yes | Yes | Yes |
 | `HashMap<String,String>` | `0x43` empty or `0x2c aced...` | Yes | Yes | Yes |
 | `HashMap<String,Object>` | `0x43` empty or `0x2c aced...` | Yes | Yes | Yes |
 | Serializable POJO | `0x2c aced...` | Yes | Yes | Yes |
-| `Object[]` | `0x34 ... java.lang.Object ...` | Yes | Yes | Yes |
+| `Object[]` | `0x34 ... <component-type> ...` | Yes | Yes | Yes |
 | `ArrayList<Object>` | `0x41 ... mixed elements ...` | Yes | Yes | Yes |
-| wrapper arrays | TBD | Not yet | Not yet | Not yet |
-| BigDecimal / BigInteger | TBD | Not yet | Not yet | Not yet |
-| UUID | TBD | Not yet | Not yet | Not yet |
-| Enum | TBD | Not yet | Not yet | Not yet |
-| `java.time` values | TBD | Not yet | Not yet | Not yet |
+| `UUID` | `0x62` opaque standalone utility | Yes | Yes | Yes |
+| `BigInteger` | `0x5f` opaque standalone utility | Yes | Yes | Yes |
+| `BigDecimal` | `0x60` opaque standalone utility | Yes | Yes | Yes |
+| `Enum` | `0x65` opaque standalone utility | Yes | Yes | Yes |
+| `java.time.Instant` | `0x2c` Java serialized | Yes | Yes | Yes |
+| `java.time.LocalDate` | `0x2c` Java serialized | Yes | Yes | Yes |
+| `java.time.LocalDateTime` | `0x2c` Java serialized | Yes | Yes | Yes |
 | DataSerializable | TBD | Not yet | Not yet | Not yet |
 | PDX / PdxInstance | TBD | Not yet | Not yet | Not yet |
 
@@ -155,6 +184,65 @@ Primitive arrays are simple fixed-width payloads, so they are stored structurall
 Object[] and ArrayList<Object> remain opaque because parsing them fully can involve nested Java serialization, customer classes, and object graph boundaries.
 ```
 
+## Wrapper and Utility Array Support
+
+Wrapper and utility arrays use Geode's `0x34` object-array style envelope.
+
+Examples:
+
+```text
+Integer[]        -> 0x34 ... java.lang.Integer ...
+UUID[]           -> 0x34 ... java.util.UUID ...
+BigDecimal[]     -> 0x34 ... java.math.BigDecimal ...
+Instant[]        -> 0x34 ... java.time.Instant ...
+LocalDate[]      -> 0x34 ... java.time.LocalDate ...
+LocalDateTime[]  -> 0x34 ... java.time.LocalDateTime ...
+```
+
+Storage envelope:
+
+```json
+{
+  "type": "objectArray",
+  "valueBase64": "NA...",
+  "length": 123
+}
+```
+
+Design decision:
+
+```text
+The shim preserves the entire 0x34 payload opaquely, regardless of component type.
+Returning the original Geode payload lets the Geode client deserialize the exact original array type.
+```
+
+## Standalone Utility Value Support
+
+Standalone utility values use a mix of dedicated Geode markers and Java serialization.
+
+```text
+BigInteger           -> 0x5f
+BigDecimal           -> 0x60
+UUID                 -> 0x62
+Enum                 -> 0x65
+java.time.Instant    -> 0x2c Java serialized
+java.time.LocalDate  -> 0x2c Java serialized
+java.time.LocalDateTime -> 0x2c Java serialized
+```
+
+Dedicated standalone utility markers are stored as opaque Geode values:
+
+```json
+{
+  "type": "opaqueGeodeValue",
+  "opaqueGeodeTypeName": "uuid",
+  "valueBase64": "YhI+RWfomxLTpFZCZhQXQAA=",
+  "length": 17
+}
+```
+
+Java-time values are handled through the existing Java-serialized-object preservation path.
+
 ## Opaque Object Support
 
 ### ArrayList<Object>
@@ -167,7 +255,7 @@ Object[] and ArrayList<Object> remain opaque because parsing them fully can invo
 }
 ```
 
-### Object[]
+### Object[] and wrapper/utility arrays
 
 ```json
 {
@@ -177,7 +265,7 @@ Object[] and ArrayList<Object> remain opaque because parsing them fully can invo
 }
 ```
 
-### Serializable POJO
+### Serializable POJO and Java-serialized utility values
 
 ```json
 {
@@ -222,26 +310,28 @@ Not yet supported inside structured map envelopes:
 Object[]
 Serializable POJO
 ArrayList<Object>
+Opaque standalone utility values
+Wrapper / utility arrays
 ```
 
-Top-level `Object[]`, top-level `ArrayList<Object>`, and top-level Serializable POJOs are supported.
+Top-level `Object[]`, top-level wrapper/utility arrays, top-level `ArrayList<Object>`, top-level Serializable POJOs, and top-level standalone utility values are supported.
 
 ## Runtime Coverage
 
-| Component | Primitive Arrays | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Date |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Docker integration | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Component | Primitive Arrays | Wrapper / Utility Arrays | Standalone Utility Values | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Date |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Docker integration | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
-## Primitive Array Integration Coverage
+## Latest Integration Coverage
 
 ```text
 booleanArrayValueShouldRoundTripThroughShimAndCouchbase
@@ -252,10 +342,31 @@ emptyIntArrayValueShouldRoundTripThroughShimAndCouchbase
 longArrayValueShouldRoundTripThroughShimAndCouchbase
 floatArrayValueShouldRoundTripThroughShimAndCouchbase
 doubleArrayValueShouldRoundTripThroughShimAndCouchbase
-putAllWithPrimitiveArrayFamilyValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithPrimitiveArrayFamilyValuesShouldReturnPrimitiveArrays
-stringObjectHashMapWithArrayValuesShouldRoundTripThroughShimAndCouchbase
-mixedStringCharacterBytePrimitiveArraysStringArrayStringArrayListStringHashMapStringObjectHashMapSerializablePojoObjectArrayObjectArrayListShortIntegerBooleanLongFloatDoubleDatePutAllAndGetAllShouldPreserveTypes
+
+integerWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
+longWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
+booleanWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
+doubleWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
+uuidArrayValueShouldRoundTripThroughShimAndCouchbase
+bigIntegerArrayValueShouldRoundTripThroughShimAndCouchbase
+bigDecimalArrayValueShouldRoundTripThroughShimAndCouchbase
+enumArrayValueShouldRoundTripThroughShimAndCouchbase
+instantArrayValueShouldRoundTripThroughShimAndCouchbase
+localDateArrayValueShouldRoundTripThroughShimAndCouchbase
+localDateTimeArrayValueShouldRoundTripThroughShimAndCouchbase
+
+uuidValueShouldRoundTripThroughShimAndCouchbase
+bigIntegerValueShouldRoundTripThroughShimAndCouchbase
+bigDecimalValueShouldRoundTripThroughShimAndCouchbase
+enumValueShouldRoundTripThroughShimAndCouchbase
+instantValueShouldRoundTripThroughShimAndCouchbase
+localDateValueShouldRoundTripThroughShimAndCouchbase
+localDateTimeValueShouldRoundTripThroughShimAndCouchbase
+
+putAllWithWrapperAndUtilityArrayValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithWrapperAndUtilityArrayValuesShouldReturnArrays
+putAllWithStandaloneUtilityValuesShouldPersistAllEntriesAndBeReadableByGet
+getAllWithStandaloneUtilityValuesShouldReturnValues
 ```
 
 ## Known Limitations
@@ -264,11 +375,8 @@ mixedStringCharacterBytePrimitiveArraysStringArrayStringArrayListStringHashMapSt
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
-Wrapper arrays
-BigDecimal / BigInteger
-UUID
-Enum
-java.time values
+Nested wrapper / utility arrays inside structured Map<String,Object>
+Nested opaque standalone utility values inside structured Map<String,Object>
 DataSerializable
 PDX / PdxInstance
 Expiration / TTL behavior
@@ -284,21 +392,18 @@ High-concurrency load and soak testing
 ## Recommended Next Target
 
 ```text
-wrapper arrays and common Java utility value types
+nested opaque values inside HashMap<String,Object>
 ```
 
-Recommended next types:
+Recommended next nested targets:
 
 ```text
-Integer[]
-Long[]
-Boolean[]
-Double[]
+Object[]
+ArrayList<Object>
+Serializable POJO
 UUID
-BigDecimal
 BigInteger
+BigDecimal
 Enum
-java.time.Instant
-java.time.LocalDate
-java.time.LocalDateTime
+wrapper / utility arrays
 ```
