@@ -523,6 +523,20 @@ public final class ValueDecoding {
          *
          * The leading 0x2c is Geode's Java-serialized object marker.
          * The bytes after 0x2c are normal Java ObjectOutputStream bytes.
+         *
+         * Important strategy:
+         *
+         *   - If every nested map value is part of the supported structured
+         *     map profile, decode to LinkedHashMap<String,Object> so Couchbase
+         *     gets a queryable stringObjectHashMap envelope.
+         *
+         *   - If the map contains complex nested values such as Object[],
+         *     ArrayList<Object>, Serializable POJOs, UUID, BigInteger,
+         *     BigDecimal, Enum, wrapper arrays, or java.time arrays, return
+         *     null here. The caller should then fall through to
+         *     decodeJavaSerializedObjectValue(...) / JAVA_SERIALIZED_OBJECT
+         *     preservation, which is the safest compatibility behavior for
+         *     complex nested object graphs.
          */
         if (first == GEODE_JAVA_SERIALIZED_CODE) {
             Object rawValue = deserializeJavaObjectAfterMarker(payload);
@@ -549,6 +563,44 @@ public final class ValueDecoding {
         return null;
     }
 
+
+    public static JavaSerializedObject decodeOpaqueComplexMapValue(byte[] payload) {
+        if (payload == null || payload.length < 5) {
+            return null;
+        }
+
+        int first = payload[0] & 0xff;
+
+        if (first == GEODE_JAVA_SERIALIZED_CODE) {
+            Object rawValue = deserializeJavaObjectAfterMarker(payload);
+
+            if (rawValue instanceof Map<?, ?> rawMap && !isSupportedStringObjectMap(rawMap)) {
+                byte[] serializedValue = Arrays.copyOfRange(payload, 1, payload.length);
+
+                return new JavaSerializedObject(
+                        extractJavaSerializedClassName(serializedValue),
+                        serializedValue
+                );
+            }
+
+            return null;
+        }
+
+        if (looksLikeJavaSerializationStream(payload)) {
+            Object rawValue = deserializeJavaObject(payload, 0, payload.length);
+
+            if (rawValue instanceof Map<?, ?> rawMap && !isSupportedStringObjectMap(rawMap)) {
+                byte[] serializedValue = Arrays.copyOf(payload, payload.length);
+
+                return new JavaSerializedObject(
+                        extractJavaSerializedClassName(serializedValue),
+                        serializedValue
+                );
+            }
+        }
+
+        return null;
+    }
 
     public static JavaSerializedObject decodeJavaSerializedObjectValue(byte[] payload) {
         if (payload == null || payload.length < 5) {
@@ -1124,6 +1176,10 @@ public final class ValueDecoding {
         }
 
         if (decodeStringObjectHashMapValue(payload) != null) {
+            return null;
+        }
+
+        if (decodeOpaqueComplexMapValue(payload) != null) {
             return null;
         }
 

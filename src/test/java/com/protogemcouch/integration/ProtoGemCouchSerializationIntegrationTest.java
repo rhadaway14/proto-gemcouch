@@ -3011,6 +3011,294 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void complexStringObjectHashMapWithNestedUtilityValuesShouldRoundTripAsOpaqueJavaSerializedMap() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-complex-map-utilities-" + suffix;
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "complex-utility-map");
+        expected.put("uuid", UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        expected.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+        expected.put("bigDecimal", new BigDecimal("1234567890.123456789"));
+        expected.put("status", DemoStatus.ACTIVE);
+        expected.put("instant", Instant.parse("2026-05-13T20:37:37Z"));
+        expected.put("localDate", LocalDate.of(2026, 5, 13));
+        expected.put("localDateTime", LocalDateTime.of(2026, 5, 13, 20, 37, 37));
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Map.class, actual);
+            assertMapValuesEqual(expected, castMap(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP utility-values round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void complexStringObjectHashMapWithNestedObjectArrayAndObjectArrayListShouldRoundTripAsOpaqueJavaSerializedMap() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-complex-map-object-containers-" + suffix;
+
+        ArrayList<Object> objectList = new ArrayList<>();
+        objectList.add("list-item");
+        objectList.add(Integer.valueOf(42));
+        objectList.add(Boolean.TRUE);
+        objectList.add(UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "complex-object-container-map");
+        expected.put("objectArray", new Object[] {
+                "one",
+                Integer.valueOf(42),
+                Boolean.TRUE,
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000")
+        });
+        expected.put("objectArrayList", objectList);
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Map.class, actual);
+            assertMapValuesEqual(expected, castMap(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP object-container round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void complexStringObjectHashMapWithNestedSerializablePojoShouldRoundTripAsOpaqueJavaSerializedMap() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-complex-map-pojo-" + suffix;
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "complex-pojo-map");
+        expected.put("profile", new CustomerProfile(
+                "customer-nested-map-" + suffix,
+                "Rob",
+                42,
+                true
+        ));
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Map.class, actual);
+            assertMapValuesEqual(expected, castMap(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP nested-pojo round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void complexStringObjectHashMapWithNestedWrapperAndUtilityArraysShouldRoundTripAsOpaqueJavaSerializedMap() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-complex-map-wrapper-utility-arrays-" + suffix;
+
+        LinkedHashMap<String, Object> expected = new LinkedHashMap<>();
+        expected.put("name", "complex-wrapper-utility-array-map");
+        expected.put("integerArray", new Integer[] {1, 42, -7, null, Integer.MAX_VALUE, Integer.MIN_VALUE});
+        expected.put("uuidArray", new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        });
+        expected.put("bigDecimalArray", new BigDecimal[] {
+                new BigDecimal("1.00"),
+                new BigDecimal("42.42"),
+                null,
+                new BigDecimal("-7.25"),
+                new BigDecimal("1234567890.123456789")
+        });
+        expected.put("instantArray", new Instant[] {
+                Instant.parse("2026-05-13T20:37:37Z"),
+                null,
+                Instant.EPOCH
+        });
+        expected.put("localDateArray", new LocalDate[] {
+                LocalDate.of(2026, 5, 13),
+                null,
+                LocalDate.of(1970, 1, 1)
+        });
+        expected.put("localDateTimeArray", new LocalDateTime[] {
+                LocalDateTime.of(2026, 5, 13, 20, 37, 37),
+                null,
+                LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+        });
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Map.class, actual);
+            assertMapValuesEqual(expected, castMap(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP nested-array round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void complexStringObjectHashMapWithMixedNestedOpaqueValuesShouldRoundTripAsOpaqueJavaSerializedMap() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-complex-map-mixed-" + suffix;
+
+        LinkedHashMap<String, Object> expected = complexNestedOpaqueMap("mixed-" + suffix);
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Map.class, actual);
+            assertMapValuesEqual(expected, castMap(actual));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP mixed nested opaque round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithComplexNestedStringObjectHashMapValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String utilityKey = "it-putall-complex-map-utilities-" + suffix;
+        String containerKey = "it-putall-complex-map-containers-" + suffix;
+        String mixedKey = "it-putall-complex-map-mixed-" + suffix;
+
+        LinkedHashMap<String, Object> utilityMap = new LinkedHashMap<>();
+        utilityMap.put("name", "putall-utility-map");
+        utilityMap.put("uuid", UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        utilityMap.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+        utilityMap.put("bigDecimal", new BigDecimal("1234567890.123456789"));
+        utilityMap.put("status", DemoStatus.ACTIVE);
+        utilityMap.put("instant", Instant.parse("2026-05-13T20:37:37Z"));
+
+        ArrayList<Object> objectList = new ArrayList<>();
+        objectList.add("list-item");
+        objectList.add(Integer.valueOf(42));
+        objectList.add(Boolean.TRUE);
+        objectList.add(UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+
+        LinkedHashMap<String, Object> containerMap = new LinkedHashMap<>();
+        containerMap.put("name", "putall-container-map");
+        containerMap.put("objectArray", new Object[] {"one", Integer.valueOf(42), Boolean.TRUE});
+        containerMap.put("objectArrayList", objectList);
+
+        LinkedHashMap<String, Object> mixedMap = complexNestedOpaqueMap("putall-mixed-" + suffix);
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(utilityKey, utilityMap);
+        entries.put(containerKey, containerMap);
+        entries.put(mixedKey, mixedMap);
+
+        try {
+            region.putAll(entries);
+
+            assertMapValuesEqual(utilityMap, castMap(region.get(utilityKey)));
+            assertMapValuesEqual(containerMap, castMap(region.get(containerKey)));
+            assertMapValuesEqual(mixedMap, castMap(region.get(mixedKey)));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithComplexNestedStringObjectHashMapValuesShouldReturnMaps() {
+        String suffix = UUID.randomUUID().toString();
+
+        String utilityKey = "it-getall-complex-map-utilities-" + suffix;
+        String arrayKey = "it-getall-complex-map-arrays-" + suffix;
+        String mixedKey = "it-getall-complex-map-mixed-" + suffix;
+
+        LinkedHashMap<String, Object> utilityMap = new LinkedHashMap<>();
+        utilityMap.put("name", "getall-utility-map");
+        utilityMap.put("uuid", UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        utilityMap.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+        utilityMap.put("bigDecimal", new BigDecimal("1234567890.123456789"));
+        utilityMap.put("status", DemoStatus.ACTIVE);
+        utilityMap.put("localDate", LocalDate.of(2026, 5, 13));
+
+        LinkedHashMap<String, Object> arrayMap = new LinkedHashMap<>();
+        arrayMap.put("name", "getall-array-map");
+        arrayMap.put("integerArray", new Integer[] {1, 42, null, -7});
+        arrayMap.put("uuidArray", new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        });
+
+        LinkedHashMap<String, Object> mixedMap = complexNestedOpaqueMap("getall-mixed-" + suffix);
+
+        try {
+            region.put(utilityKey, utilityMap);
+            region.put(arrayKey, arrayMap);
+            region.put(mixedKey, mixedMap);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(utilityKey);
+            keys.add(arrayKey);
+            keys.add(mixedKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertMapValuesEqual(utilityMap, castMap(results.get(utilityKey)));
+            assertMapValuesEqual(arrayMap, castMap(results.get(arrayKey)));
+            assertMapValuesEqual(mixedMap, castMap(results.get(mixedKey)));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after COMPLEX STRING_OBJECT_HASH_MAP GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+    @Test
     void serializablePojoValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
         String key = "it-serializable-pojo-value-" + suffix;
@@ -4656,6 +4944,50 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+    private static LinkedHashMap<String, Object> complexNestedOpaqueMap(String suffix) {
+        ArrayList<Object> objectList = new ArrayList<>();
+        objectList.add("list-item");
+        objectList.add(Integer.valueOf(42));
+        objectList.add(Boolean.TRUE);
+        objectList.add(UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put("name", "mixed-nested-opaque-map-" + suffix);
+        value.put("uuid", UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+        value.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+        value.put("bigDecimal", new BigDecimal("1234567890.123456789"));
+        value.put("status", DemoStatus.ACTIVE);
+        value.put("objectArray", new Object[] {
+                "one",
+                Integer.valueOf(42),
+                Boolean.TRUE
+        });
+        value.put("objectArrayList", objectList);
+        value.put("integerArray", new Integer[] {
+                Integer.valueOf(1),
+                Integer.valueOf(42),
+                null,
+                Integer.valueOf(-7)
+        });
+        value.put("uuidArray", new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        });
+        value.put("instant", Instant.parse("2026-05-13T20:37:37Z"));
+        value.put("localDate", LocalDate.of(2026, 5, 13));
+        value.put("localDateTime", LocalDateTime.of(2026, 5, 13, 20, 37, 37));
+        value.put("profile", new CustomerProfile(
+                "customer-complex-map-" + suffix,
+                "Rob",
+                42,
+                true
+        ));
+
+        return value;
+    }
+
     private static void waitForShimReady(String host, int healthPort, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         String url = "http://" + host + ":" + healthPort + "/ready";
@@ -4855,30 +5187,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         assertEquals(expected.size(), actual.size(), "ArrayList<Object> size mismatch");
 
         for (int i = 0; i < expected.size(); i++) {
-            Object expectedItem = expected.get(i);
-            Object actualItem = actual.get(i);
-
-            if (expectedItem instanceof byte[] expectedBytes) {
-                assertInstanceOf(byte[].class, actualItem, "ArrayList<Object> item " + i + " should be byte[]");
-                assertArrayEquals(expectedBytes, (byte[]) actualItem, "ArrayList<Object> byte[] item mismatch at index " + i);
-            } else if (expectedItem instanceof int[] expectedInts) {
-                assertInstanceOf(int[].class, actualItem, "ArrayList<Object> item " + i + " should be int[]");
-                assertArrayEquals(expectedInts, (int[]) actualItem, "ArrayList<Object> int[] item mismatch at index " + i);
-            } else if (expectedItem instanceof String[] expectedStrings) {
-                assertInstanceOf(String[].class, actualItem, "ArrayList<Object> item " + i + " should be String[]");
-                assertArrayEquals(expectedStrings, (String[]) actualItem, "ArrayList<Object> String[] item mismatch at index " + i);
-            } else if (expectedItem instanceof Object[] expectedObjects) {
-                assertInstanceOf(Object[].class, actualItem, "ArrayList<Object> item " + i + " should be Object[]");
-                assertObjectArrayDeepEquals(expectedObjects, (Object[]) actualItem);
-            } else if (expectedItem instanceof ArrayList<?> expectedList) {
-                assertInstanceOf(ArrayList.class, actualItem, "ArrayList<Object> item " + i + " should be ArrayList");
-                assertObjectArrayListDeepEquals(expectedList, castArrayList(actualItem));
-            } else if (expectedItem instanceof Map<?, ?> expectedMap) {
-                assertInstanceOf(Map.class, actualItem, "ArrayList<Object> item " + i + " should be Map");
-                assertMapValuesEqual(toStringObjectMap(expectedMap), castMap(actualItem));
-            } else {
-                assertEquals(expectedItem, actualItem, "ArrayList<Object> item mismatch at index " + i);
-            }
+            assertDeepValueEquals(expected.get(i), actual.get(i), "ArrayList<Object> item mismatch at index " + i);
         }
     }
 
@@ -4886,27 +5195,7 @@ class ProtoGemCouchSerializationIntegrationTest {
         assertEquals(expected.length, actual.length, "Object[] length mismatch");
 
         for (int i = 0; i < expected.length; i++) {
-            Object expectedItem = expected[i];
-            Object actualItem = actual[i];
-
-            if (expectedItem instanceof byte[] expectedBytes) {
-                assertInstanceOf(byte[].class, actualItem, "Object[] item " + i + " should be byte[]");
-                assertArrayEquals(expectedBytes, (byte[]) actualItem, "Object[] byte[] item mismatch at index " + i);
-            } else if (expectedItem instanceof int[] expectedInts) {
-                assertInstanceOf(int[].class, actualItem, "Object[] item " + i + " should be int[]");
-                assertArrayEquals(expectedInts, (int[]) actualItem, "Object[] int[] item mismatch at index " + i);
-            } else if (expectedItem instanceof String[] expectedStrings) {
-                assertInstanceOf(String[].class, actualItem, "Object[] item " + i + " should be String[]");
-                assertArrayEquals(expectedStrings, (String[]) actualItem, "Object[] String[] item mismatch at index " + i);
-            } else if (expectedItem instanceof Object[] expectedObjects) {
-                assertInstanceOf(Object[].class, actualItem, "Object[] item " + i + " should be Object[]");
-                assertObjectArrayDeepEquals(expectedObjects, (Object[]) actualItem);
-            } else if (expectedItem instanceof Map<?, ?> expectedMap) {
-                assertInstanceOf(Map.class, actualItem, "Object[] item " + i + " should be Map");
-                assertMapValuesEqual(toStringObjectMap(expectedMap), castMap(actualItem));
-            } else {
-                assertEquals(expectedItem, actualItem, "Object[] item mismatch at index " + i);
-            }
+            assertDeepValueEquals(expected[i], actual[i], "Object[] item mismatch at index " + i);
         }
     }
 
@@ -4914,42 +5203,86 @@ class ProtoGemCouchSerializationIntegrationTest {
         assertEquals(expected.keySet(), actual.keySet());
 
         for (Map.Entry<String, Object> entry : expected.entrySet()) {
-            Object expectedValue = entry.getValue();
-            Object actualValue = actual.get(entry.getKey());
+            assertDeepValueEquals(
+                    entry.getValue(),
+                    actual.get(entry.getKey()),
+                    "Map value mismatch for key " + entry.getKey()
+            );
+        }
+    }
 
-            if (expectedValue instanceof byte[] expectedBytes) {
-                assertInstanceOf(byte[].class, actualValue);
-                assertArrayEquals(expectedBytes, (byte[]) actualValue);
-            } else if (expectedValue instanceof boolean[] expectedBooleans) {
-                assertInstanceOf(boolean[].class, actualValue);
-                assertArrayEquals(expectedBooleans, (boolean[]) actualValue);
-            } else if (expectedValue instanceof char[] expectedChars) {
-                assertInstanceOf(char[].class, actualValue);
-                assertArrayEquals(expectedChars, (char[]) actualValue);
-            } else if (expectedValue instanceof short[] expectedShorts) {
-                assertInstanceOf(short[].class, actualValue);
-                assertArrayEquals(expectedShorts, (short[]) actualValue);
-            } else if (expectedValue instanceof int[] expectedInts) {
-                assertInstanceOf(int[].class, actualValue);
-                assertArrayEquals(expectedInts, (int[]) actualValue);
-            } else if (expectedValue instanceof long[] expectedLongs) {
-                assertInstanceOf(long[].class, actualValue);
-                assertArrayEquals(expectedLongs, (long[]) actualValue);
-            } else if (expectedValue instanceof float[] expectedFloats) {
-                assertInstanceOf(float[].class, actualValue);
-                assertArrayEquals(expectedFloats, (float[]) actualValue);
-            } else if (expectedValue instanceof double[] expectedDoubles) {
-                assertInstanceOf(double[].class, actualValue);
-                assertArrayEquals(expectedDoubles, (double[]) actualValue);
-            } else if (expectedValue instanceof String[] expectedStrings) {
-                assertInstanceOf(String[].class, actualValue);
-                assertArrayEquals(expectedStrings, (String[]) actualValue);
-            } else if (expectedValue instanceof Map<?, ?> expectedMap) {
-                assertInstanceOf(Map.class, actualValue);
-                assertMapValuesEqual(toStringObjectMap(expectedMap), castMap(actualValue));
-            } else {
-                assertEquals(expectedValue, actualValue);
-            }
+    private static void assertDeepValueEquals(Object expected, Object actual, String context) {
+        if (expected instanceof byte[] expectedBytes) {
+            assertInstanceOf(byte[].class, actual, context + " should be byte[]");
+            assertArrayEquals(expectedBytes, (byte[]) actual, context);
+        } else if (expected instanceof boolean[] expectedBooleans) {
+            assertInstanceOf(boolean[].class, actual, context + " should be boolean[]");
+            assertArrayEquals(expectedBooleans, (boolean[]) actual, context);
+        } else if (expected instanceof char[] expectedChars) {
+            assertInstanceOf(char[].class, actual, context + " should be char[]");
+            assertArrayEquals(expectedChars, (char[]) actual, context);
+        } else if (expected instanceof short[] expectedShorts) {
+            assertInstanceOf(short[].class, actual, context + " should be short[]");
+            assertArrayEquals(expectedShorts, (short[]) actual, context);
+        } else if (expected instanceof int[] expectedInts) {
+            assertInstanceOf(int[].class, actual, context + " should be int[]");
+            assertArrayEquals(expectedInts, (int[]) actual, context);
+        } else if (expected instanceof long[] expectedLongs) {
+            assertInstanceOf(long[].class, actual, context + " should be long[]");
+            assertArrayEquals(expectedLongs, (long[]) actual, context);
+        } else if (expected instanceof float[] expectedFloats) {
+            assertInstanceOf(float[].class, actual, context + " should be float[]");
+            assertArrayEquals(expectedFloats, (float[]) actual, context);
+        } else if (expected instanceof double[] expectedDoubles) {
+            assertInstanceOf(double[].class, actual, context + " should be double[]");
+            assertArrayEquals(expectedDoubles, (double[]) actual, context);
+        } else if (expected instanceof String[] expectedStrings) {
+            assertInstanceOf(String[].class, actual, context + " should be String[]");
+            assertArrayEquals(expectedStrings, (String[]) actual, context);
+        } else if (expected instanceof Integer[] expectedIntegers) {
+            assertInstanceOf(Integer[].class, actual, context + " should be Integer[]");
+            assertArrayEquals(expectedIntegers, (Integer[]) actual, context);
+        } else if (expected instanceof Long[] expectedLongObjects) {
+            assertInstanceOf(Long[].class, actual, context + " should be Long[]");
+            assertArrayEquals(expectedLongObjects, (Long[]) actual, context);
+        } else if (expected instanceof Boolean[] expectedBooleanObjects) {
+            assertInstanceOf(Boolean[].class, actual, context + " should be Boolean[]");
+            assertArrayEquals(expectedBooleanObjects, (Boolean[]) actual, context);
+        } else if (expected instanceof Double[] expectedDoubleObjects) {
+            assertInstanceOf(Double[].class, actual, context + " should be Double[]");
+            assertArrayEquals(expectedDoubleObjects, (Double[]) actual, context);
+        } else if (expected instanceof UUID[] expectedUuids) {
+            assertInstanceOf(UUID[].class, actual, context + " should be UUID[]");
+            assertArrayEquals(expectedUuids, (UUID[]) actual, context);
+        } else if (expected instanceof BigInteger[] expectedBigIntegers) {
+            assertInstanceOf(BigInteger[].class, actual, context + " should be BigInteger[]");
+            assertArrayEquals(expectedBigIntegers, (BigInteger[]) actual, context);
+        } else if (expected instanceof BigDecimal[] expectedBigDecimals) {
+            assertInstanceOf(BigDecimal[].class, actual, context + " should be BigDecimal[]");
+            assertArrayEquals(expectedBigDecimals, (BigDecimal[]) actual, context);
+        } else if (expected instanceof DemoStatus[] expectedStatuses) {
+            assertInstanceOf(DemoStatus[].class, actual, context + " should be DemoStatus[]");
+            assertArrayEquals(expectedStatuses, (DemoStatus[]) actual, context);
+        } else if (expected instanceof Instant[] expectedInstants) {
+            assertInstanceOf(Instant[].class, actual, context + " should be Instant[]");
+            assertArrayEquals(expectedInstants, (Instant[]) actual, context);
+        } else if (expected instanceof LocalDate[] expectedLocalDates) {
+            assertInstanceOf(LocalDate[].class, actual, context + " should be LocalDate[]");
+            assertArrayEquals(expectedLocalDates, (LocalDate[]) actual, context);
+        } else if (expected instanceof LocalDateTime[] expectedLocalDateTimes) {
+            assertInstanceOf(LocalDateTime[].class, actual, context + " should be LocalDateTime[]");
+            assertArrayEquals(expectedLocalDateTimes, (LocalDateTime[]) actual, context);
+        } else if (expected instanceof Object[] expectedObjects) {
+            assertInstanceOf(Object[].class, actual, context + " should be Object[]");
+            assertObjectArrayDeepEquals(expectedObjects, (Object[]) actual);
+        } else if (expected instanceof ArrayList<?> expectedList) {
+            assertInstanceOf(ArrayList.class, actual, context + " should be ArrayList");
+            assertObjectArrayListDeepEquals(expectedList, castArrayList(actual));
+        } else if (expected instanceof Map<?, ?> expectedMap) {
+            assertInstanceOf(Map.class, actual, context + " should be Map");
+            assertMapValuesEqual(toStringObjectMap(expectedMap), castMap(actual));
+        } else {
+            assertEquals(expected, actual, context);
         }
     }
 
