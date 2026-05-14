@@ -196,14 +196,30 @@ public final class ValueDecoding {
         }
 
         /*
-         * Validate the observed Object[] header without trying to deserialize or
-         * recursively parse every element:
+         * Geode DataSerializer object-array style payloads use marker 0x34:
          *
-         *   34 <length> 2b 57 0010 java.lang.Object ...
+         *   34 <length> 2b <component-type-string> <elements...>
          *
-         * Keeping this opaque is deliberate. Object[] can contain nested POJOs
-         * and Java-serialized maps. Preserving the original payload is the most
-         * reliable compatibility behavior for the first pass.
+         * Earlier support only accepted:
+         *
+         *   34 ... java.lang.Object ...
+         *
+         * Shape discovery for wrapper and utility arrays showed the same 0x34
+         * array envelope is also used for component-specific arrays such as:
+         *
+         *   java.lang.Integer
+         *   java.lang.Long
+         *   java.lang.Boolean
+         *   java.lang.Double
+         *   java.util.UUID
+         *   java.math.BigInteger
+         *   java.math.BigDecimal
+         *   java.time.Instant
+         *   java.time.LocalDate
+         *   java.time.LocalDateTime
+         *
+         * Keep all of these 0x34 payloads opaque. Returning the original Geode
+         * payload allows the client to deserialize the exact original array type.
          */
         int offset = 1;
 
@@ -220,12 +236,22 @@ public final class ValueDecoding {
 
         offset++;
 
-        String componentType = decodeLengthPrefixedGeodeString(Arrays.copyOfRange(payload, offset, payload.length));
+        DecodedString componentType = decodeLengthPrefixedGeodeStringAt(payload, offset);
 
-        if (!"java.lang.Object".equals(componentType)) {
+        if (componentType == null || componentType.value() == null || componentType.value().isBlank()) {
             return null;
         }
 
+        if (componentType.nextOffset() > payload.length) {
+            return null;
+        }
+
+        /*
+         * Do not try to parse the element stream. Elements can include nulls,
+         * primitive wrappers, utility values, enums, Java-serialized objects,
+         * and customer classes. Opaque preservation is safer and gives Geode's
+         * client deserializer the exact bytes it originally produced.
+         */
         return new ObjectArray(payload);
     }
 
@@ -787,6 +813,7 @@ public final class ValueDecoding {
                 || first == GEODE_STRING_ARRAY_LIST_CODE
                 || first == GEODE_HASH_MAP_CODE
                 || first == GEODE_JAVA_SERIALIZED_CODE
+                || first == GEODE_OBJECT_ARRAY_CODE
                 || first == GEODE_BYTE_ARRAY_CODE
                 || first == GEODE_BOOLEAN_ARRAY_CODE
                 || first == GEODE_CHAR_ARRAY_CODE

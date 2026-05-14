@@ -14,6 +14,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.Instant;
+import java.math.BigInteger;
+import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -1796,6 +1801,552 @@ class ProtoGemCouchSerializationIntegrationTest {
             throw e;
         }
     }
+
+    @Test
+    void integerWrapperArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-integer-wrapper-array-value-" + suffix;
+
+        Integer[] expected = new Integer[] {
+                Integer.valueOf(1),
+                Integer.valueOf(42),
+                Integer.valueOf(-7),
+                null,
+                Integer.MAX_VALUE,
+                Integer.MIN_VALUE
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Integer[].class, actual);
+            assertArrayEquals(expected, (Integer[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INTEGER_WRAPPER_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void longWrapperArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-long-wrapper-array-value-" + suffix;
+
+        Long[] expected = new Long[] {
+                Long.valueOf(1L),
+                Long.valueOf(42L),
+                Long.valueOf(-7L),
+                null,
+                Long.valueOf(9_876_543_210L),
+                Long.MAX_VALUE,
+                Long.MIN_VALUE
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Long[].class, actual);
+            assertArrayEquals(expected, (Long[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after LONG_WRAPPER_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void booleanWrapperArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-boolean-wrapper-array-value-" + suffix;
+
+        Boolean[] expected = new Boolean[] {
+                Boolean.TRUE,
+                Boolean.FALSE,
+                null,
+                Boolean.TRUE
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Boolean[].class, actual);
+            assertArrayEquals(expected, (Boolean[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BOOLEAN_WRAPPER_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void doubleWrapperArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-double-wrapper-array-value-" + suffix;
+
+        Double[] expected = new Double[] {
+                Double.valueOf(1.0d),
+                Double.valueOf(7.25d),
+                Double.valueOf(-7.25d),
+                null,
+                Double.MAX_VALUE,
+                Double.MIN_VALUE
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Double[].class, actual);
+            assertArrayEquals(expected, (Double[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after DOUBLE_WRAPPER_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void uuidArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-uuid-array-value-" + suffix;
+
+        UUID[] expected = new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(UUID[].class, actual);
+            assertArrayEquals(expected, (UUID[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after UUID_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void bigIntegerArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-big-integer-array-value-" + suffix;
+
+        BigInteger[] expected = new BigInteger[] {
+                BigInteger.ONE,
+                BigInteger.valueOf(42L),
+                null,
+                BigInteger.valueOf(-7L),
+                new BigInteger("123456789012345678901234567890")
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(BigInteger[].class, actual);
+            assertArrayEquals(expected, (BigInteger[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BIG_INTEGER_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void bigDecimalArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-big-decimal-array-value-" + suffix;
+
+        BigDecimal[] expected = new BigDecimal[] {
+                new BigDecimal("1.00"),
+                new BigDecimal("42.42"),
+                null,
+                new BigDecimal("-7.25"),
+                new BigDecimal("1234567890.123456789")
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(BigDecimal[].class, actual);
+            assertArrayEquals(expected, (BigDecimal[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after BIG_DECIMAL_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void enumArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-enum-array-value-" + suffix;
+
+        DemoStatus[] expected = new DemoStatus[] {
+                DemoStatus.ACTIVE,
+                DemoStatus.INACTIVE,
+                null,
+                DemoStatus.PENDING
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(DemoStatus[].class, actual);
+            assertArrayEquals(expected, (DemoStatus[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after ENUM_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void instantArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-instant-array-value-" + suffix;
+
+        Instant[] expected = new Instant[] {
+                Instant.parse("2026-05-13T20:37:37Z"),
+                null,
+                Instant.EPOCH
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(Instant[].class, actual);
+            assertArrayEquals(expected, (Instant[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after INSTANT_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void localDateArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-local-date-array-value-" + suffix;
+
+        LocalDate[] expected = new LocalDate[] {
+                LocalDate.of(2026, 5, 13),
+                null,
+                LocalDate.of(1970, 1, 1)
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(LocalDate[].class, actual);
+            assertArrayEquals(expected, (LocalDate[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after LOCAL_DATE_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void localDateTimeArrayValueShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-local-date-time-array-value-" + suffix;
+
+        LocalDateTime[] expected = new LocalDateTime[] {
+                LocalDateTime.of(2026, 5, 13, 20, 37, 37),
+                null,
+                LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+        };
+
+        try {
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(LocalDateTime[].class, actual);
+            assertArrayEquals(expected, (LocalDateTime[]) actual);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after LOCAL_DATE_TIME_ARRAY round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllWithWrapperAndUtilityArrayValuesShouldPersistAllEntriesAndBeReadableByGet() {
+        String suffix = UUID.randomUUID().toString();
+
+        String integerArrayKey = "it-putall-integer-wrapper-array-" + suffix;
+        String longArrayKey = "it-putall-long-wrapper-array-" + suffix;
+        String booleanArrayKey = "it-putall-boolean-wrapper-array-" + suffix;
+        String doubleArrayKey = "it-putall-double-wrapper-array-" + suffix;
+        String uuidArrayKey = "it-putall-uuid-array-" + suffix;
+        String bigIntegerArrayKey = "it-putall-big-integer-array-" + suffix;
+        String bigDecimalArrayKey = "it-putall-big-decimal-array-" + suffix;
+        String enumArrayKey = "it-putall-enum-array-" + suffix;
+        String instantArrayKey = "it-putall-instant-array-" + suffix;
+        String localDateArrayKey = "it-putall-local-date-array-" + suffix;
+        String localDateTimeArrayKey = "it-putall-local-date-time-array-" + suffix;
+
+        Integer[] expectedIntegerArray = new Integer[] {1, 42, -7, null, Integer.MAX_VALUE, Integer.MIN_VALUE};
+        Long[] expectedLongArray = new Long[] {1L, 42L, -7L, null, 9_876_543_210L, Long.MAX_VALUE, Long.MIN_VALUE};
+        Boolean[] expectedBooleanArray = new Boolean[] {Boolean.TRUE, Boolean.FALSE, null, Boolean.TRUE};
+        Double[] expectedDoubleArray = new Double[] {1.0d, 7.25d, -7.25d, null, Double.MAX_VALUE, Double.MIN_VALUE};
+        UUID[] expectedUuidArray = new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        };
+        BigInteger[] expectedBigIntegerArray = new BigInteger[] {
+                BigInteger.ONE,
+                BigInteger.valueOf(42L),
+                null,
+                BigInteger.valueOf(-7L),
+                new BigInteger("123456789012345678901234567890")
+        };
+        BigDecimal[] expectedBigDecimalArray = new BigDecimal[] {
+                new BigDecimal("1.00"),
+                new BigDecimal("42.42"),
+                null,
+                new BigDecimal("-7.25"),
+                new BigDecimal("1234567890.123456789")
+        };
+        DemoStatus[] expectedEnumArray = new DemoStatus[] {
+                DemoStatus.ACTIVE,
+                DemoStatus.INACTIVE,
+                null,
+                DemoStatus.PENDING
+        };
+        Instant[] expectedInstantArray = new Instant[] {
+                Instant.parse("2026-05-13T20:37:37Z"),
+                null,
+                Instant.EPOCH
+        };
+        LocalDate[] expectedLocalDateArray = new LocalDate[] {
+                LocalDate.of(2026, 5, 13),
+                null,
+                LocalDate.of(1970, 1, 1)
+        };
+        LocalDateTime[] expectedLocalDateTimeArray = new LocalDateTime[] {
+                LocalDateTime.of(2026, 5, 13, 20, 37, 37),
+                null,
+                LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+        };
+
+        Map<String, Object> entries = new LinkedHashMap<>();
+        entries.put(integerArrayKey, expectedIntegerArray);
+        entries.put(longArrayKey, expectedLongArray);
+        entries.put(booleanArrayKey, expectedBooleanArray);
+        entries.put(doubleArrayKey, expectedDoubleArray);
+        entries.put(uuidArrayKey, expectedUuidArray);
+        entries.put(bigIntegerArrayKey, expectedBigIntegerArray);
+        entries.put(bigDecimalArrayKey, expectedBigDecimalArray);
+        entries.put(enumArrayKey, expectedEnumArray);
+        entries.put(instantArrayKey, expectedInstantArray);
+        entries.put(localDateArrayKey, expectedLocalDateArray);
+        entries.put(localDateTimeArrayKey, expectedLocalDateTimeArray);
+
+        try {
+            region.putAll(entries);
+
+            assertArrayEquals(expectedIntegerArray, (Integer[]) region.get(integerArrayKey));
+            assertArrayEquals(expectedLongArray, (Long[]) region.get(longArrayKey));
+            assertArrayEquals(expectedBooleanArray, (Boolean[]) region.get(booleanArrayKey));
+            assertArrayEquals(expectedDoubleArray, (Double[]) region.get(doubleArrayKey));
+            assertArrayEquals(expectedUuidArray, (UUID[]) region.get(uuidArrayKey));
+            assertArrayEquals(expectedBigIntegerArray, (BigInteger[]) region.get(bigIntegerArrayKey));
+            assertArrayEquals(expectedBigDecimalArray, (BigDecimal[]) region.get(bigDecimalArrayKey));
+            assertArrayEquals(expectedEnumArray, (DemoStatus[]) region.get(enumArrayKey));
+            assertArrayEquals(expectedInstantArray, (Instant[]) region.get(instantArrayKey));
+            assertArrayEquals(expectedLocalDateArray, (LocalDate[]) region.get(localDateArrayKey));
+            assertArrayEquals(expectedLocalDateTimeArray, (LocalDateTime[]) region.get(localDateTimeArrayKey));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after WRAPPER_AND_UTILITY_ARRAY PUT_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void getAllWithWrapperAndUtilityArrayValuesShouldReturnArrays() {
+        String suffix = UUID.randomUUID().toString();
+
+        String integerArrayKey = "it-getall-integer-wrapper-array-" + suffix;
+        String longArrayKey = "it-getall-long-wrapper-array-" + suffix;
+        String booleanArrayKey = "it-getall-boolean-wrapper-array-" + suffix;
+        String doubleArrayKey = "it-getall-double-wrapper-array-" + suffix;
+        String uuidArrayKey = "it-getall-uuid-array-" + suffix;
+        String bigIntegerArrayKey = "it-getall-big-integer-array-" + suffix;
+        String bigDecimalArrayKey = "it-getall-big-decimal-array-" + suffix;
+        String enumArrayKey = "it-getall-enum-array-" + suffix;
+        String instantArrayKey = "it-getall-instant-array-" + suffix;
+        String localDateArrayKey = "it-getall-local-date-array-" + suffix;
+        String localDateTimeArrayKey = "it-getall-local-date-time-array-" + suffix;
+
+        Integer[] expectedIntegerArray = new Integer[] {1, 42, -7, null, Integer.MAX_VALUE, Integer.MIN_VALUE};
+        Long[] expectedLongArray = new Long[] {1L, 42L, -7L, null, 9_876_543_210L, Long.MAX_VALUE, Long.MIN_VALUE};
+        Boolean[] expectedBooleanArray = new Boolean[] {Boolean.TRUE, Boolean.FALSE, null, Boolean.TRUE};
+        Double[] expectedDoubleArray = new Double[] {1.0d, 7.25d, -7.25d, null, Double.MAX_VALUE, Double.MIN_VALUE};
+        UUID[] expectedUuidArray = new UUID[] {
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                null,
+                UUID.fromString("00000000-0000-0000-0000-000000000001")
+        };
+        BigInteger[] expectedBigIntegerArray = new BigInteger[] {
+                BigInteger.ONE,
+                BigInteger.valueOf(42L),
+                null,
+                BigInteger.valueOf(-7L),
+                new BigInteger("123456789012345678901234567890")
+        };
+        BigDecimal[] expectedBigDecimalArray = new BigDecimal[] {
+                new BigDecimal("1.00"),
+                new BigDecimal("42.42"),
+                null,
+                new BigDecimal("-7.25"),
+                new BigDecimal("1234567890.123456789")
+        };
+        DemoStatus[] expectedEnumArray = new DemoStatus[] {
+                DemoStatus.ACTIVE,
+                DemoStatus.INACTIVE,
+                null,
+                DemoStatus.PENDING
+        };
+        Instant[] expectedInstantArray = new Instant[] {
+                Instant.parse("2026-05-13T20:37:37Z"),
+                null,
+                Instant.EPOCH
+        };
+        LocalDate[] expectedLocalDateArray = new LocalDate[] {
+                LocalDate.of(2026, 5, 13),
+                null,
+                LocalDate.of(1970, 1, 1)
+        };
+        LocalDateTime[] expectedLocalDateTimeArray = new LocalDateTime[] {
+                LocalDateTime.of(2026, 5, 13, 20, 37, 37),
+                null,
+                LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+        };
+
+        try {
+            region.put(integerArrayKey, expectedIntegerArray);
+            region.put(longArrayKey, expectedLongArray);
+            region.put(booleanArrayKey, expectedBooleanArray);
+            region.put(doubleArrayKey, expectedDoubleArray);
+            region.put(uuidArrayKey, expectedUuidArray);
+            region.put(bigIntegerArrayKey, expectedBigIntegerArray);
+            region.put(bigDecimalArrayKey, expectedBigDecimalArray);
+            region.put(enumArrayKey, expectedEnumArray);
+            region.put(instantArrayKey, expectedInstantArray);
+            region.put(localDateArrayKey, expectedLocalDateArray);
+            region.put(localDateTimeArrayKey, expectedLocalDateTimeArray);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(integerArrayKey);
+            keys.add(longArrayKey);
+            keys.add(booleanArrayKey);
+            keys.add(doubleArrayKey);
+            keys.add(uuidArrayKey);
+            keys.add(bigIntegerArrayKey);
+            keys.add(bigDecimalArrayKey);
+            keys.add(enumArrayKey);
+            keys.add(instantArrayKey);
+            keys.add(localDateArrayKey);
+            keys.add(localDateTimeArrayKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertArrayEquals(expectedIntegerArray, (Integer[]) results.get(integerArrayKey));
+            assertArrayEquals(expectedLongArray, (Long[]) results.get(longArrayKey));
+            assertArrayEquals(expectedBooleanArray, (Boolean[]) results.get(booleanArrayKey));
+            assertArrayEquals(expectedDoubleArray, (Double[]) results.get(doubleArrayKey));
+            assertArrayEquals(expectedUuidArray, (UUID[]) results.get(uuidArrayKey));
+            assertArrayEquals(expectedBigIntegerArray, (BigInteger[]) results.get(bigIntegerArrayKey));
+            assertArrayEquals(expectedBigDecimalArray, (BigDecimal[]) results.get(bigDecimalArrayKey));
+            assertArrayEquals(expectedEnumArray, (DemoStatus[]) results.get(enumArrayKey));
+            assertArrayEquals(expectedInstantArray, (Instant[]) results.get(instantArrayKey));
+            assertArrayEquals(expectedLocalDateArray, (LocalDate[]) results.get(localDateArrayKey));
+            assertArrayEquals(expectedLocalDateTimeArray, (LocalDateTime[]) results.get(localDateTimeArrayKey));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after WRAPPER_AND_UTILITY_ARRAY GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
 
 
 
@@ -4180,4 +4731,11 @@ class ProtoGemCouchSerializationIntegrationTest {
             return fallback;
         }
     }
+
+    private enum DemoStatus {
+        ACTIVE,
+        INACTIVE,
+        PENDING
+    }
+
 }
