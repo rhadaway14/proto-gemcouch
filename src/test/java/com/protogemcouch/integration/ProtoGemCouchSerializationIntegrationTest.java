@@ -142,6 +142,88 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void pdxInstanceWithPrimitiveAndStringArrayFieldsShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-arrays-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithArrays")
+                    .writeString("id", "array-doc-1")
+                    .writeIntArray("scores", new int[] {
+                            1,
+                            42,
+                            -7,
+                            Integer.MAX_VALUE,
+                            Integer.MIN_VALUE
+                    })
+                    .writeLongArray("longValues", new long[] {
+                            1L,
+                            42L,
+                            -7L,
+                            9_876_543_210L
+                    })
+                    .writeBooleanArray("flags", new boolean[] {
+                            true,
+                            false,
+                            true
+                    })
+                    .writeDoubleArray("measurements", new double[] {
+                            1.0d,
+                            7.25d,
+                            -7.25d
+                    })
+                    .writeStringArray("tags", new String[] {
+                            "one",
+                            null,
+                            "three"
+                    })
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("array-doc-1", actualPdx.getField("id"));
+            assertArrayEquals(
+                    new int[] {1, 42, -7, Integer.MAX_VALUE, Integer.MIN_VALUE},
+                    (int[]) actualPdx.getField("scores")
+            );
+            assertArrayEquals(
+                    new long[] {1L, 42L, -7L, 9_876_543_210L},
+                    (long[]) actualPdx.getField("longValues")
+            );
+            assertArrayEquals(
+                    new boolean[] {true, false, true},
+                    (boolean[]) actualPdx.getField("flags")
+            );
+            assertArrayEquals(
+                    new double[] {1.0d, 7.25d, -7.25d},
+                    (double[]) actualPdx.getField("measurements")
+            );
+            assertArrayEquals(
+                    new String[] {"one", null, "three"},
+                    (String[]) actualPdx.getField("tags")
+            );
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX array fields round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
