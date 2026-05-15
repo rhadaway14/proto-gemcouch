@@ -18,6 +18,21 @@ public final class MessageTypes {
     public static final int GET_CLIENT_PARTITION_ATTRIBUTES = 73;
     public static final int SIZE = 81;
     public static final int SIZE_ERROR = 82;
+
+    /*
+     * PDX registry request discovered from Geode client PdxInstanceFactory.
+     *
+     * Geode stack trace:
+     *   GetPDXIdForTypeOp.execute(...)
+     *
+     * Shim discovery log:
+     *   opcode=93
+     *   parts=1
+     *   txId=-1
+     *   part[0] contains serialized org.apache.geode.pdx.internal.PdxType
+     */
+    public static final int GET_PDX_ID_FOR_TYPE = 93;
+
     public static final int GET_ALL_70 = 100;
 
     // Response opcodes

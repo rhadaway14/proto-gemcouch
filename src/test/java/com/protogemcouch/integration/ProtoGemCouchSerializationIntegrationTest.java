@@ -4,6 +4,8 @@ import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.pdx.PdxInstance;
+import org.apache.geode.pdx.PdxInstanceFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -75,6 +77,68 @@ class ProtoGemCouchSerializationIntegrationTest {
     void tearDown() {
         if (cache != null) {
             cache.close();
+        }
+    }
+
+    private void recreateClientCacheWithPdxReadSerialized() {
+        if (cache != null) {
+            cache.close();
+        }
+
+        String host = envOrDefault("IT_SHIM_HOST", DEFAULT_HOST);
+        int shimPort = intEnv("IT_SHIM_PORT", DEFAULT_SHIM_PORT);
+        String regionName = envOrDefault("IT_REGION", DEFAULT_REGION);
+
+        cache = new ClientCacheFactory()
+                .addPoolServer(host, shimPort)
+                .setPoolSubscriptionEnabled(false)
+                .setPdxReadSerialized(true)
+                .set("log-level", "warn")
+                .create();
+
+        region = cache
+                .<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
+                .create(regionName);
+    }
+
+    private PdxInstanceFactory pdxFactory(String className) {
+        return cache.createPdxInstanceFactory(className);
+    }
+
+    @Test
+    void simplePdxInstanceShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-simple-value-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance expected = pdxFactory("com.example.integration.SimplePdx")
+                    .writeString("id", "customer-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("customer-1", actualPdx.getField("id"));
+            assertEquals("Rob", actualPdx.getField("name"));
+            assertEquals(42, actualPdx.getField("age"));
+            assertEquals(Boolean.TRUE, actualPdx.getField("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after SIMPLE PDX round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
         }
     }
 

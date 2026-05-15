@@ -556,6 +556,33 @@ class GetHandlerTest {
     }
 
     @Test
+    void handle_existing_pdx_instance_value_writes_response() {
+        Repository repository = mock(Repository.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+
+        byte[] pdxPayload = hexToBytes(
+                "5d0000001900715b4f57000a637573746f6d65722d31570003526f620000002a010d"
+        );
+
+        when(repository.get("/helloWorld::my-pdx-key"))
+                .thenReturn(StoredValue.pdxInstanceValue(pdxPayload));
+
+        when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        GetHandler handler = new GetHandler(repository);
+        GemFrame frame = mockFrame(
+                0,
+                stringPart("/helloWorld"),
+                stringPart("my-pdx-key")
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository).get("/helloWorld::my-pdx-key");
+        verify(ctx).writeAndFlush(any());
+    }
+
+    @Test
     void handle_existing_short_value_writes_response() {
         Repository repository = mock(Repository.class);
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);

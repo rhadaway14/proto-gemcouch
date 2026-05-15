@@ -238,6 +238,16 @@ public final class GemResponseWriter {
     private static final byte GEODE_OBJECT_ARRAY_CODE = 0x34;
 
     /*
+     * Geode PDX / PdxInstance marker observed from PdxShapeTest:
+     *
+     *   PdxInstance -> 0x5d <payload...>
+     *
+     * PDX payloads are preserved opaquely because they can depend on Geode PDX
+     * type metadata.
+     */
+    private static final byte GEODE_PDX_INSTANCE_CODE = 0x5d;
+
+    /*
      * Full Geode DataSerializer object header for VersionedObjectList.
      *
      * Observed from DataSerializer.writeObject(new VersionedObjectList(...)):
@@ -419,6 +429,27 @@ public final class GemResponseWriter {
                 MessageTypes.RESPONSE,
                 txId,
                 List.of(new Part(geodeSerializedOpaqueGeodeValue(encodedOpaqueGeodeValue), (byte) 1))
+        );
+    }
+
+    public static byte[] buildPdxInstanceGetResponse(int txId, byte[] encodedPdxInstanceValue) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(geodeSerializedPdxInstance(encodedPdxInstanceValue), (byte) 1))
+        );
+    }
+
+    public static byte[] buildPdxTypeIdResponse(int txId, int typeId) {
+        /*
+         * GetPDXIdForTypeOp expects a raw BYTE part and calls Part.getInt().
+         * Do not use geodeSerializedInteger(...) here, because that produces
+         * an OBJECT_CODE part containing the DataSerializer integer marker 0x39.
+         */
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(intPartBytes(typeId), (byte) 0))
         );
     }
 
@@ -807,6 +838,10 @@ public final class GemResponseWriter {
 
         if (value.type() == StoredValue.Type.OPAQUE_GEODE_VALUE) {
             return geodeSerializedOpaqueGeodeValue(value.asOpaqueGeodeValue());
+        }
+
+        if (value.type() == StoredValue.Type.PDX_INSTANCE) {
+            return geodeSerializedPdxInstance(value.asPdxInstanceValue());
         }
 
         if (value.type() == StoredValue.Type.SHORT) {
@@ -1344,6 +1379,26 @@ public final class GemResponseWriter {
         return copy;
     }
 
+    private static byte[] geodeSerializedPdxInstance(byte[] encodedPdxInstanceValue) {
+        if (encodedPdxInstanceValue == null || encodedPdxInstanceValue.length == 0) {
+            throw new IllegalArgumentException("PDX encoded bytes must not be null or empty");
+        }
+
+        if (encodedPdxInstanceValue[0] != GEODE_PDX_INSTANCE_CODE) {
+            throw new IllegalArgumentException("PDX encoded bytes must start with Geode PDX marker 0x5d");
+        }
+
+        /*
+         * PDX payloads already include their original Geode marker. Return the
+         * exact payload unchanged so the Geode client can deserialize it using
+         * its PDX handling and type metadata.
+         */
+        byte[] copy = new byte[encodedPdxInstanceValue.length];
+        System.arraycopy(encodedPdxInstanceValue, 0, copy, 0, encodedPdxInstanceValue.length);
+
+        return copy;
+    }
+
 
 
     private static byte[] javaSerializedBytes(Object value) {
@@ -1594,6 +1649,15 @@ public final class GemResponseWriter {
         }
 
         return value;
+    }
+
+    private static byte[] intPartBytes(int value) {
+        return new byte[] {
+                (byte) ((value >>> 24) & 0xff),
+                (byte) ((value >>> 16) & 0xff),
+                (byte) ((value >>> 8) & 0xff),
+                (byte) (value & 0xff)
+        };
     }
 
     private static byte[] geodeSerializedBoolean(boolean value) {

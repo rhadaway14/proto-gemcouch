@@ -30,6 +30,7 @@ public record StoredValue(
         byte[] objectArrayListValue,
         String opaqueGeodeTypeName,
         byte[] opaqueGeodeValue,
+        byte[] pdxInstanceValue,
         Short shortValue,
         Integer integerValue,
         Boolean booleanValue,
@@ -59,6 +60,7 @@ public record StoredValue(
         OBJECT_ARRAY,
         OBJECT_ARRAY_LIST,
         OPAQUE_GEODE_VALUE,
+        PDX_INSTANCE,
         SHORT,
         INTEGER,
         BOOLEAN,
@@ -69,107 +71,111 @@ public record StoredValue(
     }
 
     public static StoredValue stringValue(String value) {
-        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue characterValue(Character value) {
-        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHARACTER, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteValue(Byte value) {
-        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE, null, null, value, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue byteArrayValue(byte[] value) {
-        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BYTE_ARRAY, null, null, null, copyByteArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue booleanArrayValue(boolean[] value) {
-        return new StoredValue(Type.BOOLEAN_ARRAY, null, null, null, null, copyBooleanArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.BOOLEAN_ARRAY, null, null, null, null, copyBooleanArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue charArrayValue(char[] value) {
-        return new StoredValue(Type.CHAR_ARRAY, null, null, null, null, null, copyCharArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.CHAR_ARRAY, null, null, null, null, null, copyCharArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortArrayValue(short[] value) {
-        return new StoredValue(Type.SHORT_ARRAY, null, null, null, null, null, null, copyShortArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.SHORT_ARRAY, null, null, null, null, null, null, copyShortArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue intArrayValue(int[] value) {
-        return new StoredValue(Type.INT_ARRAY, null, null, null, null, null, null, null, copyIntArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.INT_ARRAY, null, null, null, null, null, null, null, copyIntArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue longArrayValue(long[] value) {
-        return new StoredValue(Type.LONG_ARRAY, null, null, null, null, null, null, null, null, copyLongArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.LONG_ARRAY, null, null, null, null, null, null, null, null, copyLongArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue floatArrayValue(float[] value) {
-        return new StoredValue(Type.FLOAT_ARRAY, null, null, null, null, null, null, null, null, null, copyFloatArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.FLOAT_ARRAY, null, null, null, null, null, null, null, null, null, copyFloatArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue doubleArrayValue(double[] value) {
-        return new StoredValue(Type.DOUBLE_ARRAY, null, null, null, null, null, null, null, null, null, null, copyDoubleArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.DOUBLE_ARRAY, null, null, null, null, null, null, null, null, null, null, copyDoubleArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayValue(String[] value) {
-        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, null, null, null, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY, null, null, null, null, null, null, null, null, null, null, null, copyStringArray(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringArrayListValue(ArrayList<String> value) {
-        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, copyStringArrayList(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringHashMapValue(Map<String, String> value) {
-        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue stringObjectHashMapValue(Map<String, Object> value) {
-        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.STRING_OBJECT_HASH_MAP, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyStringObjectHashMap(value), null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue javaSerializedObjectValue(String className, byte[] serializedValue) {
-        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.JAVA_SERIALIZED_OBJECT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, className, copyByteArray(serializedValue), null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayValue(byte[] encodedObjectArrayValue) {
-        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayValue), null, null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue objectArrayListValue(byte[] encodedObjectArrayListValue) {
-        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null, null, null);
+        return new StoredValue(Type.OBJECT_ARRAY_LIST, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedObjectArrayListValue), null, null, null, null, null, null, null, null, null, null);
     }
 
     public static StoredValue opaqueGeodeValue(String typeName, byte[] encodedValue) {
-        return new StoredValue(Type.OPAQUE_GEODE_VALUE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, typeName, copyByteArray(encodedValue), null, null, null, null, null, null, null);
+        return new StoredValue(Type.OPAQUE_GEODE_VALUE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, typeName, copyByteArray(encodedValue), null, null, null, null, null, null, null, null);
+    }
+
+    public static StoredValue pdxInstanceValue(byte[] encodedValue) {
+        return new StoredValue(Type.PDX_INSTANCE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyByteArray(encodedValue), null, null, null, null, null, null, null);
     }
 
     public static StoredValue shortValue(Short value) {
-        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
+        return new StoredValue(Type.SHORT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null, null);
     }
 
     public static StoredValue integerValue(Integer value) {
-        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
+        return new StoredValue(Type.INTEGER, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null, null);
     }
 
     public static StoredValue booleanValue(Boolean value) {
-        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
+        return new StoredValue(Type.BOOLEAN, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null, null);
     }
 
     public static StoredValue longValue(Long value) {
-        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
+        return new StoredValue(Type.LONG, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null, null);
     }
 
     public static StoredValue floatValue(Float value) {
-        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
+        return new StoredValue(Type.FLOAT, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null, null);
     }
 
     public static StoredValue doubleValue(Double value) {
-        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
+        return new StoredValue(Type.DOUBLE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, value, null);
     }
 
     public static StoredValue dateValue(Date value) {
-        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
+        return new StoredValue(Type.DATE, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, copyDate(value));
     }
 
     public StoredValue {
@@ -237,6 +243,10 @@ public record StoredValue(
 
         if (opaqueGeodeValue != null) {
             opaqueGeodeValue = copyByteArray(opaqueGeodeValue);
+        }
+
+        if (pdxInstanceValue != null) {
+            pdxInstanceValue = copyByteArray(pdxInstanceValue);
         }
 
         if (dateValue != null) {
@@ -340,6 +350,16 @@ public record StoredValue(
 
             if (opaqueGeodeValue == null || opaqueGeodeValue.length == 0) {
                 throw new IllegalArgumentException("OPAQUE_GEODE_VALUE StoredValue requires opaqueGeodeValue");
+            }
+        }
+
+        if (type == Type.PDX_INSTANCE) {
+            if (pdxInstanceValue == null || pdxInstanceValue.length == 0) {
+                throw new IllegalArgumentException("PDX_INSTANCE StoredValue requires pdxInstanceValue");
+            }
+
+            if ((pdxInstanceValue[0] & 0xff) != 0x5d) {
+                throw new IllegalArgumentException("PDX_INSTANCE StoredValue must start with Geode PDX marker 0x5d");
             }
         }
 
@@ -450,6 +470,11 @@ public record StoredValue(
     @Override
     public byte[] opaqueGeodeValue() {
         return copyByteArray(opaqueGeodeValue);
+    }
+
+    @Override
+    public byte[] pdxInstanceValue() {
+        return copyByteArray(pdxInstanceValue);
     }
 
     @Override
@@ -617,6 +642,14 @@ public record StoredValue(
         return copyByteArray(opaqueGeodeValue);
     }
 
+    public byte[] asPdxInstanceValue() {
+        if (type != Type.PDX_INSTANCE) {
+            throw new IllegalStateException("StoredValue is not PDX_INSTANCE. Actual type: " + type);
+        }
+
+        return copyByteArray(pdxInstanceValue);
+    }
+
     public Short asShort() {
         if (type != Type.SHORT) {
             throw new IllegalStateException("StoredValue is not SHORT. Actual type: " + type);
@@ -705,6 +738,7 @@ public record StoredValue(
                 && Arrays.equals(objectArrayListValue, that.objectArrayListValue)
                 && Objects.equals(opaqueGeodeTypeName, that.opaqueGeodeTypeName)
                 && Arrays.equals(opaqueGeodeValue, that.opaqueGeodeValue)
+                && Arrays.equals(pdxInstanceValue, that.pdxInstanceValue)
                 && Objects.equals(shortValue, that.shortValue)
                 && Objects.equals(integerValue, that.integerValue)
                 && Objects.equals(booleanValue, that.booleanValue)
@@ -748,6 +782,7 @@ public record StoredValue(
         result = 31 * result + Arrays.hashCode(objectArrayValue);
         result = 31 * result + Arrays.hashCode(objectArrayListValue);
         result = 31 * result + Arrays.hashCode(opaqueGeodeValue);
+        result = 31 * result + Arrays.hashCode(pdxInstanceValue);
 
         return result;
     }

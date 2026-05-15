@@ -245,6 +245,19 @@ public class PutHandler implements OperationHandler {
             );
         }
 
+        ValueDecoding.PdxInstanceValue pdxInstanceValue =
+                ValueDecoding.decodePdxInstanceValue(valuePayload);
+
+        if (pdxInstanceValue != null) {
+            log.info(StructuredLog.event(
+                    "handler_put_value_decode_ok",
+                    "encoding", "geode-pdx-instance",
+                    "valueType", "PDX_INSTANCE",
+                    "txId", txId
+            ));
+            return StoredValue.pdxInstanceValue(pdxInstanceValue.encodedValue());
+        }
+
         byte[] byteArrayValue = ValueDecoding.decodeByteArrayValue(valuePayload);
 
         if (byteArrayValue != null) {
@@ -772,6 +785,19 @@ public class PutHandler implements OperationHandler {
                         fallbackOpaqueGeodeValue.typeName(),
                         fallbackOpaqueGeodeValue.encodedValue()
                 );
+            }
+
+            ValueDecoding.PdxInstanceValue fallbackPdxInstanceValue =
+                    ValueDecoding.decodePdxInstanceValue(valuePayload);
+
+            if (fallbackPdxInstanceValue != null) {
+                log.info(StructuredLog.event(
+                        "handler_put_value_decode_ok",
+                        "encoding", "geode-dataserializer-pdx-instance",
+                        "valueType", "PDX_INSTANCE",
+                        "txId", txId
+                ));
+                return StoredValue.pdxInstanceValue(fallbackPdxInstanceValue.encodedValue());
             }
 
             if (rawValue != null) {

@@ -148,6 +148,16 @@ public final class ValueDecoding {
     private static final int GEODE_UUID_CODE = 0x62;
     private static final int GEODE_ENUM_CODE = 0x65;
 
+    /*
+     * Geode PDX / PdxInstance marker observed from PdxShapeTest:
+     *
+     *   PdxInstance -> 0x5d <payload...>
+     *
+     * PDX values can depend on Geode type metadata and should be preserved
+     * opaquely for the compatibility-first path.
+     */
+    private static final int GEODE_PDX_INSTANCE_CODE = 0x5d;
+
     private ValueDecoding() {
     }
 
@@ -206,6 +216,21 @@ public final class ValueDecoding {
                 throw new IllegalArgumentException("typeName must not be blank");
             }
 
+            if (encodedValue == null || encodedValue.length == 0) {
+                throw new IllegalArgumentException("encodedValue must not be null or empty");
+            }
+
+            encodedValue = Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+
+        @Override
+        public byte[] encodedValue() {
+            return Arrays.copyOf(encodedValue, encodedValue.length);
+        }
+    }
+
+    public record PdxInstanceValue(byte[] encodedValue) {
+        public PdxInstanceValue {
             if (encodedValue == null || encodedValue.length == 0) {
                 throw new IllegalArgumentException("encodedValue must not be null or empty");
             }
@@ -669,6 +694,24 @@ public final class ValueDecoding {
         return null;
     }
 
+    public static PdxInstanceValue decodePdxInstanceValue(byte[] payload) {
+        if (payload == null || payload.length < 2) {
+            return null;
+        }
+
+        if ((payload[0] & 0xff) != GEODE_PDX_INSTANCE_CODE) {
+            return null;
+        }
+
+        /*
+         * PDX shape discovery showed every PdxInstance payload starts with 0x5d.
+         * Preserve the full payload opaquely. The payload may rely on Geode PDX
+         * type metadata, so parsing fields inside the shim is intentionally
+         * deferred.
+         */
+        return new PdxInstanceValue(payload);
+    }
+
 
 
     public static byte[] decodeByteArrayValue(byte[] payload) {
@@ -954,6 +997,7 @@ public final class ValueDecoding {
                 || first == GEODE_BIG_DECIMAL_CODE
                 || first == GEODE_UUID_CODE
                 || first == GEODE_ENUM_CODE
+                || first == GEODE_PDX_INSTANCE_CODE
                 || first == GEODE_STRING_CODE) {
             return null;
         }
@@ -1133,7 +1177,11 @@ public final class ValueDecoding {
 
         int first = payload[0] & 0xff;
 
-        if (first == GEODE_HASH_MAP_CODE || first == GEODE_JAVA_SERIALIZED_CODE || first == GEODE_OBJECT_ARRAY_CODE || looksLikeJavaSerializationStream(payload)) {
+        if (first == GEODE_HASH_MAP_CODE
+                || first == GEODE_JAVA_SERIALIZED_CODE
+                || first == GEODE_OBJECT_ARRAY_CODE
+                || first == GEODE_PDX_INSTANCE_CODE
+                || looksLikeJavaSerializationStream(payload)) {
             return null;
         }
 
@@ -1192,6 +1240,10 @@ public final class ValueDecoding {
         }
 
         if (decodeOpaqueStandaloneUtilityValue(payload) != null) {
+            return null;
+        }
+
+        if (decodePdxInstanceValue(payload) != null) {
             return null;
         }
 

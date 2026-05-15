@@ -59,6 +59,7 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_OBJECT_ARRAY = "objectArray";
     private static final String TYPE_OBJECT_ARRAY_LIST = "objectArrayList";
     private static final String TYPE_OPAQUE_GEODE_VALUE = "opaqueGeodeValue";
+    private static final String TYPE_PDX_INSTANCE = "pdxInstance";
     private static final String TYPE_SHORT = "short";
     private static final String TYPE_INTEGER = "integer";
     private static final String TYPE_LONG = "long";
@@ -580,6 +581,15 @@ public class CouchbaseRepository implements Repository {
             return body;
         }
 
+        if (value.type() == StoredValue.Type.PDX_INSTANCE) {
+            byte[] encodedPdxInstanceValue = value.asPdxInstanceValue();
+
+            body.put(FIELD_TYPE, TYPE_PDX_INSTANCE);
+            body.put(FIELD_VALUE_BASE64, Base64.getEncoder().encodeToString(encodedPdxInstanceValue));
+            body.put(FIELD_LENGTH, encodedPdxInstanceValue.length);
+            return body;
+        }
+
         if (value.type() == StoredValue.Type.SHORT) {
             body.put(FIELD_TYPE, TYPE_SHORT);
             body.put(FIELD_VALUE, value.asShort());
@@ -750,6 +760,10 @@ public class CouchbaseRepository implements Repository {
 
         if (TYPE_OPAQUE_GEODE_VALUE.equalsIgnoreCase(type)) {
             return decodeOpaqueGeodeValueStoredValue(content);
+        }
+
+        if (TYPE_PDX_INSTANCE.equalsIgnoreCase(type)) {
+            return decodePdxInstanceStoredValue(content);
         }
 
         if (TYPE_SHORT.equalsIgnoreCase(type)) {
@@ -1534,6 +1548,48 @@ public class CouchbaseRepository implements Repository {
             log.warn(StructuredLog.event(
                     "repository_opaque_geode_value_decode_failed",
                     "opaqueGeodeTypeName", typeName,
+                    "error", e.getMessage()
+            ));
+            return null;
+        }
+    }
+
+    private static StoredValue decodePdxInstanceStoredValue(JsonObject content) {
+        Object rawBase64 = content.get(FIELD_VALUE_BASE64);
+
+        if (!(rawBase64 instanceof String base64Text) || base64Text.isBlank()) {
+            log.warn(StructuredLog.event(
+                    "repository_pdx_instance_decode_failed",
+                    "reason", "missing_or_blank_valueBase64"
+            ));
+            return null;
+        }
+
+        try {
+            byte[] decoded = Base64.getDecoder().decode(base64Text);
+
+            if (decoded.length == 0 || (decoded[0] & 0xff) != 0x5d) {
+                log.warn(StructuredLog.event(
+                        "repository_pdx_instance_decode_failed",
+                        "reason", "decoded_value_does_not_start_with_pdx_marker",
+                        "actualLength", decoded.length
+                ));
+                return null;
+            }
+
+            Object rawLength = content.get(FIELD_LENGTH);
+            if (rawLength instanceof Number number && number.intValue() != decoded.length) {
+                log.warn(StructuredLog.event(
+                        "repository_pdx_instance_length_mismatch",
+                        "expectedLength", number.intValue(),
+                        "actualLength", decoded.length
+                ));
+            }
+
+            return StoredValue.pdxInstanceValue(decoded);
+        } catch (IllegalArgumentException e) {
+            log.warn(StructuredLog.event(
+                    "repository_pdx_instance_decode_failed",
                     "error", e.getMessage()
             ));
             return null;

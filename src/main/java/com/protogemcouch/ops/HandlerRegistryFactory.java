@@ -11,6 +11,8 @@ public final class HandlerRegistryFactory {
     public static OpcodeRegistry create(Repository repository) {
         OpcodeRegistry registry = new OpcodeRegistry();
 
+        PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry();
+
         registry.register(MessageTypes.GET, new GetHandler(repository));
         registry.register(MessageTypes.PUT, new PutHandler(repository));
         registry.register(MessageTypes.REMOVE, new RemoveHandler(repository));
@@ -22,6 +24,19 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository));
         registry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));
         registry.register(MessageTypes.PING, new SimpleAckHandler("PING FRAME"));
+
+        /*
+         * PDX registry discovery showed Geode PdxInstanceFactory.create()
+         * sends opcode 93 with one part containing a serialized
+         * org.apache.geode.pdx.internal.PdxType.
+         *
+         * First-pass behavior:
+         *   PdxType payload -> stable in-memory integer type id
+         */
+        registry.register(
+                MessageTypes.GET_PDX_ID_FOR_TYPE,
+                new PdxGetIdForTypeHandler(pdxTypeRegistry)
+        );
 
         return registry;
     }
