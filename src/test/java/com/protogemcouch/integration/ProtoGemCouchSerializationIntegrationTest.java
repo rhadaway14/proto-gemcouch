@@ -414,6 +414,120 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void pdxInstanceWithBigIntegerFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-big-integer-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            BigInteger expectedBigInteger = new BigInteger("123456789012345678901234567890");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithBigIntegerField")
+                    .writeString("id", "big-integer-doc-1")
+                    .writeObject("bigInteger", expectedBigInteger)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("big-integer-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedBigInteger, actualPdx.getField("bigInteger"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX BigInteger field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithBigDecimalFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-big-decimal-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            BigDecimal expectedBigDecimal = new BigDecimal("1234567890.123456789");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithBigDecimalField")
+                    .writeString("id", "big-decimal-doc-1")
+                    .writeObject("bigDecimal", expectedBigDecimal)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("big-decimal-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedBigDecimal, actualPdx.getField("bigDecimal"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX BigDecimal field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithInstantFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-instant-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            Instant expectedInstant = Instant.parse("2026-05-13T20:37:37Z");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithInstantField")
+                    .writeString("id", "instant-doc-1")
+                    .writeObject("instant", expectedInstant)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("instant-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedInstant, actualPdx.getField("instant"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX Instant field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
