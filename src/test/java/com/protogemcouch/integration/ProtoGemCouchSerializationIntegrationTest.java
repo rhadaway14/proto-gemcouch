@@ -649,6 +649,206 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void putAllAndGetAllWithPdxInstancesShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-pdx-putall-simple-" + suffix;
+        String key2 = "it-pdx-putall-array-" + suffix;
+        String key3 = "it-pdx-putall-map-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance simple = pdxFactory("com.example.integration.PutAllSimplePdx")
+                    .writeString("id", "simple-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            PdxInstance withArray = pdxFactory("com.example.integration.PutAllPdxWithArray")
+                    .writeString("id", "array-pdx-1")
+                    .writeStringArray("tags", new String[] {"one", "two", "three"})
+                    .writeIntArray("scores", new int[] {1, 2, 3})
+                    .create();
+
+            LinkedHashMap<String, Object> attributes = new LinkedHashMap<>();
+            attributes.put("tier", "gold");
+            attributes.put("score", Integer.valueOf(9001));
+            attributes.put("active", Boolean.TRUE);
+
+            PdxInstance withMap = pdxFactory("com.example.integration.PutAllPdxWithMap")
+                    .writeString("id", "map-pdx-1")
+                    .writeObject("attributes", attributes)
+                    .create();
+
+            Map<String, Object> entries = new LinkedHashMap<>();
+            entries.put(key1, simple);
+            entries.put(key2, withArray);
+            entries.put(key3, withMap);
+
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(key1);
+            keys.add(key2);
+            keys.add(key3);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertInstanceOf(PdxInstance.class, results.get(key1));
+            assertInstanceOf(PdxInstance.class, results.get(key2));
+            assertInstanceOf(PdxInstance.class, results.get(key3));
+
+            PdxInstance actualSimple = (PdxInstance) results.get(key1);
+            assertEquals("simple-pdx-1", actualSimple.getField("id"));
+            assertEquals("Rob", actualSimple.getField("name"));
+            assertEquals(42, actualSimple.getField("age"));
+            assertEquals(Boolean.TRUE, actualSimple.getField("active"));
+
+            PdxInstance actualWithArray = (PdxInstance) results.get(key2);
+            assertEquals("array-pdx-1", actualWithArray.getField("id"));
+            assertArrayEquals(
+                    new String[] {"one", "two", "three"},
+                    (String[]) actualWithArray.getField("tags")
+            );
+            assertArrayEquals(
+                    new int[] {1, 2, 3},
+                    (int[]) actualWithArray.getField("scores")
+            );
+
+            PdxInstance actualWithMap = (PdxInstance) results.get(key3);
+            assertEquals("map-pdx-1", actualWithMap.getField("id"));
+
+            Object actualAttributesRaw = actualWithMap.getField("attributes");
+            assertInstanceOf(Map.class, actualAttributesRaw);
+
+            Map<?, ?> actualAttributes = (Map<?, ?>) actualAttributesRaw;
+            assertEquals("gold", actualAttributes.get("tier"));
+            assertEquals(Integer.valueOf(9001), actualAttributes.get("score"));
+            assertEquals(Boolean.TRUE, actualAttributes.get("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX PUT_ALL/GET_ALL round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void mixedPutAllAndGetAllWithPrimitiveAndPdxValuesShouldPreserveTypes() {
+        String suffix = UUID.randomUUID().toString();
+
+        String stringKey = "it-mixed-pdx-string-" + suffix;
+        String integerKey = "it-mixed-pdx-integer-" + suffix;
+        String booleanKey = "it-mixed-pdx-boolean-" + suffix;
+        String simplePdxKey = "it-mixed-pdx-simple-" + suffix;
+        String arrayPdxKey = "it-mixed-pdx-array-" + suffix;
+        String mapPdxKey = "it-mixed-pdx-map-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance simplePdx = pdxFactory("com.example.integration.MixedBatchSimplePdx")
+                    .writeString("id", "mixed-simple-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            PdxInstance arrayPdx = pdxFactory("com.example.integration.MixedBatchPdxWithArray")
+                    .writeString("id", "mixed-array-pdx-1")
+                    .writeStringArray("tags", new String[] {"alpha", "beta", "gamma"})
+                    .writeIntArray("scores", new int[] {10, 20, 30})
+                    .create();
+
+            LinkedHashMap<String, Object> attributes = new LinkedHashMap<>();
+            attributes.put("tier", "platinum");
+            attributes.put("score", Integer.valueOf(12345));
+            attributes.put("active", Boolean.TRUE);
+
+            PdxInstance mapPdx = pdxFactory("com.example.integration.MixedBatchPdxWithMap")
+                    .writeString("id", "mixed-map-pdx-1")
+                    .writeObject("attributes", attributes)
+                    .create();
+
+            Map<String, Object> entries = new LinkedHashMap<>();
+            entries.put(stringKey, "string-value-" + suffix);
+            entries.put(integerKey, Integer.valueOf(4242));
+            entries.put(booleanKey, Boolean.TRUE);
+            entries.put(simplePdxKey, simplePdx);
+            entries.put(arrayPdxKey, arrayPdx);
+            entries.put(mapPdxKey, mapPdx);
+
+            region.putAll(entries);
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(stringKey);
+            keys.add(integerKey);
+            keys.add(booleanKey);
+            keys.add(simplePdxKey);
+            keys.add(arrayPdxKey);
+            keys.add(mapPdxKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertInstanceOf(String.class, results.get(stringKey));
+            assertInstanceOf(Integer.class, results.get(integerKey));
+            assertInstanceOf(Boolean.class, results.get(booleanKey));
+            assertInstanceOf(PdxInstance.class, results.get(simplePdxKey));
+            assertInstanceOf(PdxInstance.class, results.get(arrayPdxKey));
+            assertInstanceOf(PdxInstance.class, results.get(mapPdxKey));
+
+            assertEquals("string-value-" + suffix, results.get(stringKey));
+            assertEquals(Integer.valueOf(4242), results.get(integerKey));
+            assertEquals(Boolean.TRUE, results.get(booleanKey));
+
+            PdxInstance actualSimplePdx = (PdxInstance) results.get(simplePdxKey);
+            assertEquals("mixed-simple-pdx-1", actualSimplePdx.getField("id"));
+            assertEquals("Rob", actualSimplePdx.getField("name"));
+            assertEquals(42, actualSimplePdx.getField("age"));
+            assertEquals(Boolean.TRUE, actualSimplePdx.getField("active"));
+
+            PdxInstance actualArrayPdx = (PdxInstance) results.get(arrayPdxKey);
+            assertEquals("mixed-array-pdx-1", actualArrayPdx.getField("id"));
+            assertArrayEquals(
+                    new String[] {"alpha", "beta", "gamma"},
+                    (String[]) actualArrayPdx.getField("tags")
+            );
+            assertArrayEquals(
+                    new int[] {10, 20, 30},
+                    (int[]) actualArrayPdx.getField("scores")
+            );
+
+            PdxInstance actualMapPdx = (PdxInstance) results.get(mapPdxKey);
+            assertEquals("mixed-map-pdx-1", actualMapPdx.getField("id"));
+
+            Object actualAttributesRaw = actualMapPdx.getField("attributes");
+            assertInstanceOf(Map.class, actualAttributesRaw);
+
+            Map<?, ?> actualAttributes = (Map<?, ?>) actualAttributesRaw;
+            assertEquals("platinum", actualAttributes.get("tier"));
+            assertEquals(Integer.valueOf(12345), actualAttributes.get("score"));
+            assertEquals(Boolean.TRUE, actualAttributes.get("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after MIXED primitive/PDX PUT_ALL/GET_ALL round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
