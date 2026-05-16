@@ -224,6 +224,196 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void pdxInstanceWithObjectArrayFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-object-array-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            Object[] expectedItems = new Object[] {
+                    "one",
+                    Integer.valueOf(42),
+                    Boolean.TRUE,
+                    "three"
+            };
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithObjectArray")
+                    .writeString("id", "object-array-doc-1")
+                    .writeObjectArray("items", expectedItems)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("object-array-doc-1", actualPdx.getField("id"));
+
+            Object actualItemsRaw = actualPdx.getField("items");
+            assertInstanceOf(Object[].class, actualItemsRaw);
+
+            Object[] actualItems = (Object[]) actualItemsRaw;
+
+            assertArrayEquals(expectedItems, actualItems);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX Object[] field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithArrayListObjectFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-array-list-object-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            ArrayList<Object> expectedItems = new ArrayList<>();
+            expectedItems.add("one");
+            expectedItems.add(Integer.valueOf(42));
+            expectedItems.add(Boolean.TRUE);
+            expectedItems.add("three");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithArrayListObject")
+                    .writeString("id", "array-list-object-doc-1")
+                    .writeObject("items", expectedItems)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("array-list-object-doc-1", actualPdx.getField("id"));
+
+            Object actualItemsRaw = actualPdx.getField("items");
+            assertInstanceOf(ArrayList.class, actualItemsRaw);
+
+            ArrayList<?> actualItems = (ArrayList<?>) actualItemsRaw;
+
+            assertEquals(expectedItems.size(), actualItems.size());
+            assertEquals("one", actualItems.get(0));
+            assertEquals(Integer.valueOf(42), actualItems.get(1));
+            assertEquals(Boolean.TRUE, actualItems.get(2));
+            assertEquals("three", actualItems.get(3));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX ArrayList<Object> field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithNestedMapFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-nested-map-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            LinkedHashMap<String, Object> expectedAttributes = new LinkedHashMap<>();
+            expectedAttributes.put("tier", "gold");
+            expectedAttributes.put("score", Integer.valueOf(9001));
+            expectedAttributes.put("active", Boolean.TRUE);
+            expectedAttributes.put("label", "priority");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithNestedMap")
+                    .writeString("id", "nested-map-doc-1")
+                    .writeObject("attributes", expectedAttributes)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("nested-map-doc-1", actualPdx.getField("id"));
+
+            Object actualAttributesRaw = actualPdx.getField("attributes");
+            assertInstanceOf(Map.class, actualAttributesRaw);
+
+            Map<?, ?> actualAttributes = (Map<?, ?>) actualAttributesRaw;
+
+            assertEquals("gold", actualAttributes.get("tier"));
+            assertEquals(Integer.valueOf(9001), actualAttributes.get("score"));
+            assertEquals(Boolean.TRUE, actualAttributes.get("active"));
+            assertEquals("priority", actualAttributes.get("label"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX nested Map<String,Object> field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithUuidFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-uuid-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            UUID expectedUuid = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithUuidField")
+                    .writeString("id", "uuid-doc-1")
+                    .writeObject("uuid", expectedUuid)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("uuid-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedUuid, actualPdx.getField("uuid"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX UUID field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();

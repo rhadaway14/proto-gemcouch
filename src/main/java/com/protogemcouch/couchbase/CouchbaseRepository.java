@@ -2281,6 +2281,7 @@ public class CouchbaseRepository implements Repository {
                     return StoredValue.stringValue(text);
                 }
             }
+
         }
 
         return null;
