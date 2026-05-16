@@ -12,6 +12,7 @@ public final class HandlerRegistryFactory {
         OpcodeRegistry registry = new OpcodeRegistry();
 
         PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry();
+        PdxEnumRegistry pdxEnumRegistry = new PdxEnumRegistry();
 
         registry.register(MessageTypes.GET, new GetHandler(repository));
         registry.register(MessageTypes.PUT, new PutHandler(repository));
@@ -36,6 +37,11 @@ public final class HandlerRegistryFactory {
         registry.register(
                 MessageTypes.GET_PDX_ID_FOR_TYPE,
                 new PdxGetIdForTypeHandler(pdxTypeRegistry)
+        );
+
+        registry.register(
+                MessageTypes.GET_PDX_ID_FOR_ENUM,
+                new PdxGetIdForEnumHandler(pdxEnumRegistry)
         );
 
         return registry;

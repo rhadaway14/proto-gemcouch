@@ -528,6 +528,127 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void pdxInstanceWithLocalDateFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-local-date-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            LocalDate expectedLocalDate = LocalDate.of(2026, 5, 13);
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithLocalDateField")
+                    .writeString("id", "local-date-doc-1")
+                    .writeObject("localDate", expectedLocalDate)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("local-date-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedLocalDate, actualPdx.getField("localDate"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX LocalDate field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithLocalDateTimeFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-local-date-time-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            LocalDateTime expectedLocalDateTime = LocalDateTime.of(2026, 5, 13, 20, 37, 37);
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithLocalDateTimeField")
+                    .writeString("id", "local-date-time-doc-1")
+                    .writeObject("localDateTime", expectedLocalDateTime)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("local-date-time-doc-1", actualPdx.getField("id"));
+            assertEquals(expectedLocalDateTime, actualPdx.getField("localDateTime"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX LocalDateTime field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void pdxInstanceWithEnumFieldShouldRoundTripThroughShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-enum-field-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            DemoStatus expectedStatus = DemoStatus.ACTIVE;
+
+            PdxInstance expected = pdxFactory("com.example.integration.PdxWithEnumField")
+                    .writeString("id", "enum-doc-1")
+                    .writeObject("status", expectedStatus)
+                    .create();
+
+            region.put(key, expected);
+
+            Object actual = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+
+            assertEquals("enum-doc-1", actualPdx.getField("id"));
+
+            Object actualStatus = actualPdx.getField("status");
+
+            assertEquals(
+                    "org.apache.geode.pdx.internal.EnumInfo$PdxInstanceEnumInfo",
+                    actualStatus.getClass().getName()
+            );
+            assertEquals("ACTIVE", String.valueOf(actualStatus));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX enum field round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();

@@ -32,6 +32,7 @@ public final class MessageTypes {
      *   part[0] contains serialized org.apache.geode.pdx.internal.PdxType
      */
     public static final int GET_PDX_ID_FOR_TYPE = 93;
+    public static final int GET_PDX_ID_FOR_ENUM = 97;
 
     public static final int GET_ALL_70 = 100;
 
