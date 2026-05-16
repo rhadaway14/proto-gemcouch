@@ -898,6 +898,125 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void overwriteWithPdxInstanceShouldReplaceExistingValueInShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-overwrite-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance version1 = pdxFactory("com.example.integration.OverwriteSimplePdx")
+                    .writeString("id", "overwrite-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            PdxInstance version2 = pdxFactory("com.example.integration.OverwriteSimplePdx")
+                    .writeString("id", "overwrite-pdx-1")
+                    .writeString("name", "Robert")
+                    .writeInt("age", 43)
+                    .writeBoolean("active", false)
+                    .create();
+
+            region.put(key, version1);
+
+            Object actualVersion1 = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actualVersion1);
+
+            PdxInstance actualVersion1Pdx = (PdxInstance) actualVersion1;
+            assertEquals("overwrite-pdx-1", actualVersion1Pdx.getField("id"));
+            assertEquals("Rob", actualVersion1Pdx.getField("name"));
+            assertEquals(42, actualVersion1Pdx.getField("age"));
+            assertEquals(Boolean.TRUE, actualVersion1Pdx.getField("active"));
+
+            region.put(key, version2);
+
+            Object actualVersion2 = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, actualVersion2);
+
+            PdxInstance actualVersion2Pdx = (PdxInstance) actualVersion2;
+            assertEquals("overwrite-pdx-1", actualVersion2Pdx.getField("id"));
+            assertEquals("Robert", actualVersion2Pdx.getField("name"));
+            assertEquals(43, actualVersion2Pdx.getField("age"));
+            assertEquals(Boolean.FALSE, actualVersion2Pdx.getField("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX overwrite round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+
+    @Test
+    void missingPdxKeysShouldReturnNullAndNotBreakGetAllResults() {
+        String suffix = UUID.randomUUID().toString();
+
+        String existingKey = "it-pdx-missing-existing-" + suffix;
+        String missingKey = "it-pdx-missing-absent-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance expected = pdxFactory("com.example.integration.MissingKeySimplePdx")
+                    .writeString("id", "missing-key-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            Object missingBeforePut = region.get(missingKey);
+
+            assertEquals(null, missingBeforePut);
+
+            region.put(existingKey, expected);
+
+            Object existingActual = region.get(existingKey);
+
+            assertInstanceOf(PdxInstance.class, existingActual);
+
+            PdxInstance existingActualPdx = (PdxInstance) existingActual;
+            assertEquals("missing-key-pdx-1", existingActualPdx.getField("id"));
+            assertEquals("Rob", existingActualPdx.getField("name"));
+            assertEquals(42, existingActualPdx.getField("age"));
+            assertEquals(Boolean.TRUE, existingActualPdx.getField("active"));
+
+            Set<String> keys = new LinkedHashSet<>();
+            keys.add(existingKey);
+            keys.add(missingKey);
+
+            Map<String, Object> results = region.getAll(keys);
+
+            assertInstanceOf(PdxInstance.class, results.get(existingKey));
+
+            PdxInstance getAllExistingPdx = (PdxInstance) results.get(existingKey);
+            assertEquals("missing-key-pdx-1", getAllExistingPdx.getField("id"));
+            assertEquals("Rob", getAllExistingPdx.getField("name"));
+            assertEquals(42, getAllExistingPdx.getField("age"));
+            assertEquals(Boolean.TRUE, getAllExistingPdx.getField("active"));
+
+            assertEquals(null, results.get(missingKey));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX missing-key GET/GET_ALL failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
