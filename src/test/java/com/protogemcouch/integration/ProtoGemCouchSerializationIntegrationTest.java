@@ -849,6 +849,55 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void removeWithPdxInstanceShouldDeleteValueFromShimAndCouchbase() {
+        String suffix = UUID.randomUUID().toString();
+        String key = "it-pdx-remove-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance expected = pdxFactory("com.example.integration.RemoveSimplePdx")
+                    .writeString("id", "remove-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            region.put(key, expected);
+
+            Object beforeRemove = region.get(key);
+
+            assertInstanceOf(PdxInstance.class, beforeRemove);
+
+            PdxInstance beforeRemovePdx = (PdxInstance) beforeRemove;
+            assertEquals("remove-pdx-1", beforeRemovePdx.getField("id"));
+            assertEquals("Rob", beforeRemovePdx.getField("name"));
+            assertEquals(42, beforeRemovePdx.getField("age"));
+            assertEquals(Boolean.TRUE, beforeRemovePdx.getField("active"));
+
+            Object removed = region.remove(key);
+
+            // The shim currently acknowledges remove but does not return the removed value.
+            // This validates delete semantics rather than old-value return semantics.
+            assertEquals(null, removed);
+
+            Object afterRemove = region.get(key);
+
+            assertEquals(null, afterRemove);
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX REMOVE round-trip failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
