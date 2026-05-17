@@ -1017,6 +1017,54 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void containsKeyAndContainsValueForKeyShouldWorkWithPdxValues() {
+        String suffix = UUID.randomUUID().toString();
+
+        String existingKey = "it-pdx-contains-existing-" + suffix;
+        String missingKey = "it-pdx-contains-missing-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance expected = pdxFactory("com.example.integration.ContainsSimplePdx")
+                    .writeString("id", "contains-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            assertEquals(false, region.containsKeyOnServer(existingKey));
+            assertEquals(false, region.containsKeyOnServer(missingKey));
+
+            region.put(existingKey, expected);
+
+            assertEquals(true, region.containsKeyOnServer(existingKey));
+
+            assertEquals(false, region.containsKeyOnServer(missingKey));
+
+            Object actual = region.get(existingKey);
+
+            assertInstanceOf(PdxInstance.class, actual);
+
+            PdxInstance actualPdx = (PdxInstance) actual;
+            assertEquals("contains-pdx-1", actualPdx.getField("id"));
+            assertEquals("Rob", actualPdx.getField("name"));
+            assertEquals(42, actualPdx.getField("age"));
+            assertEquals(Boolean.TRUE, actualPdx.getField("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX containsKeyOnServer failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
