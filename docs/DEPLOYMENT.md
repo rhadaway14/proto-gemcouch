@@ -216,6 +216,8 @@ unknown opcode count
 request error count
 per-operation request / success / error / unknown counts
 per-operation average / min / max / last latency
+per-operation request byte totals / last / max / average
+per-operation response byte totals / last / max / average
 last error
 last updated timestamp
 ```
@@ -236,6 +238,14 @@ protogemcouch_operation_latency_avg_ns
 protogemcouch_operation_latency_min_ns
 protogemcouch_operation_latency_max_ns
 protogemcouch_operation_latency_last_ns
+protogemcouch_operation_request_bytes_total
+protogemcouch_operation_request_bytes_last
+protogemcouch_operation_request_bytes_max
+protogemcouch_operation_request_bytes_avg
+protogemcouch_operation_response_bytes_total
+protogemcouch_operation_response_bytes_last
+protogemcouch_operation_response_bytes_max
+protogemcouch_operation_response_bytes_avg
 protogemcouch_operation_last_updated_epoch_ms
 ```
 
@@ -353,6 +363,8 @@ connection open/close counters
 handshake request counters
 per-opcode request/success/error/unknown counters
 per-opcode average/min/max/last latency metrics
+per-opcode request byte-size metrics
+per-opcode response byte-size metrics
 /live endpoint
 /ready endpoint
 /metrics/json endpoint
@@ -366,7 +378,8 @@ metrics are in-process and reset on restart
 latency metrics are summary-style values, not Prometheus histograms
 repository-level latency is not yet separated from handler/protocol latency
 serialization latency is not yet separated from total operation latency
-request and response byte-size metrics are not yet tracked
+request byte metrics are decoded-frame estimates, not exact network packet accounting
+response byte metrics are captured from outbound Netty buffers and may not include lower-level TCP/TLS framing overhead
 ```
 
 ---

@@ -50,7 +50,7 @@ ProtoGemCouch now demonstrates:
 - large collection boundary coverage for `keySetOnServer`, `getAll`, and `putAll/getAll`
 - repeatable Docker and Docker Compose deployment
 - automated local Couchbase initialization
-- structured logging, startup validation, health/readiness endpoints, JSON metrics, and Prometheus metrics
+- structured logging, startup validation, health/readiness endpoints, JSON metrics, Prometheus metrics, and request/response byte-size metrics
 - compatibility, deployment, limitation, and launch documentation
 - fast unit tests for risky response-writer byte-shape behavior
 - Docker-backed real-client integration validation
@@ -61,7 +61,7 @@ Still open before a broader Level 4 / general-purpose production claim:
 - stronger transport/security hardening
 - final target-application opcode review
 - formal support and operational handoff
-- optional Prometheus histogram buckets and deeper latency decomposition
+- optional Prometheus histogram buckets, deeper latency decomposition, and refreshed performance/soak evidence
 
 ---
 
@@ -198,6 +198,8 @@ Current status:
 - [x] Operation counters
 - [x] Success/error/unknown counters
 - [x] Latency metrics
+- [x] Request byte-size metrics
+- [x] Response byte-size metrics
 - [x] JSON metrics endpoint at `/metrics/json`
 - [x] Prometheus-format metrics endpoint at `/metrics`
 - [x] Metrics registry unit tests added
@@ -205,7 +207,6 @@ Current status:
 - [ ] Prometheus histogram buckets
 - [ ] Repository-level latency split
 - [ ] Serialization latency split
-- [ ] Request/response byte-size metrics
 
 ---
 
@@ -284,6 +285,7 @@ Current status:
 - [x] Compose deployment health checks available
 - [x] JSON metrics endpoint exists
 - [x] Prometheus metrics endpoint exists
+- [x] Request/response byte-size metrics exist
 - [x] Sample Prometheus scrape config exists
 - [x] Sample Grafana Alloy scrape config exists
 - [ ] Formal support handoff not yet performed
@@ -333,6 +335,7 @@ Current status:
 - [x] Add operation metrics and latency tracking
 - [x] Add `/metrics/json`
 - [x] Add Prometheus-format `/metrics`
+- [x] Add request/response byte-size metrics
 - [ ] Add high-concurrency and soak testing for the current baseline
 - [ ] Add TLS / transport hardening for broader deployment
 - [ ] Define shim-side client authentication model
@@ -354,6 +357,20 @@ The current launch-readiness milestone is:
 
 ```text
 observability-hardening-complete
+```
+
+This includes:
+
+```text
+/live and /ready health endpoints
+JSON metrics endpoint
+Prometheus metrics endpoint
+operation counters
+latency metrics
+request byte-size metrics
+response byte-size metrics
+metrics unit tests
+health endpoint unit tests
 ```
 
 Recommended next milestone:

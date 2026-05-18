@@ -181,6 +181,14 @@ protogemcouch_operation_latency_avg_ns{opcode="...",operation="..."}
 protogemcouch_operation_latency_min_ns{opcode="...",operation="..."}
 protogemcouch_operation_latency_max_ns{opcode="...",operation="..."}
 protogemcouch_operation_latency_last_ns{opcode="...",operation="..."}
+protogemcouch_operation_request_bytes_total{opcode="...",operation="..."}
+protogemcouch_operation_request_bytes_last{opcode="...",operation="..."}
+protogemcouch_operation_request_bytes_max{opcode="...",operation="..."}
+protogemcouch_operation_request_bytes_avg{opcode="...",operation="..."}
+protogemcouch_operation_response_bytes_total{opcode="...",operation="..."}
+protogemcouch_operation_response_bytes_last{opcode="...",operation="..."}
+protogemcouch_operation_response_bytes_max{opcode="...",operation="..."}
+protogemcouch_operation_response_bytes_avg{opcode="...",operation="..."}
 protogemcouch_operation_last_updated_epoch_ms{opcode="...",operation="..."}
 ```
 
@@ -190,7 +198,9 @@ Useful for:
 request rate by operation
 success/error rate by operation
 latency per operation
-detecting risky operations such as GET_ALL or PUT_ALL
+request payload size by operation
+response payload size by operation
+detecting risky operations such as GET_ALL, PUT_ALL, and keySetOnServer
 ```
 
 ---
@@ -204,6 +214,8 @@ request rate by operation
 error rate by operation
 average latency by operation
 max latency by operation
+request bytes by operation
+response bytes by operation
 unknown opcode count
 connections opened and closed
 handshake count
@@ -225,6 +237,18 @@ protogemcouch_operation_latency_avg_ns / 1000000
 
 ```promql
 protogemcouch_operation_latency_max_ns / 1000000
+```
+
+```promql
+rate(protogemcouch_operation_request_bytes_total[5m])
+```
+
+```promql
+rate(protogemcouch_operation_response_bytes_total[5m])
+```
+
+```promql
+protogemcouch_operation_response_bytes_max{operation="GET_ALL"}
 ```
 
 ```promql
@@ -254,6 +278,22 @@ protogemcouch_operation_latency_max_ns{operation="GET_ALL"} / 1000000 > 500
 ```
 
 Tune thresholds based on workload.
+
+### Large GET_ALL response
+
+```promql
+protogemcouch_operation_response_bytes_max{operation="GET_ALL"} > 10485760
+```
+
+Tune thresholds based on workload and expected batch sizes.
+
+### Large keySetOnServer response
+
+Depending on operation naming in the current opcode map, use the `KEY_SET` operation label:
+
+```promql
+protogemcouch_operation_response_bytes_max{operation="KEY_SET"} > 10485760
+```
 
 ### No successful requests
 
@@ -294,14 +334,16 @@ mvn clean verify
 
 The metrics registry is currently in-process and resets on restart.
 
-The current latency metrics are summary-style values maintained in memory. They are useful for operational visibility, but they are not full Prometheus histograms.
+The current latency and byte-size metrics are summary-style values maintained in memory. They are useful for operational visibility and trend correlation, but they are not full Prometheus histograms.
+
+Request byte metrics are estimated from the decoded `GemFrame` after the raw Netty frame has already been parsed. They are intended for trend analysis and operation correlation, not exact packet accounting.
+
+Response byte metrics are captured centrally from outbound Netty `ByteBuf` writes and attributed to the operation currently being handled on the channel.
 
 Future enhancements may include:
 
 ```text
 Prometheus histogram buckets
-per-response-byte-size metrics
-per-request-byte-size metrics
 Couchbase repository latency separation
 serialization latency separation
 handler-level last-error labels or structured event counters
