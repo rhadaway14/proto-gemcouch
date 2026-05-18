@@ -37,12 +37,17 @@ public class HealthHttpServer {
         server.createContext("/live", this::handleLive);
         server.createContext("/ready", this::handleReady);
         server.createContext("/metrics/json", this::handleMetricsJson);
-        server.setExecutor(Executors.newFixedThreadPool(2));
+        server.createContext("/metrics", this::handleMetricsPrometheus);
+        server.setExecutor(Executors.newFixedThreadPool(3));
         server.start();
 
         log.info(StructuredLog.event(
                 "health_server_started",
-                "port", port
+                "port", port,
+                "livePath", "/live",
+                "readyPath", "/ready",
+                "metricsJsonPath", "/metrics/json",
+                "metricsPrometheusPath", "/metrics"
         ));
     }
 
@@ -57,44 +62,62 @@ public class HealthHttpServer {
     }
 
     private void handleLive(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            write(exchange, 405, errorJson("method_not_allowed"));
+        if (!isGet(exchange)) {
+            write(exchange, 405, json("live", false, "method_not_allowed"), "application/json; charset=utf-8");
             return;
         }
 
         int statusCode = healthState.isLive() ? 200 : 503;
         String body = json("live", healthState.isLive(), healthState.getStatus());
-        write(exchange, statusCode, body);
+        write(exchange, statusCode, body, "application/json; charset=utf-8");
     }
 
     private void handleReady(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            write(exchange, 405, errorJson("method_not_allowed"));
+        if (!isGet(exchange)) {
+            write(exchange, 405, json("ready", false, "method_not_allowed"), "application/json; charset=utf-8");
             return;
         }
 
         int statusCode = healthState.isReady() ? 200 : 503;
         String body = json("ready", healthState.isReady(), healthState.getStatus());
-        write(exchange, statusCode, body);
+        write(exchange, statusCode, body, "application/json; charset=utf-8");
     }
 
     private void handleMetricsJson(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            write(exchange, 405, errorJson("method_not_allowed"));
+        if (!isGet(exchange)) {
+            write(exchange, 405, json("metrics/json", false, "method_not_allowed"), "application/json; charset=utf-8");
             return;
         }
 
         if (metricsRegistry == null) {
-            write(exchange, 503, errorJson("metrics_registry_not_available"));
+            write(exchange, 503, json("metrics/json", false, "metrics_unavailable"), "application/json; charset=utf-8");
             return;
         }
 
-        write(exchange, 200, metricsRegistry.snapshotJson());
+        write(exchange, 200, metricsRegistry.snapshotJson(), "application/json; charset=utf-8");
     }
 
-    private void write(HttpExchange exchange, int statusCode, String body) throws IOException {
+    private void handleMetricsPrometheus(HttpExchange exchange) throws IOException {
+        if (!isGet(exchange)) {
+            write(exchange, 405, "method_not_allowed\n", "text/plain; charset=utf-8");
+            return;
+        }
+
+        if (metricsRegistry == null) {
+            write(exchange, 503, "metrics_unavailable\n", "text/plain; charset=utf-8");
+            return;
+        }
+
+        write(exchange, 200, metricsRegistry.snapshotPrometheus(), "text/plain; version=0.0.4; charset=utf-8");
+    }
+
+    private boolean isGet(HttpExchange exchange) {
+        return "GET".equalsIgnoreCase(exchange.getRequestMethod());
+    }
+
+    private void write(HttpExchange exchange, int statusCode, String body, String contentType) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Content-Type", contentType);
         exchange.sendResponseHeaders(statusCode, bytes.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
@@ -109,13 +132,6 @@ public class HealthHttpServer {
                 + "\"endpoint\":\"" + escape(endpoint) + "\","
                 + "\"ok\":" + ok + ","
                 + "\"status\":\"" + escape(status) + "\""
-                + "}";
-    }
-
-    private String errorJson(String error) {
-        return "{"
-                + "\"ok\":false,"
-                + "\"error\":\"" + escape(error) + "\""
                 + "}";
     }
 

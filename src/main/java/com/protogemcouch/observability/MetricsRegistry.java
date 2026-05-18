@@ -37,15 +37,13 @@ public class MetricsRegistry {
 
     public void recordRequestSuccess(int opcode, long elapsedNanos) {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
-
         metrics.successes.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
         metrics.lastLatencyNanos.set(elapsedNanos);
         metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
         metrics.lastError.set(null);
-
-        updateMin(metrics, elapsedNanos);
-        updateMax(metrics, elapsedNanos);
+        updateMin(metrics.minLatencyNanos, elapsedNanos);
+        updateMax(metrics.maxLatencyNanos, elapsedNanos);
     }
 
     public void recordRequestError(int opcode, long elapsedNanos) {
@@ -54,16 +52,13 @@ public class MetricsRegistry {
 
     public void recordRequestError(int opcode, long elapsedNanos, Throwable error) {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
-
         metrics.errors.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
         metrics.lastLatencyNanos.set(elapsedNanos);
         metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
         metrics.lastError.set(error == null ? null : safeError(error));
-
-        updateMin(metrics, elapsedNanos);
-        updateMax(metrics, elapsedNanos);
-
+        updateMin(metrics.minLatencyNanos, elapsedNanos);
+        updateMax(metrics.maxLatencyNanos, elapsedNanos);
         requestErrors.increment();
     }
 
@@ -71,7 +66,6 @@ public class MetricsRegistry {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
         metrics.unknown.increment();
         metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
-
         unknownOpcodes.increment();
     }
 
@@ -87,72 +81,7 @@ public class MetricsRegistry {
                 "request_errors", requestErrors.sum()
         ));
 
-        perOpcode.entrySet().stream()
-                .sorted(Comparator.comparingInt(Map.Entry::getKey))
-                .forEach(entry -> {
-                    int opcode = entry.getKey();
-                    OpMetrics m = entry.getValue();
-
-                    long requestCount = m.requests.sum();
-                    long successCount = m.successes.sum();
-                    long errorCount = m.errors.sum();
-                    long unknownCount = m.unknown.sum();
-                    long totalLatency = m.totalLatencyNanos.sum();
-                    long minLatency = normalizedMinLatency(m);
-                    long maxLatency = m.maxLatencyNanos.get();
-                    long lastLatency = m.lastLatencyNanos.get();
-                    long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
-
-                    lines.add(StructuredLog.event(
-                            "metrics_opcode",
-                            "opcode", opcode,
-                            "operation", OperationNames.nameOf(opcode),
-                            "requests", requestCount,
-                            "successes", successCount,
-                            "errors", errorCount,
-                            "unknown", unknownCount,
-                            "avg_latency_ns", avgLatency,
-                            "min_latency_ns", minLatency,
-                            "max_latency_ns", maxLatency,
-                            "last_latency_ns", lastLatency,
-                            "last_error", m.lastError.get()
-                    ));
-                });
-
-        return lines;
-    }
-
-    public String snapshotJson() {
-        StringBuilder json = new StringBuilder();
-
-        json.append('{');
-
-        json.append("\"connections\":{")
-                .append("\"opened\":").append(connectionsOpened.sum()).append(',')
-                .append("\"closed\":").append(connectionsClosed.sum())
-                .append("},");
-
-        json.append("\"requests\":{")
-                .append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',')
-                .append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',')
-                .append("\"requestErrors\":").append(requestErrors.sum())
-                .append("},");
-
-        json.append("\"operations\":[");
-
-        boolean first = true;
-
-        List<Map.Entry<Integer, OpMetrics>> entries = perOpcode.entrySet().stream()
-                .sorted(Comparator.comparingInt(Map.Entry::getKey))
-                .toList();
-
-        for (Map.Entry<Integer, OpMetrics> entry : entries) {
-            if (!first) {
-                json.append(',');
-            }
-
-            first = false;
-
+        sortedOpcodeEntries().forEach(entry -> {
             int opcode = entry.getKey();
             OpMetrics m = entry.getValue();
 
@@ -161,114 +90,244 @@ public class MetricsRegistry {
             long errorCount = m.errors.sum();
             long unknownCount = m.unknown.sum();
             long totalLatency = m.totalLatencyNanos.sum();
-            long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
-            long minLatency = normalizedMinLatency(m);
+            long minLatency = normalizedMin(m.minLatencyNanos.get());
             long maxLatency = m.maxLatencyNanos.get();
             long lastLatency = m.lastLatencyNanos.get();
+            long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
 
-            json.append('{')
-                    .append("\"opcode\":").append(opcode).append(',')
-                    .append("\"operation\":\"").append(escapeJson(OperationNames.nameOf(opcode))).append("\",")
-                    .append("\"requests\":").append(requestCount).append(',')
-                    .append("\"successes\":").append(successCount).append(',')
-                    .append("\"errors\":").append(errorCount).append(',')
-                    .append("\"unknown\":").append(unknownCount).append(',')
-                    .append("\"avgLatencyNs\":").append(avgLatency).append(',')
-                    .append("\"minLatencyNs\":").append(minLatency).append(',')
-                    .append("\"maxLatencyNs\":").append(maxLatency).append(',')
-                    .append("\"lastLatencyNs\":").append(lastLatency).append(',')
-                    .append("\"lastUpdatedEpochMs\":").append(m.lastUpdatedEpochMs.get()).append(',')
-                    .append("\"lastError\":");
+            lines.add(StructuredLog.event(
+                    "metrics_opcode",
+                    "opcode", opcode,
+                    "operation", OperationNames.nameOf(opcode),
+                    "requests", requestCount,
+                    "successes", successCount,
+                    "errors", errorCount,
+                    "unknown", unknownCount,
+                    "avg_latency_ns", avgLatency,
+                    "min_latency_ns", minLatency,
+                    "max_latency_ns", maxLatency,
+                    "last_latency_ns", lastLatency,
+                    "last_error", m.lastError.get()
+            ));
+        });
+
+        return lines;
+    }
+
+    public String snapshotJson() {
+        StringBuilder out = new StringBuilder(2048);
+
+        out.append('{');
+        out.append("\"connections\":{");
+        out.append("\"opened\":").append(connectionsOpened.sum()).append(',');
+        out.append("\"closed\":").append(connectionsClosed.sum());
+        out.append("},");
+
+        out.append("\"requests\":{");
+        out.append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',');
+        out.append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',');
+        out.append("\"requestErrors\":").append(requestErrors.sum());
+        out.append("},");
+
+        out.append("\"operations\":[");
+
+        boolean first = true;
+        for (Map.Entry<Integer, OpMetrics> entry : sortedOpcodeEntries()) {
+            if (!first) {
+                out.append(',');
+            }
+            first = false;
+
+            int opcode = entry.getKey();
+            OpMetrics m = entry.getValue();
+            long requests = m.requests.sum();
+            long totalLatency = m.totalLatencyNanos.sum();
+            long avgLatency = requests == 0 ? 0 : totalLatency / requests;
+
+            out.append('{');
+            out.append("\"opcode\":").append(opcode).append(',');
+            out.append("\"operation\":\"").append(jsonEscape(OperationNames.nameOf(opcode))).append("\",");
+            out.append("\"requests\":").append(requests).append(',');
+            out.append("\"successes\":").append(m.successes.sum()).append(',');
+            out.append("\"errors\":").append(m.errors.sum()).append(',');
+            out.append("\"unknown\":").append(m.unknown.sum()).append(',');
+            out.append("\"avgLatencyNs\":").append(avgLatency).append(',');
+            out.append("\"minLatencyNs\":").append(normalizedMin(m.minLatencyNanos.get())).append(',');
+            out.append("\"maxLatencyNs\":").append(m.maxLatencyNanos.get()).append(',');
+            out.append("\"lastLatencyNs\":").append(m.lastLatencyNanos.get()).append(',');
+            out.append("\"lastUpdatedEpochMs\":").append(m.lastUpdatedEpochMs.get()).append(',');
 
             String lastError = m.lastError.get();
             if (lastError == null) {
-                json.append("null");
+                out.append("\"lastError\":null");
             } else {
-                json.append('"').append(escapeJson(lastError)).append('"');
+                out.append("\"lastError\":\"").append(jsonEscape(lastError)).append("\"");
             }
 
-            json.append('}');
+            out.append('}');
         }
 
-        json.append(']');
-        json.append('}');
+        out.append(']');
+        out.append('}');
 
-        return json.toString();
+        return out.toString();
     }
 
-    private void updateMin(OpMetrics metrics, long value) {
-        while (true) {
-            long current = metrics.minLatencyNanos.get();
+    public String snapshotPrometheus() {
+        StringBuilder out = new StringBuilder(4096);
 
-            if (value >= current) {
-                return;
-            }
+        appendMetricHelp(out, "protogemcouch_connections_opened_total", "Total client connections opened.");
+        appendMetricType(out, "protogemcouch_connections_opened_total", "counter");
+        appendMetric(out, "protogemcouch_connections_opened_total", connectionsOpened.sum());
 
-            if (metrics.minLatencyNanos.compareAndSet(current, value)) {
-                return;
-            }
-        }
-    }
+        appendMetricHelp(out, "protogemcouch_connections_closed_total", "Total client connections closed.");
+        appendMetricType(out, "protogemcouch_connections_closed_total", "counter");
+        appendMetric(out, "protogemcouch_connections_closed_total", connectionsClosed.sum());
 
-    private void updateMax(OpMetrics metrics, long value) {
-        while (true) {
-            long current = metrics.maxLatencyNanos.get();
+        appendMetricHelp(out, "protogemcouch_handshake_requests_total", "Total Geode handshake requests received.");
+        appendMetricType(out, "protogemcouch_handshake_requests_total", "counter");
+        appendMetric(out, "protogemcouch_handshake_requests_total", handshakeRequests.sum());
 
-            if (value <= current) {
-                return;
-            }
+        appendMetricHelp(out, "protogemcouch_unknown_opcodes_total", "Total unknown opcodes received.");
+        appendMetricType(out, "protogemcouch_unknown_opcodes_total", "counter");
+        appendMetric(out, "protogemcouch_unknown_opcodes_total", unknownOpcodes.sum());
 
-            if (metrics.maxLatencyNanos.compareAndSet(current, value)) {
-                return;
-            }
-        }
-    }
+        appendMetricHelp(out, "protogemcouch_request_errors_total", "Total request errors across all opcodes.");
+        appendMetricType(out, "protogemcouch_request_errors_total", "counter");
+        appendMetric(out, "protogemcouch_request_errors_total", requestErrors.sum());
 
-    private long normalizedMinLatency(OpMetrics metrics) {
-        long value = metrics.minLatencyNanos.get();
-        return value == Long.MAX_VALUE ? 0 : value;
-    }
+        appendOperationMetricHeaders(out);
 
-    private String safeError(Throwable error) {
-        String type = error.getClass().getSimpleName();
-        String message = error.getMessage();
+        for (Map.Entry<Integer, OpMetrics> entry : sortedOpcodeEntries()) {
+            int opcode = entry.getKey();
+            String operation = OperationNames.nameOf(opcode);
+            OpMetrics m = entry.getValue();
 
-        if (message == null || message.isBlank()) {
-            return type;
-        }
+            long requests = m.requests.sum();
+            long successes = m.successes.sum();
+            long errors = m.errors.sum();
+            long unknown = m.unknown.sum();
+            long totalLatency = m.totalLatencyNanos.sum();
+            long avgLatency = requests == 0 ? 0 : totalLatency / requests;
 
-        return type + ": " + message;
-    }
+            String labels = labels(opcode, operation);
 
-    private String escapeJson(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        StringBuilder out = new StringBuilder(value.length() + 16);
-
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-
-            switch (c) {
-                case '\\' -> out.append("\\\\");
-                case '"' -> out.append("\\\"");
-                case '\b' -> out.append("\\b");
-                case '\f' -> out.append("\\f");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        out.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-                }
-            }
+            appendMetric(out, "protogemcouch_operation_requests_total", labels, requests);
+            appendMetric(out, "protogemcouch_operation_successes_total", labels, successes);
+            appendMetric(out, "protogemcouch_operation_errors_total", labels, errors);
+            appendMetric(out, "protogemcouch_operation_unknown_total", labels, unknown);
+            appendMetric(out, "protogemcouch_operation_latency_total_ns", labels, totalLatency);
+            appendMetric(out, "protogemcouch_operation_latency_avg_ns", labels, avgLatency);
+            appendMetric(out, "protogemcouch_operation_latency_min_ns", labels, normalizedMin(m.minLatencyNanos.get()));
+            appendMetric(out, "protogemcouch_operation_latency_max_ns", labels, m.maxLatencyNanos.get());
+            appendMetric(out, "protogemcouch_operation_latency_last_ns", labels, m.lastLatencyNanos.get());
+            appendMetric(out, "protogemcouch_operation_last_updated_epoch_ms", labels, m.lastUpdatedEpochMs.get());
         }
 
         return out.toString();
+    }
+
+    private List<Map.Entry<Integer, OpMetrics>> sortedOpcodeEntries() {
+        return perOpcode.entrySet().stream()
+                .sorted(Comparator.comparingInt(Map.Entry::getKey))
+                .toList();
+    }
+
+    private static void updateMin(AtomicLong target, long value) {
+        while (true) {
+            long current = target.get();
+            if (value >= current) {
+                return;
+            }
+            if (target.compareAndSet(current, value)) {
+                return;
+            }
+        }
+    }
+
+    private static void updateMax(AtomicLong target, long value) {
+        while (true) {
+            long current = target.get();
+            if (value <= current) {
+                return;
+            }
+            if (target.compareAndSet(current, value)) {
+                return;
+            }
+        }
+    }
+
+    private static long normalizedMin(long value) {
+        return value == Long.MAX_VALUE ? 0 : value;
+    }
+
+    private static String safeError(Throwable error) {
+        String type = error.getClass().getSimpleName();
+        String message = error.getMessage();
+        return message == null || message.isBlank() ? type : type + ": " + message;
+    }
+
+    private static void appendOperationMetricHeaders(StringBuilder out) {
+        appendMetricHelp(out, "protogemcouch_operation_requests_total", "Total requests by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_requests_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_successes_total", "Total successful requests by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_successes_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_errors_total", "Total failed requests by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_errors_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_unknown_total", "Total unknown requests by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_unknown_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_latency_total_ns", "Total request latency by opcode and operation in nanoseconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_total_ns", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_latency_avg_ns", "Average request latency by opcode and operation in nanoseconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_avg_ns", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_latency_min_ns", "Minimum request latency by opcode and operation in nanoseconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_min_ns", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_latency_max_ns", "Maximum request latency by opcode and operation in nanoseconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_max_ns", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_latency_last_ns", "Last request latency by opcode and operation in nanoseconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_last_ns", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_last_updated_epoch_ms", "Last update time by opcode and operation in epoch milliseconds.");
+        appendMetricType(out, "protogemcouch_operation_last_updated_epoch_ms", "gauge");
+    }
+
+    private static void appendMetricHelp(StringBuilder out, String metric, String help) {
+        out.append("# HELP ").append(metric).append(' ').append(help).append('\n');
+    }
+
+    private static void appendMetricType(StringBuilder out, String metric, String type) {
+        out.append("# TYPE ").append(metric).append(' ').append(type).append('\n');
+    }
+
+    private static void appendMetric(StringBuilder out, String metric, long value) {
+        out.append(metric).append(' ').append(value).append('\n');
+    }
+
+    private static void appendMetric(StringBuilder out, String metric, String labels, long value) {
+        out.append(metric).append(labels).append(' ').append(value).append('\n');
+    }
+
+    private static String labels(int opcode, String operation) {
+        return "{opcode=\"" + prometheusEscape(String.valueOf(opcode))
+                + "\",operation=\"" + prometheusEscape(operation) + "\"}";
+    }
+
+    private static String prometheusEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\"", "\\\"");
+    }
+
+    private static String jsonEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private static final class OpMetrics {
@@ -277,11 +336,10 @@ public class MetricsRegistry {
         private final LongAdder errors = new LongAdder();
         private final LongAdder unknown = new LongAdder();
         private final LongAdder totalLatencyNanos = new LongAdder();
-
         private final AtomicLong minLatencyNanos = new AtomicLong(Long.MAX_VALUE);
-        private final AtomicLong maxLatencyNanos = new AtomicLong(0);
-        private final AtomicLong lastLatencyNanos = new AtomicLong(0);
-        private final AtomicLong lastUpdatedEpochMs = new AtomicLong(0);
+        private final AtomicLong maxLatencyNanos = new AtomicLong(0L);
+        private final AtomicLong lastLatencyNanos = new AtomicLong(0L);
+        private final AtomicLong lastUpdatedEpochMs = new AtomicLong(0L);
         private final AtomicReference<String> lastError = new AtomicReference<>();
     }
 }
