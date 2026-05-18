@@ -886,7 +886,7 @@ public final class GemResponseWriter {
             int size = keys == null ? 0 : keys.size();
 
             buf.writeByte(GEODE_LIST_CODE);
-            writeSmallCount(buf, size);
+            writeGeodeArrayLength(buf, size);
 
             if (keys != null) {
                 for (String key : keys) {
@@ -902,7 +902,7 @@ public final class GemResponseWriter {
         }
     }
 
-    private static void writeSmallCount(ByteBuf buf, int count) {
+    private static void writeGeodeArrayLength(ByteBuf buf, int count) {
         /*
          * Geode/DataSerializer array/list length encoding.
          *
@@ -914,7 +914,7 @@ public final class GemResponseWriter {
          *   0xfe     -> two following bytes contain the count
          *   0xff     -> null array/list marker
          *
-         * The previous implementation switched at 127 and used 0x81/0x82/0x84 as
+         * A previous implementation switched at 127 and used 0x81/0x82/0x84 as
          * length markers. That corrupts ArrayList payloads once keySetOnServer returns
          * more than 127 keys. The client then loses byte alignment and starts reading
          * bytes from key strings as serialization headers, producing errors like:
@@ -961,7 +961,7 @@ public final class GemResponseWriter {
          *   150    -> 96 01
          *   253    -> fd 01
          *
-         * Keep this separate from writeSmallCount(...), which is the
+         * Keep this separate from writeGeodeArrayLength(...), which is the
          * DataSerializer array/list length encoding used by keySetOnServer's
          * manually encoded ArrayList payload.
          */
