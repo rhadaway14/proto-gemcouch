@@ -1,0 +1,17 @@
+﻿{
+    "durationSeconds":  15,
+    "timestamp":  "20260518-053138",
+    "skipDockerRestart":  false,
+    "shimPort":  40405,
+    "skipVerify":  true,
+    "seedCount":  1000,
+    "profiles":  [
+                     "read-heavy"
+                 ],
+    "concurrency":  2,
+    "region":  "helloWorld",
+    "healthPort":  8081,
+    "keyspace":  1000,
+    "hostName":  "127.0.0.1",
+    "warmupSeconds":  5
+}
