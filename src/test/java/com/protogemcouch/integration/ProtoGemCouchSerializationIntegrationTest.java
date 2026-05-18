@@ -1137,6 +1137,129 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
+    void keySetOnServerShouldHandleMoreThan127Keys() {
+        String suffix = UUID.randomUUID().toString();
+
+        try {
+            int keyCount = 150;
+
+            for (int i = 0; i < keyCount; i++) {
+                String key = "it-keyset-many-" + suffix + "-" + i;
+                region.put(key, "value-" + i);
+            }
+
+            Set<String> keys = region.keySetOnServer();
+
+            for (int i = 0; i < keyCount; i++) {
+                String expectedKey = "it-keyset-many-" + suffix + "-" + i;
+
+                assertEquals(
+                        true,
+                        keys.contains(expectedKey),
+                        "Expected keySetOnServer to contain key=" + expectedKey
+                                + ", but actual keys were: " + keys
+                );
+            }
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after keySetOnServer >127 keys failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+
+    @Test
+    void getAllShouldHandleMoreThan127Keys() {
+        String suffix = UUID.randomUUID().toString();
+
+        try {
+            int keyCount = 150;
+
+            Set<String> requestedKeys = new LinkedHashSet<>();
+
+            for (int i = 0; i < keyCount; i++) {
+                String key = "it-getall-many-" + suffix + "-" + i;
+                String value = "value-" + i;
+
+                region.put(key, value);
+                requestedKeys.add(key);
+            }
+
+            Map<String, Object> results = region.getAll(requestedKeys);
+
+            assertEquals(keyCount, results.size());
+
+            for (int i = 0; i < keyCount; i++) {
+                String expectedKey = "it-getall-many-" + suffix + "-" + i;
+                String expectedValue = "value-" + i;
+
+                assertEquals(
+                        expectedValue,
+                        results.get(expectedKey),
+                        "Expected getAll result for key=" + expectedKey
+                );
+            }
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after getAll >127 keys failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
+    void putAllShouldHandleMoreThan127Entries() {
+        String suffix = UUID.randomUUID().toString();
+
+        try {
+            int entryCount = 150;
+
+            Map<String, Object> entries = new LinkedHashMap<>();
+            Set<String> requestedKeys = new LinkedHashSet<>();
+
+            for (int i = 0; i < entryCount; i++) {
+                String key = "it-putall-many-" + suffix + "-" + i;
+                String value = "value-" + i;
+
+                entries.put(key, value);
+                requestedKeys.add(key);
+            }
+
+            region.putAll(entries);
+
+            Map<String, Object> results = region.getAll(requestedKeys);
+
+            assertEquals(entryCount, results.size());
+
+            for (int i = 0; i < entryCount; i++) {
+                String expectedKey = "it-putall-many-" + suffix + "-" + i;
+                String expectedValue = "value-" + i;
+
+                assertEquals(
+                        expectedValue,
+                        results.get(expectedKey),
+                        "Expected putAll/getAll result for key=" + expectedKey
+                );
+            }
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after putAll >127 entries failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
+    @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
         String key = "it-integer-value-" + suffix;
