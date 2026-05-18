@@ -5,6 +5,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 
 public class MetricsRegistry {
@@ -35,21 +37,41 @@ public class MetricsRegistry {
 
     public void recordRequestSuccess(int opcode, long elapsedNanos) {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
+
         metrics.successes.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
+        metrics.lastLatencyNanos.set(elapsedNanos);
+        metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
+        metrics.lastError.set(null);
+
+        updateMin(metrics, elapsedNanos);
         updateMax(metrics, elapsedNanos);
     }
 
     public void recordRequestError(int opcode, long elapsedNanos) {
+        recordRequestError(opcode, elapsedNanos, null);
+    }
+
+    public void recordRequestError(int opcode, long elapsedNanos, Throwable error) {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
+
         metrics.errors.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
+        metrics.lastLatencyNanos.set(elapsedNanos);
+        metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
+        metrics.lastError.set(error == null ? null : safeError(error));
+
+        updateMin(metrics, elapsedNanos);
         updateMax(metrics, elapsedNanos);
+
         requestErrors.increment();
     }
 
     public void recordUnknownOpcode(int opcode) {
-        perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics()).unknown.increment();
+        OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
+        metrics.unknown.increment();
+        metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
+
         unknownOpcodes.increment();
     }
 
@@ -76,7 +98,9 @@ public class MetricsRegistry {
                     long errorCount = m.errors.sum();
                     long unknownCount = m.unknown.sum();
                     long totalLatency = m.totalLatencyNanos.sum();
-                    long maxLatency = m.maxLatencyNanos.sum();
+                    long minLatency = normalizedMinLatency(m);
+                    long maxLatency = m.maxLatencyNanos.get();
+                    long lastLatency = m.lastLatencyNanos.get();
                     long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
 
                     lines.add(StructuredLog.event(
@@ -88,31 +112,163 @@ public class MetricsRegistry {
                             "errors", errorCount,
                             "unknown", unknownCount,
                             "avg_latency_ns", avgLatency,
-                            "max_latency_ns", maxLatency
+                            "min_latency_ns", minLatency,
+                            "max_latency_ns", maxLatency,
+                            "last_latency_ns", lastLatency,
+                            "last_error", m.lastError.get()
                     ));
                 });
 
         return lines;
     }
 
-    private void updateMax(OpMetrics metrics, long value) {
+    public String snapshotJson() {
+        StringBuilder json = new StringBuilder();
+
+        json.append('{');
+
+        json.append("\"connections\":{")
+                .append("\"opened\":").append(connectionsOpened.sum()).append(',')
+                .append("\"closed\":").append(connectionsClosed.sum())
+                .append("},");
+
+        json.append("\"requests\":{")
+                .append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',')
+                .append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',')
+                .append("\"requestErrors\":").append(requestErrors.sum())
+                .append("},");
+
+        json.append("\"operations\":[");
+
+        boolean first = true;
+
+        List<Map.Entry<Integer, OpMetrics>> entries = perOpcode.entrySet().stream()
+                .sorted(Comparator.comparingInt(Map.Entry::getKey))
+                .toList();
+
+        for (Map.Entry<Integer, OpMetrics> entry : entries) {
+            if (!first) {
+                json.append(',');
+            }
+
+            first = false;
+
+            int opcode = entry.getKey();
+            OpMetrics m = entry.getValue();
+
+            long requestCount = m.requests.sum();
+            long successCount = m.successes.sum();
+            long errorCount = m.errors.sum();
+            long unknownCount = m.unknown.sum();
+            long totalLatency = m.totalLatencyNanos.sum();
+            long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
+            long minLatency = normalizedMinLatency(m);
+            long maxLatency = m.maxLatencyNanos.get();
+            long lastLatency = m.lastLatencyNanos.get();
+
+            json.append('{')
+                    .append("\"opcode\":").append(opcode).append(',')
+                    .append("\"operation\":\"").append(escapeJson(OperationNames.nameOf(opcode))).append("\",")
+                    .append("\"requests\":").append(requestCount).append(',')
+                    .append("\"successes\":").append(successCount).append(',')
+                    .append("\"errors\":").append(errorCount).append(',')
+                    .append("\"unknown\":").append(unknownCount).append(',')
+                    .append("\"avgLatencyNs\":").append(avgLatency).append(',')
+                    .append("\"minLatencyNs\":").append(minLatency).append(',')
+                    .append("\"maxLatencyNs\":").append(maxLatency).append(',')
+                    .append("\"lastLatencyNs\":").append(lastLatency).append(',')
+                    .append("\"lastUpdatedEpochMs\":").append(m.lastUpdatedEpochMs.get()).append(',')
+                    .append("\"lastError\":");
+
+            String lastError = m.lastError.get();
+            if (lastError == null) {
+                json.append("null");
+            } else {
+                json.append('"').append(escapeJson(lastError)).append('"');
+            }
+
+            json.append('}');
+        }
+
+        json.append(']');
+        json.append('}');
+
+        return json.toString();
+    }
+
+    private void updateMin(OpMetrics metrics, long value) {
         while (true) {
-            long current = metrics.maxLatencyNanos.sum();
-            if (value <= current) {
+            long current = metrics.minLatencyNanos.get();
+
+            if (value >= current) {
                 return;
             }
-            longAdderSet(metrics.maxLatencyNanos, current, value);
-            if (metrics.maxLatencyNanos.sum() >= value) {
+
+            if (metrics.minLatencyNanos.compareAndSet(current, value)) {
                 return;
             }
         }
     }
 
-    private void longAdderSet(LongAdder adder, long current, long target) {
-        long delta = target - current;
-        if (delta > 0) {
-            adder.add(delta);
+    private void updateMax(OpMetrics metrics, long value) {
+        while (true) {
+            long current = metrics.maxLatencyNanos.get();
+
+            if (value <= current) {
+                return;
+            }
+
+            if (metrics.maxLatencyNanos.compareAndSet(current, value)) {
+                return;
+            }
         }
+    }
+
+    private long normalizedMinLatency(OpMetrics metrics) {
+        long value = metrics.minLatencyNanos.get();
+        return value == Long.MAX_VALUE ? 0 : value;
+    }
+
+    private String safeError(Throwable error) {
+        String type = error.getClass().getSimpleName();
+        String message = error.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return type;
+        }
+
+        return type + ": " + message;
+    }
+
+    private String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        StringBuilder out = new StringBuilder(value.length() + 16);
+
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+
+            switch (c) {
+                case '\\' -> out.append("\\\\");
+                case '"' -> out.append("\\\"");
+                case '\b' -> out.append("\\b");
+                case '\f' -> out.append("\\f");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+
+        return out.toString();
     }
 
     private static final class OpMetrics {
@@ -121,6 +277,11 @@ public class MetricsRegistry {
         private final LongAdder errors = new LongAdder();
         private final LongAdder unknown = new LongAdder();
         private final LongAdder totalLatencyNanos = new LongAdder();
-        private final LongAdder maxLatencyNanos = new LongAdder();
+
+        private final AtomicLong minLatencyNanos = new AtomicLong(Long.MAX_VALUE);
+        private final AtomicLong maxLatencyNanos = new AtomicLong(0);
+        private final AtomicLong lastLatencyNanos = new AtomicLong(0);
+        private final AtomicLong lastUpdatedEpochMs = new AtomicLong(0);
+        private final AtomicReference<String> lastError = new AtomicReference<>();
     }
 }

@@ -76,7 +76,9 @@ public class RawShimServer {
             StartupValidator.validate(config);
             healthState.markConfigValidated();
 
-            healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState);
+            metrics = new MetricsRegistry();
+
+            healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState, metrics);
             healthHttpServer.start();
 
             repository = createRepository(config);
@@ -84,7 +86,6 @@ public class RawShimServer {
 
             opcodeRegistry = createOpcodeRegistry(repository);
             unknownOpcodeHandler = new UnknownOpcodeHandler();
-            metrics = new MetricsRegistry();
 
             startMetricsReporter();
 
@@ -107,7 +108,8 @@ public class RawShimServer {
             log.info(StructuredLog.event(
                     "server_started",
                     "port", config.getShimPort(),
-                    "healthPort", config.getHealthPort()
+                    "healthPort", config.getHealthPort(),
+                    "metricsJsonPath", "/metrics/json"
             ));
 
             ch.closeFuture().sync();
@@ -303,7 +305,7 @@ public class RawShimServer {
                 }
             } catch (Exception e) {
                 long elapsed = System.nanoTime() - start;
-                metrics.recordRequestError(opcode, elapsed);
+                metrics.recordRequestError(opcode, elapsed, e);
 
                 log.error(StructuredLog.event(
                         "request_failed",
