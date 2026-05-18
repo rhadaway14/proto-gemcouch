@@ -1,0 +1,52 @@
+﻿# HELP protogemcouch_connections_opened_total Total client connections opened.
+# TYPE protogemcouch_connections_opened_total counter
+protogemcouch_connections_opened_total 0
+# HELP protogemcouch_connections_closed_total Total client connections closed.
+# TYPE protogemcouch_connections_closed_total counter
+protogemcouch_connections_closed_total 0
+# HELP protogemcouch_handshake_requests_total Total Geode handshake requests received.
+# TYPE protogemcouch_handshake_requests_total counter
+protogemcouch_handshake_requests_total 0
+# HELP protogemcouch_unknown_opcodes_total Total unknown opcodes received.
+# TYPE protogemcouch_unknown_opcodes_total counter
+protogemcouch_unknown_opcodes_total 0
+# HELP protogemcouch_request_errors_total Total request errors across all opcodes.
+# TYPE protogemcouch_request_errors_total counter
+protogemcouch_request_errors_total 0
+# HELP protogemcouch_operation_requests_total Total requests by opcode and operation.
+# TYPE protogemcouch_operation_requests_total counter
+# HELP protogemcouch_operation_successes_total Total successful requests by opcode and operation.
+# TYPE protogemcouch_operation_successes_total counter
+# HELP protogemcouch_operation_errors_total Total failed requests by opcode and operation.
+# TYPE protogemcouch_operation_errors_total counter
+# HELP protogemcouch_operation_unknown_total Total unknown requests by opcode and operation.
+# TYPE protogemcouch_operation_unknown_total counter
+# HELP protogemcouch_operation_latency_total_ns Total request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_total_ns counter
+# HELP protogemcouch_operation_latency_avg_ns Average request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_avg_ns gauge
+# HELP protogemcouch_operation_latency_min_ns Minimum request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_min_ns gauge
+# HELP protogemcouch_operation_latency_max_ns Maximum request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_max_ns gauge
+# HELP protogemcouch_operation_latency_last_ns Last request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_last_ns gauge
+# HELP protogemcouch_operation_request_bytes_total Total decoded request bytes by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_total counter
+# HELP protogemcouch_operation_request_bytes_last Last decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_last gauge
+# HELP protogemcouch_operation_request_bytes_max Maximum decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_max gauge
+# HELP protogemcouch_operation_request_bytes_avg Average decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_avg gauge
+# HELP protogemcouch_operation_response_bytes_total Total response bytes recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_total counter
+# HELP protogemcouch_operation_response_bytes_last Last response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_last gauge
+# HELP protogemcouch_operation_response_bytes_max Maximum response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_max gauge
+# HELP protogemcouch_operation_response_bytes_avg Average response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_avg gauge
+# HELP protogemcouch_operation_last_updated_epoch_ms Last update time by opcode and operation in epoch milliseconds.
+# TYPE protogemcouch_operation_last_updated_epoch_ms gauge
+

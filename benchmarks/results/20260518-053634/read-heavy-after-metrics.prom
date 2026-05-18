@@ -1,0 +1,160 @@
+﻿# HELP protogemcouch_connections_opened_total Total client connections opened.
+# TYPE protogemcouch_connections_opened_total counter
+protogemcouch_connections_opened_total 24
+# HELP protogemcouch_connections_closed_total Total client connections closed.
+# TYPE protogemcouch_connections_closed_total counter
+protogemcouch_connections_closed_total 0
+# HELP protogemcouch_handshake_requests_total Total Geode handshake requests received.
+# TYPE protogemcouch_handshake_requests_total counter
+protogemcouch_handshake_requests_total 24
+# HELP protogemcouch_unknown_opcodes_total Total unknown opcodes received.
+# TYPE protogemcouch_unknown_opcodes_total counter
+protogemcouch_unknown_opcodes_total 0
+# HELP protogemcouch_request_errors_total Total request errors across all opcodes.
+# TYPE protogemcouch_request_errors_total counter
+protogemcouch_request_errors_total 0
+# HELP protogemcouch_operation_requests_total Total requests by opcode and operation.
+# TYPE protogemcouch_operation_requests_total counter
+# HELP protogemcouch_operation_successes_total Total successful requests by opcode and operation.
+# TYPE protogemcouch_operation_successes_total counter
+# HELP protogemcouch_operation_errors_total Total failed requests by opcode and operation.
+# TYPE protogemcouch_operation_errors_total counter
+# HELP protogemcouch_operation_unknown_total Total unknown requests by opcode and operation.
+# TYPE protogemcouch_operation_unknown_total counter
+# HELP protogemcouch_operation_latency_total_ns Total request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_total_ns counter
+# HELP protogemcouch_operation_latency_avg_ns Average request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_avg_ns gauge
+# HELP protogemcouch_operation_latency_min_ns Minimum request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_min_ns gauge
+# HELP protogemcouch_operation_latency_max_ns Maximum request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_max_ns gauge
+# HELP protogemcouch_operation_latency_last_ns Last request latency by opcode and operation in nanoseconds.
+# TYPE protogemcouch_operation_latency_last_ns gauge
+# HELP protogemcouch_operation_request_bytes_total Total decoded request bytes by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_total counter
+# HELP protogemcouch_operation_request_bytes_last Last decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_last gauge
+# HELP protogemcouch_operation_request_bytes_max Maximum decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_max gauge
+# HELP protogemcouch_operation_request_bytes_avg Average decoded request byte size by opcode and operation.
+# TYPE protogemcouch_operation_request_bytes_avg gauge
+# HELP protogemcouch_operation_response_bytes_total Total response bytes recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_total counter
+# HELP protogemcouch_operation_response_bytes_last Last response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_last gauge
+# HELP protogemcouch_operation_response_bytes_max Maximum response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_max gauge
+# HELP protogemcouch_operation_response_bytes_avg Average response byte size recorded by opcode and operation.
+# TYPE protogemcouch_operation_response_bytes_avg gauge
+# HELP protogemcouch_operation_last_updated_epoch_ms Last update time by opcode and operation in epoch milliseconds.
+# TYPE protogemcouch_operation_last_updated_epoch_ms gauge
+protogemcouch_operation_requests_total{opcode="0",operation="GET"} 997490
+protogemcouch_operation_successes_total{opcode="0",operation="GET"} 997490
+protogemcouch_operation_errors_total{opcode="0",operation="GET"} 0
+protogemcouch_operation_unknown_total{opcode="0",operation="GET"} 0
+protogemcouch_operation_latency_total_ns{opcode="0",operation="GET"} 333906295007
+protogemcouch_operation_latency_avg_ns{opcode="0",operation="GET"} 334746
+protogemcouch_operation_latency_min_ns{opcode="0",operation="GET"} 73947
+protogemcouch_operation_latency_max_ns{opcode="0",operation="GET"} 4956600
+protogemcouch_operation_latency_last_ns{opcode="0",operation="GET"} 366541
+protogemcouch_operation_request_bytes_total{opcode="0",operation="GET"} 50762333
+protogemcouch_operation_request_bytes_last{opcode="0",operation="GET"} 51
+protogemcouch_operation_request_bytes_max{opcode="0",operation="GET"} 51
+protogemcouch_operation_request_bytes_avg{opcode="0",operation="GET"} 50
+protogemcouch_operation_response_bytes_total{opcode="0",operation="GET"} 38792453
+protogemcouch_operation_response_bytes_last{opcode="0",operation="GET"} 39
+protogemcouch_operation_response_bytes_max{opcode="0",operation="GET"} 39
+protogemcouch_operation_response_bytes_avg{opcode="0",operation="GET"} 38
+protogemcouch_operation_last_updated_epoch_ms{opcode="0",operation="GET"} 1779104395069
+protogemcouch_operation_requests_total{opcode="7",operation="PUT"} 1000
+protogemcouch_operation_successes_total{opcode="7",operation="PUT"} 1000
+protogemcouch_operation_errors_total{opcode="7",operation="PUT"} 0
+protogemcouch_operation_unknown_total{opcode="7",operation="PUT"} 0
+protogemcouch_operation_latency_total_ns{opcode="7",operation="PUT"} 1377731312
+protogemcouch_operation_latency_avg_ns{opcode="7",operation="PUT"} 1377731
+protogemcouch_operation_latency_min_ns{opcode="7",operation="PUT"} 770187
+protogemcouch_operation_latency_max_ns{opcode="7",operation="PUT"} 23082694
+protogemcouch_operation_latency_last_ns{opcode="7",operation="PUT"} 1044364
+protogemcouch_operation_request_bytes_total{opcode="7",operation="PUT"} 107652
+protogemcouch_operation_request_bytes_last{opcode="7",operation="PUT"} 108
+protogemcouch_operation_request_bytes_max{opcode="7",operation="PUT"} 108
+protogemcouch_operation_request_bytes_avg{opcode="7",operation="PUT"} 107
+protogemcouch_operation_response_bytes_total{opcode="7",operation="PUT"} 56000
+protogemcouch_operation_response_bytes_last{opcode="7",operation="PUT"} 56
+protogemcouch_operation_response_bytes_max{opcode="7",operation="PUT"} 56
+protogemcouch_operation_response_bytes_avg{opcode="7",operation="PUT"} 56
+protogemcouch_operation_last_updated_epoch_ms{opcode="7",operation="PUT"} 1779104259849
+protogemcouch_operation_requests_total{opcode="18",operation="CONTROL"} 11
+protogemcouch_operation_successes_total{opcode="18",operation="CONTROL"} 11
+protogemcouch_operation_errors_total{opcode="18",operation="CONTROL"} 0
+protogemcouch_operation_unknown_total{opcode="18",operation="CONTROL"} 0
+protogemcouch_operation_latency_total_ns{opcode="18",operation="CONTROL"} 1280071
+protogemcouch_operation_latency_avg_ns{opcode="18",operation="CONTROL"} 116370
+protogemcouch_operation_latency_min_ns{opcode="18",operation="CONTROL"} 56915
+protogemcouch_operation_latency_max_ns{opcode="18",operation="CONTROL"} 425737
+protogemcouch_operation_latency_last_ns{opcode="18",operation="CONTROL"} 160785
+protogemcouch_operation_request_bytes_total{opcode="18",operation="CONTROL"} 253
+protogemcouch_operation_request_bytes_last{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_request_bytes_max{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_request_bytes_avg{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_response_bytes_total{opcode="18",operation="CONTROL"} 253
+protogemcouch_operation_response_bytes_last{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_response_bytes_max{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_response_bytes_avg{opcode="18",operation="CONTROL"} 23
+protogemcouch_operation_last_updated_epoch_ms{opcode="18",operation="CONTROL"} 1779104400037
+protogemcouch_operation_requests_total{opcode="38",operation="CONTAINS"} 249492
+protogemcouch_operation_successes_total{opcode="38",operation="CONTAINS"} 249492
+protogemcouch_operation_errors_total{opcode="38",operation="CONTAINS"} 0
+protogemcouch_operation_unknown_total{opcode="38",operation="CONTAINS"} 0
+protogemcouch_operation_latency_total_ns{opcode="38",operation="CONTAINS"} 81175057585
+protogemcouch_operation_latency_avg_ns{opcode="38",operation="CONTAINS"} 325361
+protogemcouch_operation_latency_min_ns{opcode="38",operation="CONTAINS"} 83043
+protogemcouch_operation_latency_max_ns{opcode="38",operation="CONTAINS"} 5843935
+protogemcouch_operation_latency_last_ns{opcode="38",operation="CONTAINS"} 313390
+protogemcouch_operation_request_bytes_total{opcode="38",operation="CONTAINS"} 14942046
+protogemcouch_operation_request_bytes_last{opcode="38",operation="CONTAINS"} 60
+protogemcouch_operation_request_bytes_max{opcode="38",operation="CONTAINS"} 60
+protogemcouch_operation_request_bytes_avg{opcode="38",operation="CONTAINS"} 59
+protogemcouch_operation_response_bytes_total{opcode="38",operation="CONTAINS"} 5987808
+protogemcouch_operation_response_bytes_last{opcode="38",operation="CONTAINS"} 24
+protogemcouch_operation_response_bytes_max{opcode="38",operation="CONTAINS"} 24
+protogemcouch_operation_response_bytes_avg{opcode="38",operation="CONTAINS"} 24
+protogemcouch_operation_last_updated_epoch_ms{opcode="38",operation="CONTAINS"} 1779104395068
+protogemcouch_operation_requests_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 14
+protogemcouch_operation_successes_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 14
+protogemcouch_operation_errors_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_unknown_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_latency_total_ns{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 2660338
+protogemcouch_operation_latency_avg_ns{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 190024
+protogemcouch_operation_latency_min_ns{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 32471
+protogemcouch_operation_latency_max_ns{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 1893096
+protogemcouch_operation_latency_last_ns{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 112264
+protogemcouch_operation_request_bytes_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 462
+protogemcouch_operation_request_bytes_last{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 33
+protogemcouch_operation_request_bytes_max{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 33
+protogemcouch_operation_request_bytes_avg{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 33
+protogemcouch_operation_response_bytes_total{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_response_bytes_last{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_response_bytes_max{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_response_bytes_avg{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 0
+protogemcouch_operation_last_updated_epoch_ms{opcode="73",operation="GET_CLIENT_PARTITION_ATTRIBUTES"} 1779104390034
+protogemcouch_operation_requests_total{opcode="100",operation="GET_ALL"} 166578
+protogemcouch_operation_successes_total{opcode="100",operation="GET_ALL"} 166578
+protogemcouch_operation_errors_total{opcode="100",operation="GET_ALL"} 0
+protogemcouch_operation_unknown_total{opcode="100",operation="GET_ALL"} 0
+protogemcouch_operation_latency_total_ns{opcode="100",operation="GET_ALL"} 145967684620
+protogemcouch_operation_latency_avg_ns{opcode="100",operation="GET_ALL"} 876272
+protogemcouch_operation_latency_min_ns{opcode="100",operation="GET_ALL"} 356395
+protogemcouch_operation_latency_max_ns{opcode="100",operation="GET_ALL"} 5631613
+protogemcouch_operation_latency_last_ns{opcode="100",operation="GET_ALL"} 952632
+protogemcouch_operation_request_bytes_total{opcode="100",operation="GET_ALL"} 19434637
+protogemcouch_operation_request_bytes_last{opcode="100",operation="GET_ALL"} 115
+protogemcouch_operation_request_bytes_max{opcode="100",operation="GET_ALL"} 117
+protogemcouch_operation_request_bytes_avg{opcode="100",operation="GET_ALL"} 116
+protogemcouch_operation_response_bytes_total{opcode="100",operation="GET_ALL"} 21378584
+protogemcouch_operation_response_bytes_last{opcode="100",operation="GET_ALL"} 125
+protogemcouch_operation_response_bytes_max{opcode="100",operation="GET_ALL"} 129
+protogemcouch_operation_response_bytes_avg{opcode="100",operation="GET_ALL"} 128
+protogemcouch_operation_last_updated_epoch_ms{opcode="100",operation="GET_ALL"} 1779104395069
+
