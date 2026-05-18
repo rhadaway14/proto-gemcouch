@@ -40,7 +40,7 @@ This document defines the minimum criteria required before ProtoGemCouch can be 
 
 ## Current assessed status
 
-**Current recommendation: Level 2.5 — Strong internal test ready / scoped candidate path**
+**Current recommendation: Level 3 — Scoped production candidate**
 
 ProtoGemCouch now demonstrates:
 
@@ -50,19 +50,18 @@ ProtoGemCouch now demonstrates:
 - large collection boundary coverage for `keySetOnServer`, `getAll`, and `putAll/getAll`
 - repeatable Docker and Docker Compose deployment
 - automated local Couchbase initialization
-- structured logging, startup validation, and health/readiness endpoints
+- structured logging, startup validation, health/readiness endpoints, JSON metrics, and Prometheus metrics
 - compatibility, deployment, limitation, and launch documentation
 - fast unit tests for risky response-writer byte-shape behavior
 - Docker-backed real-client integration validation
 
-Still open before a stronger Level 3 claim:
+Still open before a broader Level 4 / general-purpose production claim:
 
-- external metrics endpoint
-- operation counters and latency metrics
-- high-concurrency and soak validation against the latest PDX/boundary baseline
+- high-concurrency and soak validation against the latest PDX/boundary/observability baseline
 - stronger transport/security hardening
 - final target-application opcode review
 - formal support and operational handoff
+- optional Prometheus histogram buckets and deeper latency decomposition
 
 ---
 
@@ -193,14 +192,20 @@ Required:
 Current status:
 
 - [x] Structured logging added
-- [x] `/live` endpoint available if enabled by current health server implementation
+- [x] `/live` endpoint available
 - [x] `/ready` endpoint available
 - [x] Compose health checks available
-- [ ] Operation counters
-- [ ] Latency metrics
-- [ ] Error counters
-- [ ] `/metrics/json`
-- [ ] Prometheus-format `/metrics`
+- [x] Operation counters
+- [x] Success/error/unknown counters
+- [x] Latency metrics
+- [x] JSON metrics endpoint at `/metrics/json`
+- [x] Prometheus-format metrics endpoint at `/metrics`
+- [x] Metrics registry unit tests added
+- [x] Health HTTP endpoint unit tests added
+- [ ] Prometheus histogram buckets
+- [ ] Repository-level latency split
+- [ ] Serialization latency split
+- [ ] Request/response byte-size metrics
 
 ---
 
@@ -274,9 +279,13 @@ Required:
 Current status:
 
 - [x] `DEPLOYMENT.md` exists
+- [x] `docs/OBSERVABILITY.md` exists
 - [x] health/readiness strategy exists
 - [x] Compose deployment health checks available
-- [ ] Metrics strategy implementation pending
+- [x] JSON metrics endpoint exists
+- [x] Prometheus metrics endpoint exists
+- [x] Sample Prometheus scrape config exists
+- [x] Sample Grafana Alloy scrape config exists
 - [ ] Formal support handoff not yet performed
 
 ---
@@ -321,9 +330,9 @@ Current status:
 
 ### Still open
 
-- [ ] Add operation metrics and latency tracking
-- [ ] Add `/metrics/json`
-- [ ] Add Prometheus-format `/metrics`
+- [x] Add operation metrics and latency tracking
+- [x] Add `/metrics/json`
+- [x] Add Prometheus-format `/metrics`
 - [ ] Add high-concurrency and soak testing for the current baseline
 - [ ] Add TLS / transport hardening for broader deployment
 - [ ] Define shim-side client authentication model
@@ -335,14 +344,20 @@ Current status:
 
 ProtoGemCouch is ready to be described as:
 
-> **A strong internal validation candidate for applications whose required behavior is covered by the currently supported CRUD, bulk, key metadata, typed value, and PDX compatibility subset, with repeatable containerized deployment and Docker-backed real-client integration tests.**
+> **A scoped production candidate for applications whose required behavior is covered by the currently supported CRUD, bulk, key metadata, typed value, and PDX compatibility subset, with repeatable containerized deployment, machine-checkable health/readiness, JSON and Prometheus metrics endpoints, and Docker-backed real-client integration tests.**
 
 It should not yet be described as:
 
 > **A general-purpose Apache Geode server replacement.**
 
-The next launch-readiness milestone is:
+The current launch-readiness milestone is:
 
 ```text
 observability-hardening-complete
+```
+
+Recommended next milestone:
+
+```text
+current-baseline-performance-and-soak-refresh
 ```

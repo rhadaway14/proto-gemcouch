@@ -155,9 +155,30 @@ docker compose down -v
 
 ---
 
-## Health checks
+## Health, readiness, and metrics endpoints
 
 The health/admin port is separate from the Geode shim protocol port.
+
+Default:
+
+```text
+HEALTH_PORT=8081
+```
+
+Available endpoints:
+
+| Endpoint | Format | Purpose |
+|---|---|---|
+| `/live` | JSON | Liveness check. Confirms the shim process is alive. |
+| `/ready` | JSON | Readiness check. Confirms the shim is ready to receive Geode client traffic. |
+| `/metrics/json` | JSON | Human/debug-friendly runtime metrics. |
+| `/metrics` | Prometheus text | Prometheus, Grafana Agent, Grafana Alloy, or compatible scraper endpoint. |
+
+Liveness:
+
+```bash
+curl -fs http://127.0.0.1:8081/live
+```
 
 Readiness:
 
@@ -165,17 +186,57 @@ Readiness:
 curl -fs http://127.0.0.1:8081/ready
 ```
 
-If `/live` is enabled in the current health server implementation:
+JSON metrics:
 
 ```bash
-curl -fs http://127.0.0.1:8081/live
+curl -fs http://127.0.0.1:8081/metrics/json
+```
+
+Prometheus metrics:
+
+```bash
+curl -fs http://127.0.0.1:8081/metrics
 ```
 
 Expected behavior:
 
 ```text
-/ready returns success when the shim has started and required dependencies/configuration are usable.
 /live returns success when the process is alive.
+/ready returns success when configuration is valid, the repository is connected, and the shim server is bound.
+/metrics/json returns current in-process runtime metrics as JSON.
+/metrics returns Prometheus text format metrics.
+```
+
+Example `/metrics/json` categories:
+
+```text
+connections opened / closed
+handshake request count
+unknown opcode count
+request error count
+per-operation request / success / error / unknown counts
+per-operation average / min / max / last latency
+last error
+last updated timestamp
+```
+
+Example Prometheus metric families:
+
+```text
+protogemcouch_connections_opened_total
+protogemcouch_connections_closed_total
+protogemcouch_handshake_requests_total
+protogemcouch_unknown_opcodes_total
+protogemcouch_request_errors_total
+protogemcouch_operation_requests_total
+protogemcouch_operation_successes_total
+protogemcouch_operation_errors_total
+protogemcouch_operation_unknown_total
+protogemcouch_operation_latency_avg_ns
+protogemcouch_operation_latency_min_ns
+protogemcouch_operation_latency_max_ns
+protogemcouch_operation_latency_last_ns
+protogemcouch_operation_last_updated_epoch_ms
 ```
 
 ---
@@ -232,6 +293,26 @@ For fast response-writer coverage only:
 mvn -Dtest=GemResponseWriterTest test
 ```
 
+
+For observability endpoint unit coverage:
+
+```bash
+mvn -Dtest=MetricsRegistryTest,HealthHttpServerTest test
+```
+
+Sample scrape configs are available at:
+
+```text
+deploy/prometheus/protogemcouch-scrape.yml
+deploy/grafana-alloy/protogemcouch-scrape.river
+```
+
+Observability usage is documented in:
+
+```text
+docs/OBSERVABILITY.md
+```
+
 ---
 
 ## Current validated behavior
@@ -267,18 +348,25 @@ Current observability:
 structured logs
 startup validation logs
 handler-level operation logs
-health/readiness endpoint
-```
-
-Planned observability additions:
-
-```text
-operation counters
-success/error counters
-latency tracking
-response byte-size tracking
+periodic structured metrics snapshots
+connection open/close counters
+handshake request counters
+per-opcode request/success/error/unknown counters
+per-opcode average/min/max/last latency metrics
+/live endpoint
+/ready endpoint
 /metrics/json endpoint
 Prometheus-format /metrics endpoint
+```
+
+Known observability limitations:
+
+```text
+metrics are in-process and reset on restart
+latency metrics are summary-style values, not Prometheus histograms
+repository-level latency is not yet separated from handler/protocol latency
+serialization latency is not yet separated from total operation latency
+request and response byte-size metrics are not yet tracked
 ```
 
 ---
