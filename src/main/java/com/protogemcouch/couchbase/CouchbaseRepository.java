@@ -21,12 +21,14 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 public class CouchbaseRepository implements Repository {
 
@@ -38,6 +40,8 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_TYPE = "type";
     private static final String FIELD_EPOCH_MILLIS = "epochMillis";
     private static final String FIELD_OPAQUE_GEODE_TYPE_NAME = "opaqueGeodeTypeName";
+    private static final String FIELD_KEYS = "keys";
+    private static final String KEYSET_META_PREFIX = "__protogemcouch::keyset::";
 
     private static final String TYPE_STRING = "string";
     private static final String TYPE_BOOLEAN = "boolean";
@@ -183,6 +187,8 @@ public class CouchbaseRepository implements Repository {
         JsonObject body = encodeStoredValue(value);
         collection.upsert(docId, body);
 
+        updateKeySetMetadataForDocId(docId, true);
+
         log.info(StructuredLog.event(
                 "repository_put_ok",
                 "docId", docId,
@@ -194,11 +200,15 @@ public class CouchbaseRepository implements Repository {
     public void remove(String docId) {
         try {
             collection.remove(docId);
+            updateKeySetMetadataForDocId(docId, false);
+
             log.info(StructuredLog.event(
                     "repository_remove_ok",
                     "docId", docId
             ));
         } catch (DocumentNotFoundException e) {
+            updateKeySetMetadataForDocId(docId, false);
+
             log.info(StructuredLog.event(
                     "repository_remove_miss",
                     "docId", docId
@@ -270,82 +280,172 @@ public class CouchbaseRepository implements Repository {
 
     @Override
     public int size(String region) {
-        try {
-            String prefix = region + "::%";
-            String statement = "SELECT RAW COUNT(1) FROM "
-                    + q(config.getCouchbaseBucket()) + "."
-                    + q(config.getCouchbaseScope()) + "."
-                    + q(config.getCouchbaseCollection())
-                    + " WHERE META().id LIKE $prefix";
+        List<String> keys = keySet(region);
+        int count = keys.size();
 
-            QueryResult result = cluster.query(
-                    statement,
-                    QueryOptions.queryOptions()
-                            .parameters(JsonObject.create().put("prefix", prefix))
-            );
+        log.info(StructuredLog.event(
+                "repository_size_ok",
+                "region", region,
+                "count", count
+        ));
 
-            List<Long> rows = result.rowsAs(Long.class);
-            int count = rows.isEmpty() ? 0 : rows.get(0).intValue();
-
-            log.info(StructuredLog.event(
-                    "repository_size_ok",
-                    "region", region,
-                    "count", count
-            ));
-
-            return count;
-        } catch (Exception e) {
-            log.warn(StructuredLog.event(
-                    "repository_size_error",
-                    "region", region,
-                    "error", e.getMessage()
-            ));
-            return 0;
-        }
+        return count;
     }
 
     @Override
     public List<String> keySet(String region) {
         try {
-            String regionPrefix = region + "::";
-            String likePrefix = regionPrefix + "%";
+            String metadataDocId = keySetMetadataDocId(region);
 
-            String statement = "SELECT RAW META().id FROM "
-                    + q(config.getCouchbaseBucket()) + "."
-                    + q(config.getCouchbaseScope()) + "."
-                    + q(config.getCouchbaseCollection())
-                    + " WHERE META().id LIKE $prefix";
+            GetResult result = collection.get(metadataDocId);
+            JsonObject content = result.contentAsObject();
+            JsonArray rawKeys = content.getArray(FIELD_KEYS);
 
-            QueryResult result = cluster.query(
-                    statement,
-                    QueryOptions.queryOptions()
-                            .parameters(JsonObject.create().put("prefix", likePrefix))
-            );
-
-            List<String> ids = result.rowsAs(String.class);
             List<String> keys = new ArrayList<>();
 
-            for (String id : ids) {
-                if (id != null && id.startsWith(regionPrefix)) {
-                    keys.add(id.substring(regionPrefix.length()));
+            if (rawKeys != null) {
+                for (Object rawKey : rawKeys) {
+                    if (rawKey != null) {
+                        keys.add(String.valueOf(rawKey));
+                    }
                 }
             }
 
             log.info(StructuredLog.event(
                     "repository_key_set_ok",
                     "region", region,
-                    "count", keys.size()
+                    "metadataDocId", metadataDocId,
+                    "count", keys.size(),
+                    "keys", keys
             ));
 
             return keys;
+        } catch (DocumentNotFoundException e) {
+            log.info(StructuredLog.event(
+                    "repository_key_set_miss",
+                    "region", region,
+                    "metadataDocId", keySetMetadataDocId(region),
+                    "count", 0
+            ));
+
+            return new ArrayList<>();
         } catch (Exception e) {
             log.warn(StructuredLog.event(
                     "repository_key_set_error",
                     "region", region,
+                    "metadataDocId", keySetMetadataDocId(region),
                     "error", e.getMessage()
-            ));
+            ), e);
             return new ArrayList<>();
         }
+    }
+
+
+    private void updateKeySetMetadataForDocId(String docId, boolean add) {
+        if (docId == null || docId.startsWith(KEYSET_META_PREFIX)) {
+            return;
+        }
+
+        ParsedDocumentKey parsed = parseDocumentKey(docId);
+
+        if (parsed == null) {
+            log.warn(StructuredLog.event(
+                    "repository_key_set_metadata_skip_unparseable_doc_id",
+                    "docId", docId,
+                    "add", add
+            ));
+            return;
+        }
+
+        updateKeySetMetadata(parsed.region(), parsed.key(), add);
+    }
+
+    private void updateKeySetMetadata(String region, String key, boolean add) {
+        String metadataDocId = keySetMetadataDocId(region);
+
+        try {
+            TreeSet<String> keys = new TreeSet<>();
+
+            try {
+                GetResult existing = collection.get(metadataDocId);
+                JsonObject existingContent = existing.contentAsObject();
+                JsonArray existingKeys = existingContent.getArray(FIELD_KEYS);
+
+                if (existingKeys != null) {
+                    for (Object rawKey : existingKeys) {
+                        if (rawKey != null) {
+                            keys.add(String.valueOf(rawKey));
+                        }
+                    }
+                }
+            } catch (DocumentNotFoundException ignored) {
+                // First key for this region.
+            }
+
+            if (add) {
+                keys.add(key);
+            } else {
+                keys.remove(key);
+            }
+
+            JsonArray keyArray = JsonArray.create();
+
+            for (String currentKey : keys) {
+                keyArray.add(currentKey);
+            }
+
+            JsonObject metadata = JsonObject.create()
+                    .put(FIELD_TYPE, "keySetMetadata")
+                    .put("region", region)
+                    .put(FIELD_KEYS, keyArray)
+                    .put(FIELD_LENGTH, keys.size());
+
+            collection.upsert(metadataDocId, metadata);
+
+            log.info(StructuredLog.event(
+                    "repository_key_set_metadata_updated",
+                    "region", region,
+                    "metadataDocId", metadataDocId,
+                    "key", key,
+                    "add", add,
+                    "count", keys.size()
+            ));
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_key_set_metadata_update_error",
+                    "region", region,
+                    "metadataDocId", metadataDocId,
+                    "key", key,
+                    "add", add,
+                    "error", e.getMessage()
+            ), e);
+        }
+    }
+
+    private static String keySetMetadataDocId(String region) {
+        return KEYSET_META_PREFIX + Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(region.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static ParsedDocumentKey parseDocumentKey(String docId) {
+        int separator = docId.indexOf("::");
+
+        if (separator <= 0 || separator + 2 >= docId.length()) {
+            return null;
+        }
+
+        String region = docId.substring(0, separator);
+        String key = docId.substring(separator + 2);
+
+        if (region.isBlank() || key.isBlank()) {
+            return null;
+        }
+
+        return new ParsedDocumentKey(region, key);
+    }
+
+    private record ParsedDocumentKey(String region, String key) {
     }
 
     private static JsonObject encodeStoredValue(StoredValue value) {

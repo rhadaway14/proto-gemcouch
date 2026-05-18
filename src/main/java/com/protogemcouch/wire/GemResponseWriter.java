@@ -895,13 +895,41 @@ public final class GemResponseWriter {
     }
 
     private static void writeSmallCount(ByteBuf buf, int count) {
-        if (count < 0 || count > 0x7f) {
-            throw new IllegalArgumentException(
-                    "Validated manual writer only supports counts from 0 to 127. Actual: " + count
-            );
+        /*
+         * Geode/DataSerializer array/list length encoding.
+         *
+         * For ArrayList/String[]/primitive-array style payloads, Geode uses a compact
+         * array-length encoding:
+         *
+         *   0..252   -> one byte containing the count
+         *   0xfd     -> four following bytes contain the count
+         *   0xfe     -> two following bytes contain the count
+         *   0xff     -> null array/list marker
+         *
+         * The previous implementation switched at 127 and used 0x81/0x82/0x84 as
+         * length markers. That corrupts ArrayList payloads once keySetOnServer returns
+         * more than 127 keys. The client then loses byte alignment and starts reading
+         * bytes from key strings as serialization headers, producing errors like:
+         *
+         *   unexpected typeCode: 98
+         */
+        if (count < 0) {
+            throw new IllegalArgumentException("Count must not be negative. Actual: " + count);
         }
 
-        buf.writeByte((byte) count);
+        if (count <= 252) {
+            buf.writeByte((byte) count);
+            return;
+        }
+
+        if (count <= 0xffff) {
+            buf.writeByte((byte) 0xfe);
+            buf.writeShort(count);
+            return;
+        }
+
+        buf.writeByte((byte) 0xfd);
+        buf.writeInt(count);
     }
 
     private static byte[] geodeSerializedByteArray(byte[] value) {

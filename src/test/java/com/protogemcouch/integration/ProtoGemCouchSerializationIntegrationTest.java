@@ -1065,6 +1065,77 @@ class ProtoGemCouchSerializationIntegrationTest {
         }
     }
 
+
+
+    @Test
+    void keySetOnServerShouldIncludePdxBackedKeys() {
+        String suffix = UUID.randomUUID().toString();
+
+        String key1 = "it-pdx-keyset-1-" + suffix;
+        String key2 = "it-pdx-keyset-2-" + suffix;
+
+        try {
+            recreateClientCacheWithPdxReadSerialized();
+
+            PdxInstance value1 = pdxFactory("com.example.integration.KeySetSimplePdx")
+                    .writeString("id", "keyset-pdx-1")
+                    .writeString("name", "Rob")
+                    .writeInt("age", 42)
+                    .writeBoolean("active", true)
+                    .create();
+
+            PdxInstance value2 = pdxFactory("com.example.integration.KeySetSimplePdx")
+                    .writeString("id", "keyset-pdx-2")
+                    .writeString("name", "Robert")
+                    .writeInt("age", 43)
+                    .writeBoolean("active", false)
+                    .create();
+
+            region.put(key1, value1);
+            region.put(key2, value2);
+
+            Set<String> keys = region.keySetOnServer();
+
+            assertEquals(
+                    true,
+                    keys.contains(key1),
+                    "Expected keySetOnServer to contain key1=" + key1 + ", but actual keys were: " + keys
+            );
+            assertEquals(
+                    true,
+                    keys.contains(key2),
+                    "Expected keySetOnServer to contain key2=" + key2 + ", but actual keys were: " + keys
+            );
+
+            Object actual1 = region.get(key1);
+            Object actual2 = region.get(key2);
+
+            assertInstanceOf(PdxInstance.class, actual1);
+            assertInstanceOf(PdxInstance.class, actual2);
+
+            PdxInstance actualPdx1 = (PdxInstance) actual1;
+            PdxInstance actualPdx2 = (PdxInstance) actual2;
+
+            assertEquals("keyset-pdx-1", actualPdx1.getField("id"));
+            assertEquals("Rob", actualPdx1.getField("name"));
+            assertEquals(42, actualPdx1.getField("age"));
+            assertEquals(Boolean.TRUE, actualPdx1.getField("active"));
+
+            assertEquals("keyset-pdx-2", actualPdx2.getField("id"));
+            assertEquals("Robert", actualPdx2.getField("name"));
+            assertEquals(43, actualPdx2.getField("age"));
+            assertEquals(Boolean.FALSE, actualPdx2.getField("active"));
+        } catch (RuntimeException | AssertionError e) {
+            System.err.println();
+            System.err.println("========== protogemcouch-shim logs after PDX keySetOnServer failure ==========");
+            dumpShimLogs();
+            System.err.println("========== end protogemcouch-shim logs ==========");
+            System.err.println();
+
+            throw e;
+        }
+    }
+
     @Test
     void integerValueShouldRoundTripThroughShimAndCouchbase() {
         String suffix = UUID.randomUUID().toString();
