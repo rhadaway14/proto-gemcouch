@@ -3,52 +3,37 @@
 ## Current Milestone
 
 ```text
-standalone-utility-value-support-complete
+pdx-and-large-collection-boundary-support-complete
 ```
 
-The project now supports standalone Java utility value round-tripping through the full stack:
+The project now supports a broad validated round-trip path through the full stack:
 
 ```text
 Geode Java client
 ProtoGemCouch protocol shim
 Couchbase typed storage envelope
 Geode-compatible response encoding
+Geode Java client deserialization
 ```
 
-This includes standalone:
+Current completed support areas include:
 
 ```text
-UUID
-BigInteger
-BigDecimal
-Enum
-java.time.Instant
-java.time.LocalDate
-java.time.LocalDateTime
+core region operations
+bulk PUT_ALL / GET_ALL operations
+server-side key metadata operations
+primitive wrappers
+primitive arrays
+wrapper / utility arrays
+standalone utility values
+Serializable POJOs
+Object[]
+ArrayList<Object>
+PDX / PdxInstance
+large collection boundary handling for >127 and >252 entries
 ```
 
-This milestone also preserves the completed wrapper/utility array support through generalized `0x34` object-array preservation:
-
-```text
-Integer[]
-Long[]
-Boolean[]
-Double[]
-UUID[]
-BigInteger[]
-BigDecimal[]
-Enum[]
-Instant[]
-LocalDate[]
-LocalDateTime[]
-```
-
-Verification completed successfully:
-
-```powershell
-mvn clean test
-mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
-```
+## Latest Verification
 
 Latest Docker-backed integration result:
 
@@ -56,13 +41,40 @@ Latest Docker-backed integration result:
 ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
+ProtoGemCouchPdxRegistryDiscoveryIntegrationTest
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 3
+
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 135, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 110, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
 
 BUILD SUCCESS
+```
+
+Recommended local validation:
+
+```powershell
+mvn -Dtest=GemResponseWriterTest test
+mvn clean verify
+```
+
+## Supported Demo Operations
+
+```text
+connect / handshake
+region access
+put
+get
+putAll
+getAll
+remove
+containsKey / containsKeyOnServer
+containsValueForKey
+sizeOnServer
+keySetOnServer
+unknown opcode logging
 ```
 
 ## Supported Demo Value Types
@@ -111,6 +123,58 @@ Enum
 Instant
 LocalDate
 LocalDateTime
+PdxInstance
+```
+
+## PDX Demo
+
+Client-side example:
+
+```java
+PdxInstance value = cache.createPdxInstanceFactory("com.example.Customer")
+        .writeString("id", "customer-1")
+        .writeString("name", "Rob")
+        .writeInt("age", 42)
+        .writeBoolean("active", true)
+        .create();
+
+region.put("pdx-demo-key", value);
+Object actual = region.get("pdx-demo-key");
+```
+
+Observed strategy:
+
+```text
+Client sends:
+0x5d <PDX payload>
+
+Shim stores:
+opaque PDX payload as a typed Couchbase envelope
+
+Shim returns:
+same 0x5d PDX payload shape
+
+Client receives:
+PdxInstance
+```
+
+Validated PDX scenarios include:
+
+```text
+simple PdxInstance
+PDX with primitive arrays
+PDX with String arrays
+PDX with Object[] fields
+PDX with ArrayList<Object> fields
+PDX with nested Map fields
+PDX with UUID, BigInteger, BigDecimal fields
+PDX with Instant, LocalDate, LocalDateTime fields
+PDX with Enum field
+PDX values in putAll/getAll
+mixed primitive and PDX values in putAll/getAll
+remove with PDX values
+containsKeyOnServer for PDX-backed keys
+keySetOnServer for PDX-backed keys
 ```
 
 ## Standalone Utility Demo
@@ -128,17 +192,6 @@ Observed Geode marker:
 
 ```text
 0x62 UUID marker
-```
-
-Couchbase envelope:
-
-```json
-{
-  "type": "opaqueGeodeValue",
-  "opaqueGeodeTypeName": "uuid",
-  "valueBase64": "YhI+RWfomxLTpFZCZhQXQAA=",
-  "length": 17
-}
 ```
 
 Runtime strategy:
@@ -193,16 +246,6 @@ Observed Geode shape:
 0x34 object-array envelope with component type java.lang.Integer
 ```
 
-Couchbase envelope:
-
-```json
-{
-  "type": "objectArray",
-  "valueBase64": "NA...",
-  "length": 123
-}
-```
-
 Runtime strategy:
 
 ```text
@@ -254,51 +297,33 @@ fffffff9    -7
 80000000    Integer.MIN_VALUE
 ```
 
-Couchbase envelope:
+## Large Collection Boundary Demo
 
-```json
-{
-  "type": "intArray",
-  "value": [1, 42, -7, 2147483647, -2147483648],
-  "length": 5
-}
-```
+The current compatibility profile now validates the count-encoding boundaries that matter for list-style and VersionedObjectList-style responses.
 
-## Validated Utility Scenarios
+Validated scenarios:
 
 ```text
-UUID in put/get
-BigInteger in put/get
-BigDecimal in put/get
-Enum in put/get
-Instant in put/get
-LocalDate in put/get
-LocalDateTime in put/get
-Standalone utility values in putAll/get
-Standalone utility values in getAll
+keySetOnServerShouldHandleMoreThan127Keys
+keySetOnServerShouldHandleMoreThan252Keys
+getAllShouldHandleMoreThan127Keys
+getAllShouldHandleMoreThan252Keys
+putAllShouldHandleMoreThan127Entries
+putAllShouldHandleMoreThan252Entries
 ```
 
-## Validated Wrapper / Utility Array Scenarios
+Key detail:
 
 ```text
-Integer[] in put/get
-Long[] in put/get
-Boolean[] in put/get
-Double[] in put/get
-UUID[] in put/get
-BigInteger[] in put/get
-BigDecimal[] in put/get
-Enum[] in put/get
-Instant[] in put/get
-LocalDate[] in put/get
-LocalDateTime[] in put/get
-Wrapper / utility arrays in putAll/get
-Wrapper / utility arrays in getAll
+keySetOnServer returns a list-style payload and uses Geode array/list length encoding.
+GET_ALL returns VersionedObjectList and uses unsigned variable-length integer count encoding.
 ```
+
+This distinction is now covered by both integration tests and fast response-writer unit tests.
 
 ## Full Mixed Demo Path
 
-The current integration test validates mixed batches containing:
+The current integration suite validates mixed batches containing:
 
 ```text
 String
@@ -337,6 +362,7 @@ Enum
 Instant
 LocalDate
 LocalDateTime
+PdxInstance
 Short
 Integer
 Boolean
@@ -354,6 +380,7 @@ Validated:
 Java Geode client
 Core region operations
 PUT / GET / PUT_ALL / GET_ALL
+contains / size / key-set operations
 Couchbase KV persistence
 Typed storage envelopes
 Structural primitive-array preservation
@@ -362,7 +389,9 @@ Opaque standalone utility value preservation
 Opaque POJO preservation
 Opaque Object[] preservation
 Opaque ArrayList<Object> preservation
+Opaque PDX / PdxInstance preservation
 Manual VersionedObjectList-compatible GET_ALL responses
+Large collection count-boundary behavior
 Docker-backed integration environment
 ```
 
@@ -374,18 +403,30 @@ Nested POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
 Nested wrapper / utility arrays inside structured Map<String,Object>
 Nested opaque standalone utility values inside structured Map<String,Object>
+Nested PDX / PdxInstance inside structured Map<String,Object>
 DataSerializable
-PDX / PdxInstance
+Full PDX registry discovery / broader PDX server semantics
 Queries
 Transactions
 Continuous queries
 Interest registration
 Server-side functions
-High-concurrency load testing
+High-concurrency load testing against the current PDX/boundary baseline
 ```
 
 ## Suggested Next Demo Target
 
 ```text
-nested opaque values inside HashMap<String,Object>
+observability hardening
+```
+
+Suggested demo additions:
+
+```text
+/metrics/json endpoint
+operation counters
+success/error counts
+latency tracking
+response byte-size tracking
+Prometheus-format /metrics endpoint
 ```

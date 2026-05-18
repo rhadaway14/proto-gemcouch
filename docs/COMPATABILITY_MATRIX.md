@@ -3,55 +3,38 @@
 ## Current Milestone
 
 ```text
-standalone-utility-value-support-complete
+pdx-and-large-collection-boundary-support-complete
 ```
 
-Standalone Java utility value support is now implemented and validated end-to-end.
-
-This milestone adds support for standalone:
+ProtoGemCouch now has validated end-to-end support for the current scoped Geode client compatibility profile, including:
 
 ```text
-UUID
-BigInteger
-BigDecimal
-Enum
-java.time.Instant
-java.time.LocalDate
-java.time.LocalDateTime
+core CRUD-style operations
+bulk PUT_ALL / GET_ALL operations
+server-side metadata-style operations
+typed scalar values
+primitive arrays
+wrapper / utility arrays
+standalone utility values
+Serializable POJOs
+Object[]
+ArrayList<Object>
+PDX / PdxInstance round-tripping
+large key-set and bulk collection boundary handling
 ```
 
-It also preserves the completed wrapper/utility array milestone through generalized `0x34` object-array preservation:
+The latest serialization hardening work added explicit coverage for collection count boundaries that previously caused client deserialization failures:
 
 ```text
-Integer[]
-Long[]
-Boolean[]
-Double[]
-UUID[]
-BigInteger[]
-BigDecimal[]
-Enum[]
-Instant[]
-LocalDate[]
-LocalDateTime[]
+keySetOnServer with more than 127 keys
+keySetOnServer with more than 252 keys
+getAll with more than 127 keys
+getAll with more than 252 keys
+putAll followed by getAll with more than 127 entries
+putAll followed by getAll with more than 252 entries
 ```
 
-Previous completed milestones:
-
-```text
-wrapper-and-utility-array-support-complete
-primitive-array-family-support-complete
-int-array-support-complete
-object-array-list-support-complete
-object-array-support-complete
-```
-
-Latest verification:
-
-```powershell
-mvn clean test
-mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
-```
+## Latest Verification
 
 Latest Docker-backed integration result:
 
@@ -59,13 +42,23 @@ Latest Docker-backed integration result:
 ProtoGemCouchCrudIntegrationTest
 Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 
+ProtoGemCouchPdxRegistryDiscoveryIntegrationTest
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 3
+
 ProtoGemCouchSerializationIntegrationTest
-Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 135, Failures: 0, Errors: 0, Skipped: 0
 
 Total:
-Tests run: 110, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
 
 BUILD SUCCESS
+```
+
+Recommended verification commands:
+
+```powershell
+mvn -Dtest=GemResponseWriterTest test
+mvn clean verify
 ```
 
 ## Supported Operations
@@ -73,16 +66,18 @@ BUILD SUCCESS
 | Operation | Status | Notes |
 |---|---:|---|
 | connect / handshake | Supported | Java Geode client connects to the shim. |
-| region access | Supported | Validated against `helloWorld`. |
-| `put` | Supported | Supports all validated value types. |
+| region access | Supported | Validated against the configured region, commonly `helloWorld`. |
+| `put` | Supported | Supports all currently validated value families. |
 | `get` | Supported | Returns Geode-compatible typed values. |
-| `putAll` | Supported | Supports batch typed values. |
-| `getAll` | Supported | Uses VersionedObjectList-compatible response payloads. |
+| `putAll` | Supported | Supports batch typed values and large-entry boundary coverage. |
+| `getAll` | Supported | Uses a VersionedObjectList-compatible response payload with unsigned variable-length counts. |
 | `remove` | Supported | Removes mapped Couchbase document. |
-| `containsKey` | Supported | Repository-backed existence check. |
+| `containsKey` / `containsKeyOnServer` | Supported | Repository-backed existence check. |
+| `containsValueForKey` | Supported | Repository-backed value-present check. |
 | `sizeOnServer` | Supported | Region document count. |
-| `keySetOnServer` | Supported | Returns region keys. |
-| unknown opcode logging | Supported | Logs unknown frame details without crashing. |
+| `keySetOnServer` | Supported | Returns region keys using Geode list/array length encoding. |
+| PDX type-id lookup | Partially supported | PDX round-trip is supported; full registry discovery semantics remain scoped/limited. |
+| unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
 
 ## Supported Value Types
 
@@ -131,8 +126,57 @@ BUILD SUCCESS
 | `java.time.Instant` | `0x2c` Java serialized | Yes | Yes | Yes |
 | `java.time.LocalDate` | `0x2c` Java serialized | Yes | Yes | Yes |
 | `java.time.LocalDateTime` | `0x2c` Java serialized | Yes | Yes | Yes |
+| PDX / `PdxInstance` | `0x5d` opaque PDX payload | Yes | Yes | Yes |
 | DataSerializable | TBD | Not yet | Not yet | Not yet |
-| PDX / PdxInstance | TBD | Not yet | Not yet | Not yet |
+
+## Collection Response Encoding Compatibility
+
+ProtoGemCouch has two separate collection count encodings. These must not be mixed.
+
+### Geode array/list length encoding
+
+Used by manually encoded list-style payloads such as `keySetOnServer`.
+
+```text
+0..252   -> one byte containing the count
+0xfe     -> two following bytes contain the count
+0xfd     -> four following bytes contain the count
+0xff     -> null array/list marker
+```
+
+Examples:
+
+```text
+150 -> 96
+253 -> fe 00 fd
+```
+
+Implementation helper:
+
+```java
+writeGeodeArrayLength(...)
+```
+
+### VersionedObjectList count encoding
+
+Used by `GET_ALL` responses. Geode deserializes this through `VersionedObjectList.fromData(...)`.
+
+This uses unsigned variable-length integer encoding, not the normal array/list length encoding.
+
+Examples:
+
+```text
+127 -> 7f
+128 -> 80 01
+150 -> 96 01
+253 -> fd 01
+```
+
+Implementation helper:
+
+```java
+writeVersionedObjectListCount(...)
+```
 
 ## Primitive Array Support
 
@@ -149,40 +193,7 @@ float[]    -> 0x32
 double[]   -> 0x33
 ```
 
-The general wire pattern is:
-
-```text
-<marker> <length> <big-endian primitive values...>
-```
-
 Primitive arrays are decoded structurally and stored in Couchbase as typed JSON array envelopes.
-
-Example `int[]` envelope:
-
-```json
-{
-  "type": "intArray",
-  "value": [1, 42, -7, 2147483647, -2147483648],
-  "length": 5
-}
-```
-
-Example `char[]` envelope:
-
-```json
-{
-  "type": "charArray",
-  "value": ["A", "Z", "0"],
-  "length": 3
-}
-```
-
-Design decision:
-
-```text
-Primitive arrays are simple fixed-width payloads, so they are stored structurally.
-Object[] and ArrayList<Object> remain opaque because parsing them fully can involve nested Java serialization, customer classes, and object graph boundaries.
-```
 
 ## Wrapper and Utility Array Support
 
@@ -199,16 +210,6 @@ LocalDate[]      -> 0x34 ... java.time.LocalDate ...
 LocalDateTime[]  -> 0x34 ... java.time.LocalDateTime ...
 ```
 
-Storage envelope:
-
-```json
-{
-  "type": "objectArray",
-  "valueBase64": "NA...",
-  "length": 123
-}
-```
-
 Design decision:
 
 ```text
@@ -221,64 +222,44 @@ Returning the original Geode payload lets the Geode client deserialize the exact
 Standalone utility values use a mix of dedicated Geode markers and Java serialization.
 
 ```text
-BigInteger           -> 0x5f
-BigDecimal           -> 0x60
-UUID                 -> 0x62
-Enum                 -> 0x65
-java.time.Instant    -> 0x2c Java serialized
-java.time.LocalDate  -> 0x2c Java serialized
+BigInteger              -> 0x5f
+BigDecimal              -> 0x60
+UUID                    -> 0x62
+Enum                    -> 0x65
+java.time.Instant       -> 0x2c Java serialized
+java.time.LocalDate     -> 0x2c Java serialized
 java.time.LocalDateTime -> 0x2c Java serialized
 ```
 
-Dedicated standalone utility markers are stored as opaque Geode values:
+## PDX / PdxInstance Support
 
-```json
-{
-  "type": "opaqueGeodeValue",
-  "opaqueGeodeTypeName": "uuid",
-  "valueBase64": "YhI+RWfomxLTpFZCZhQXQAA=",
-  "length": 17
-}
+PDX payloads are preserved opaquely and returned with their original Geode PDX marker.
+
+```text
+PdxInstance -> 0x5d <payload...>
 ```
 
-Java-time values are handled through the existing Java-serialized-object preservation path.
+Validated PDX paths include:
 
-## Opaque Object Support
-
-### ArrayList<Object>
-
-```json
-{
-  "type": "objectArrayList",
-  "valueBase64": "QQ...",
-  "length": 14
-}
+```text
+put/get with simple PdxInstance
+put/get with primitive and String array PDX fields
+put/get with Object[] PDX fields
+put/get with ArrayList<Object> PDX fields
+put/get with nested Map PDX fields
+put/get with UUID, BigInteger, BigDecimal, Instant, LocalDate, LocalDateTime, and Enum fields
+putAll/getAll with PDX values
+mixed primitive and PDX values in putAll/getAll
+remove with PDX values
+containsKeyOnServer with PDX-backed keys
+keySetOnServer with PDX-backed keys
 ```
 
-### Object[] and wrapper/utility arrays
+Current PDX scope remains a compatibility profile. Full PDX registry discovery, advanced schema evolution behavior, and all native Geode PDX server semantics are not yet claimed as general-purpose replacements.
 
-```json
-{
-  "type": "objectArray",
-  "valueBase64": "NA...",
-  "length": 37
-}
-```
+## Structured Map Nested Value Support
 
-### Serializable POJO and Java-serialized utility values
-
-```json
-{
-  "type": "javaSerializedObject",
-  "className": "com.example.CustomerProfile",
-  "valueBase64": "rO0ABXNy...",
-  "length": 218
-}
-```
-
-## HashMap<String,Object> Nested Value Support
-
-Currently supported nested values in structured map envelopes:
+Currently supported nested values in structured `HashMap<String,Object>` envelopes:
 
 ```text
 null
@@ -310,64 +291,12 @@ Not yet supported inside structured map envelopes:
 Object[]
 Serializable POJO
 ArrayList<Object>
+PDX / PdxInstance
 Opaque standalone utility values
 Wrapper / utility arrays
 ```
 
-Top-level `Object[]`, top-level wrapper/utility arrays, top-level `ArrayList<Object>`, top-level Serializable POJOs, and top-level standalone utility values are supported.
-
-## Runtime Coverage
-
-| Component | Primitive Arrays | Wrapper / Utility Arrays | Standalone Utility Values | ArrayList<Object> | Object[] | POJO | Map<String,Object> | Scalars | Date |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Shape tests | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `ValueDecoding` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `StoredValue` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GemResponseWriter` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `PutAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `GetAllHandler` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `CouchbaseRepository` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Docker integration | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-
-## Latest Integration Coverage
-
-```text
-booleanArrayValueShouldRoundTripThroughShimAndCouchbase
-charArrayValueShouldRoundTripThroughShimAndCouchbase
-shortArrayValueShouldRoundTripThroughShimAndCouchbase
-intArrayValueShouldRoundTripThroughShimAndCouchbase
-emptyIntArrayValueShouldRoundTripThroughShimAndCouchbase
-longArrayValueShouldRoundTripThroughShimAndCouchbase
-floatArrayValueShouldRoundTripThroughShimAndCouchbase
-doubleArrayValueShouldRoundTripThroughShimAndCouchbase
-
-integerWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
-longWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
-booleanWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
-doubleWrapperArrayValueShouldRoundTripThroughShimAndCouchbase
-uuidArrayValueShouldRoundTripThroughShimAndCouchbase
-bigIntegerArrayValueShouldRoundTripThroughShimAndCouchbase
-bigDecimalArrayValueShouldRoundTripThroughShimAndCouchbase
-enumArrayValueShouldRoundTripThroughShimAndCouchbase
-instantArrayValueShouldRoundTripThroughShimAndCouchbase
-localDateArrayValueShouldRoundTripThroughShimAndCouchbase
-localDateTimeArrayValueShouldRoundTripThroughShimAndCouchbase
-
-uuidValueShouldRoundTripThroughShimAndCouchbase
-bigIntegerValueShouldRoundTripThroughShimAndCouchbase
-bigDecimalValueShouldRoundTripThroughShimAndCouchbase
-enumValueShouldRoundTripThroughShimAndCouchbase
-instantValueShouldRoundTripThroughShimAndCouchbase
-localDateValueShouldRoundTripThroughShimAndCouchbase
-localDateTimeValueShouldRoundTripThroughShimAndCouchbase
-
-putAllWithWrapperAndUtilityArrayValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithWrapperAndUtilityArrayValuesShouldReturnArrays
-putAllWithStandaloneUtilityValuesShouldPersistAllEntriesAndBeReadableByGet
-getAllWithStandaloneUtilityValuesShouldReturnValues
-```
+Top-level `Object[]`, top-level wrapper/utility arrays, top-level `ArrayList<Object>`, top-level Serializable POJOs, top-level PDX values, and top-level standalone utility values are supported.
 
 ## Known Limitations
 
@@ -375,10 +304,10 @@ getAllWithStandaloneUtilityValuesShouldReturnValues
 Nested Object[] inside structured Map<String,Object>
 Nested Serializable POJO inside structured Map<String,Object>
 Nested ArrayList<Object> inside structured Map<String,Object>
+Nested PDX / PdxInstance inside structured Map<String,Object>
 Nested wrapper / utility arrays inside structured Map<String,Object>
 Nested opaque standalone utility values inside structured Map<String,Object>
 DataSerializable
-PDX / PdxInstance
 Expiration / TTL behavior
 Transactions
 Queries
@@ -386,24 +315,24 @@ Continuous queries
 Interest registration
 Partitioned region metadata behavior
 Server-side function execution
-High-concurrency load and soak testing
+High-concurrency load and soak testing against the current PDX/boundary baseline
 ```
 
 ## Recommended Next Target
 
 ```text
-nested opaque values inside HashMap<String,Object>
+observability hardening
 ```
 
-Recommended next nested targets:
+Recommended observability targets:
 
 ```text
-Object[]
-ArrayList<Object>
-Serializable POJO
-UUID
-BigInteger
-BigDecimal
-Enum
-wrapper / utility arrays
+operation counters
+success/error counters
+latency tracking
+response byte-size tracking
+/metrics/json endpoint
+Prometheus-format /metrics endpoint
+connection close reason logging
+serialization error diagnostics
 ```
