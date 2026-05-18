@@ -248,21 +248,12 @@ public final class GemResponseWriter {
     private static final byte GEODE_PDX_INSTANCE_CODE = 0x5d;
 
     /*
-     * Geode DataSerializer object wrapper for VersionedObjectList.
+     * Geode DataSerializer object wrapper for DataSerializableFixedID.VERSIONED_OBJECT_LIST.
      *
-     * The following byte belongs to the VersionedObjectList body, not the wrapper:
+     * The VersionedObjectList body begins after this wrapper with a flags byte.
      *
-     *   0x03 = has keys + has objects
-     *
-     * Keeping the wrapper and body flags separate makes the GET_ALL wire shape
-     * easier to reason about:
-     *
-     *   01 07      -> DataSerializableFixedID wrapper for VersionedObjectList
+     *   01 07      -> DataSerializableFixedID object wrapper
      *   03         -> VersionedObjectList flags: has keys + has objects
-     *   <count>    -> InternalDataSerializer.writeUnsignedVL(...)
-     *   <keys>
-     *   <count>    -> InternalDataSerializer.writeUnsignedVL(...)
-     *   <object entries>
      *
      * Do not instantiate VersionedObjectList in production code. In the shaded
      * runtime container, VersionedObjectList static initialization can fail due
@@ -587,30 +578,6 @@ public final class GemResponseWriter {
     public static byte[] buildGetAllChunkedResponse(int txId, List<String> keys, Map<String, ?> values) {
         byte[] versionedObjectListPayload = buildManualVersionedObjectListPayload(keys, values);
 
-        /*
-         * Temporary diagnostic while validating large GET_ALL responses.
-         *
-         * For 150 keys, the VersionedObjectList payload should start with:
-         *
-         *   01 07 03 96 01 57 ...
-         *
-         * Meaning:
-         *
-         *   01 07   -> VersionedObjectList object wrapper
-         *   03      -> has keys + has objects flags
-         *   96 01   -> unsigned variable-length integer for 150
-         *   57      -> first key as Geode string
-         *
-         * Remove this after the >127 GET_ALL regression tests are green.
-         */
-        System.err.println(
-                "GET_ALL VOL payload txId=" + txId
-                        + " keys=" + (keys == null ? 0 : keys.size())
-                        + " values=" + (values == null ? 0 : values.size())
-                        + " bytes=" + versionedObjectListPayload.length
-                        + " hexPrefix=" + hexPrefix(versionedObjectListPayload, 512)
-        );
-
         return buildSingleChunkedMessage(
                 MessageTypes.RESPONSE,
                 txId,
@@ -645,7 +612,7 @@ public final class GemResponseWriter {
             /*
              * DataSerializer object wrapper for DataSerializableFixedID.VERSIONED_OBJECT_LIST.
              *
-             * The VersionedObjectList.toData(...) body starts after this wrapper.
+             * VersionedObjectList.toData(...) starts after this wrapper with a flags byte.
              */
             buf.writeBytes(VERSIONED_OBJECT_LIST_OBJECT_HEADER);
 
@@ -662,7 +629,8 @@ public final class GemResponseWriter {
              * Keys section.
              *
              * VersionedObjectList uses InternalDataSerializer.writeUnsignedVL(...),
-             * not the DataSerializer array/list count encoding used by ArrayList.
+             * not the normal DataSerializer array/list length encoding used by
+             * ArrayList/String[]/primitive-array payloads.
              */
             writeVersionedObjectListCount(buf, size);
 
@@ -674,9 +642,6 @@ public final class GemResponseWriter {
 
             /*
              * Objects section.
-             *
-             * VersionedObjectList uses InternalDataSerializer.writeUnsignedVL(...),
-             * not the DataSerializer array/list count encoding used by ArrayList.
              */
             writeVersionedObjectListCount(buf, size);
 
@@ -937,37 +902,6 @@ public final class GemResponseWriter {
         }
     }
 
-    private static void writeVersionedObjectListCount(ByteBuf buf, int count) {
-        /*
-         * VersionedObjectList uses InternalDataSerializer.writeUnsignedVL(...),
-         * not DataSerializer array/list length encoding.
-         *
-         * This is protobuf-style unsigned variable-length integer encoding:
-         *
-         *   0      -> 00
-         *   1      -> 01
-         *   127    -> 7f
-         *   128    -> 80 01
-         *   150    -> 96 01
-         *   253    -> fd 01
-         */
-        if (count < 0) {
-            throw new IllegalArgumentException("Count must not be negative. Actual: " + count);
-        }
-
-        int value = count;
-
-        while (true) {
-            if ((value & ~0x7f) == 0) {
-                buf.writeByte(value);
-                return;
-            }
-
-            buf.writeByte((value & 0x7f) | 0x80);
-            value >>>= 7;
-        }
-    }
-
     private static void writeSmallCount(ByteBuf buf, int count) {
         /*
          * Geode/DataSerializer array/list length encoding.
@@ -1004,6 +938,48 @@ public final class GemResponseWriter {
 
         buf.writeByte((byte) 0xfd);
         buf.writeInt(count);
+    }
+
+    private static void writeVersionedObjectListCount(ByteBuf buf, int count) {
+        /*
+         * VersionedObjectList count encoding.
+         *
+         * Geode VersionedObjectList.toData(...) writes counts with:
+         *
+         *   InternalDataSerializer.writeUnsignedVL(count, out)
+         *
+         * and VersionedObjectList.fromData(...) reads them with:
+         *
+         *   InternalDataSerializer.readUnsignedVL(in)
+         *
+         * This is unsigned variable-length integer encoding:
+         *
+         *   0      -> 00
+         *   1      -> 01
+         *   127    -> 7f
+         *   128    -> 80 01
+         *   150    -> 96 01
+         *   253    -> fd 01
+         *
+         * Keep this separate from writeSmallCount(...), which is the
+         * DataSerializer array/list length encoding used by keySetOnServer's
+         * manually encoded ArrayList payload.
+         */
+        if (count < 0) {
+            throw new IllegalArgumentException("Count must not be negative. Actual: " + count);
+        }
+
+        int value = count;
+
+        while (true) {
+            if ((value & ~0x7f) == 0) {
+                buf.writeByte(value);
+                return;
+            }
+
+            buf.writeByte((value & 0x7f) | 0x80);
+            value >>>= 7;
+        }
     }
 
     private static byte[] geodeSerializedByteArray(byte[] value) {
@@ -1942,29 +1918,6 @@ public final class GemResponseWriter {
         } finally {
             buf.release();
         }
-    }
-
-    private static String hexPrefix(byte[] bytes, int maxBytes) {
-        if (bytes == null) {
-            return "null";
-        }
-
-        int length = Math.min(bytes.length, maxBytes);
-        StringBuilder out = new StringBuilder(length * 3);
-
-        for (int i = 0; i < length; i++) {
-            if (i > 0) {
-                out.append(' ');
-            }
-
-            out.append(String.format("%02x", bytes[i] & 0xff));
-        }
-
-        if (bytes.length > maxBytes) {
-            out.append(" ...");
-        }
-
-        return out.toString();
     }
 
     private record Part(byte[] payload, byte typeCode) {
