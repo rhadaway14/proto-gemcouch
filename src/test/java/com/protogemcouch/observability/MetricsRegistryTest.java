@@ -175,4 +175,83 @@ class MetricsRegistryTest {
         assertTrue(json.contains("\"requests\":0"));
         assertTrue(json.contains("\"avgLatencyNs\":0"));
     }
+    @Test
+    void snapshotJsonShouldIncludeRequestAndResponseByteMetrics() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        int opcode = MessageTypes.GET_ALL_70;
+
+        registry.recordRequestStart(opcode);
+        registry.recordRequestBytes(opcode, 128L);
+        registry.recordResponseBytes(opcode, 4096L);
+        registry.recordRequestSuccess(opcode, 1_000_000L);
+
+        registry.recordRequestStart(opcode);
+        registry.recordRequestBytes(opcode, 256L);
+        registry.recordResponseBytes(opcode, 8192L);
+        registry.recordRequestSuccess(opcode, 2_000_000L);
+
+        String json = registry.snapshotJson();
+
+        assertTrue(json.contains("\"requestBytesTotal\":384"));
+        assertTrue(json.contains("\"requestBytesLast\":256"));
+        assertTrue(json.contains("\"requestBytesMax\":256"));
+        assertTrue(json.contains("\"requestBytesAvg\":192"));
+
+        assertTrue(json.contains("\"responseBytesTotal\":12288"));
+        assertTrue(json.contains("\"responseBytesLast\":8192"));
+        assertTrue(json.contains("\"responseBytesMax\":8192"));
+        assertTrue(json.contains("\"responseBytesAvg\":6144"));
+    }
+
+    @Test
+    void snapshotPrometheusShouldIncludeRequestAndResponseByteMetrics() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        int opcode = MessageTypes.GET_ALL_70;
+        String labels = "{opcode=\"" + opcode + "\",operation=\"GET_ALL\"}";
+
+        registry.recordRequestStart(opcode);
+        registry.recordRequestBytes(opcode, 150L);
+        registry.recordResponseBytes(opcode, 10_000L);
+        registry.recordRequestSuccess(opcode, 1_500_000L);
+
+        String metrics = registry.snapshotPrometheus();
+
+        assertTrue(metrics.contains("# HELP protogemcouch_operation_request_bytes_total"));
+        assertTrue(metrics.contains("# TYPE protogemcouch_operation_request_bytes_total counter"));
+        assertTrue(metrics.contains("protogemcouch_operation_request_bytes_total" + labels + " 150"));
+        assertTrue(metrics.contains("protogemcouch_operation_request_bytes_last" + labels + " 150"));
+        assertTrue(metrics.contains("protogemcouch_operation_request_bytes_max" + labels + " 150"));
+        assertTrue(metrics.contains("protogemcouch_operation_request_bytes_avg" + labels + " 150"));
+
+        assertTrue(metrics.contains("# HELP protogemcouch_operation_response_bytes_total"));
+        assertTrue(metrics.contains("# TYPE protogemcouch_operation_response_bytes_total counter"));
+        assertTrue(metrics.contains("protogemcouch_operation_response_bytes_total" + labels + " 10000"));
+        assertTrue(metrics.contains("protogemcouch_operation_response_bytes_last" + labels + " 10000"));
+        assertTrue(metrics.contains("protogemcouch_operation_response_bytes_max" + labels + " 10000"));
+        assertTrue(metrics.contains("protogemcouch_operation_response_bytes_avg" + labels + " 10000"));
+    }
+
+    @Test
+    void negativeByteMetricsShouldBeIgnored() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        int opcode = MessageTypes.GET;
+
+        registry.recordRequestStart(opcode);
+        registry.recordRequestBytes(opcode, -1L);
+        registry.recordResponseBytes(opcode, -1L);
+        registry.recordRequestSuccess(opcode, 100L);
+
+        String json = registry.snapshotJson();
+
+        assertTrue(json.contains("\"requestBytesTotal\":0"));
+        assertTrue(json.contains("\"requestBytesLast\":0"));
+        assertTrue(json.contains("\"requestBytesMax\":0"));
+        assertTrue(json.contains("\"responseBytesTotal\":0"));
+        assertTrue(json.contains("\"responseBytesLast\":0"));
+        assertTrue(json.contains("\"responseBytesMax\":0"));
+    }
+
 }

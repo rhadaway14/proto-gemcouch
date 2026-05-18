@@ -20,9 +20,12 @@ import com.protogemcouch.wire.GemFrameDecoder;
 import com.protogemcouch.wire.GemPart;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
@@ -38,6 +41,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import io.netty.util.AttributeKey;
+
 public class RawShimServer {
 
     private static final Logger log = LoggerFactory.getLogger(RawShimServer.class);
@@ -48,6 +53,9 @@ public class RawShimServer {
                     "000000ee0a0057000773657276657231570001315700000000012cff00968fc5" +
                     "ac0b5bff75bfb2849de120d17e6700000001"
     );
+
+    private static final AttributeKey<Integer> CURRENT_OPCODE =
+            AttributeKey.valueOf("protogemcouch.currentOpcode");
 
     private static ServerConfig config;
     private static Repository repository;
@@ -233,6 +241,7 @@ public class RawShimServer {
                 handshakeDone = true;
 
                 ctx.pipeline().addLast(new GemFrameDecoder());
+                ctx.pipeline().addLast(new ResponseByteMetricsHandler());
                 ctx.pipeline().addLast(new GemRequestHandler());
                 ctx.pipeline().remove(this);
                 return;
@@ -255,11 +264,21 @@ public class RawShimServer {
     static class GemRequestHandler extends SimpleChannelInboundHandler<GemFrame> {
 
         @Override
-        protected void channelRead0(ChannelHandlerContext ctx, GemFrame frame) {
+        protected void channelRead0(ChannelHandlerContext ctx, GemFrame frame) throws Exception {
             int opcode = frame.getMessageType();
             String operation = OperationNames.nameOf(opcode);
 
             metrics.recordRequestStart(opcode);
+            long requestBytes = estimateRequestBytes(frame);
+            metrics.recordRequestBytes(opcode, requestBytes);
+
+            /*
+             * Individual OperationHandler implementations write responses directly
+             * through the ChannelHandlerContext. Store the current opcode on the
+             * channel so the outbound response-byte recorder can attribute the
+             * written ByteBuf size to the operation that produced it.
+             */
+            ctx.channel().attr(CURRENT_OPCODE).set(opcode);
 
             long start = System.nanoTime();
 
@@ -268,6 +287,7 @@ public class RawShimServer {
                     "opcode", opcode,
                     "operation", operation,
                     "parts", frame.getNumberOfParts(),
+                    "request_bytes", requestBytes,
                     "txId", frame.getTransactionId(),
                     "remote", ctx.channel().remoteAddress()
             ));
@@ -287,7 +307,8 @@ public class RawShimServer {
                             "opcode", opcode,
                             "operation", operation,
                             "txId", frame.getTransactionId(),
-                            "elapsed_ns", elapsed
+                            "elapsed_ns", elapsed,
+                            "request_bytes", requestBytes
                     ));
                 } else {
                     metrics.recordUnknownOpcode(opcode);
@@ -298,7 +319,8 @@ public class RawShimServer {
                             "opcode", opcode,
                             "operation", operation,
                             "txId", frame.getTransactionId(),
-                            "elapsed_ns", elapsed
+                            "elapsed_ns", elapsed,
+                            "request_bytes", requestBytes
                     ));
 
                     unknownOpcodeHandler.handle(ctx, frame);
@@ -313,10 +335,13 @@ public class RawShimServer {
                         "operation", operation,
                         "txId", frame.getTransactionId(),
                         "elapsed_ns", elapsed,
+                        "request_bytes", requestBytes,
                         "error", e.getMessage()
                 ), e);
 
                 throw e;
+            } finally {
+                ctx.channel().attr(CURRENT_OPCODE).set(null);
             }
         }
 
@@ -329,6 +354,75 @@ public class RawShimServer {
             ), cause);
             ctx.close();
         }
+    }
+
+    static class ResponseByteMetricsHandler extends ChannelOutboundHandlerAdapter {
+
+        @Override
+        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+            Integer opcode = ctx.channel().attr(CURRENT_OPCODE).get();
+            long responseBytes = estimateResponseBytes(msg);
+
+            if (opcode != null && responseBytes >= 0) {
+                metrics.recordResponseBytes(opcode, responseBytes);
+
+                log.debug(StructuredLog.event(
+                        "response_bytes_recorded",
+                        "opcode", opcode,
+                        "operation", OperationNames.nameOf(opcode),
+                        "response_bytes", responseBytes,
+                        "remote", ctx.channel().remoteAddress()
+                ));
+            }
+
+            super.write(ctx, msg, promise);
+        }
+    }
+
+    private static long estimateResponseBytes(Object msg) {
+        if (msg instanceof ByteBuf byteBuf) {
+            return byteBuf.readableBytes();
+        }
+
+        if (msg instanceof ByteBufHolder holder) {
+            return holder.content().readableBytes();
+        }
+
+        if (msg instanceof byte[] bytes) {
+            return bytes.length;
+        }
+
+        return -1L;
+    }
+
+    private static long estimateRequestBytes(GemFrame frame) {
+        /*
+         * Estimate the decoded GemFire request frame size.
+         *
+         * GemFrameDecoder has already consumed the raw Netty bytes by this point, so
+         * this metric approximates the wire frame size from the decoded header and
+         * parts. It is intended for trend/correlation analysis, not exact packet
+         * accounting.
+         *
+         * Message header:
+         *   int messageType
+         *   int messageLength
+         *   int numberOfParts
+         *   int transactionId
+         *   byte earlyAck
+         *
+         * Part header:
+         *   int length
+         *   byte typeCode
+         */
+        long total = 17L;
+
+        for (GemPart part : frame.getParts()) {
+            total += 5L;
+            total += part.getLength();
+        }
+
+        return total;
     }
 
     private static void dumpParts(String prefix, GemFrame frame) {

@@ -35,6 +35,28 @@ public class MetricsRegistry {
         perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics()).requests.increment();
     }
 
+    public void recordRequestBytes(int opcode, long requestBytes) {
+        if (requestBytes < 0) {
+            return;
+        }
+
+        OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
+        metrics.requestBytesTotal.add(requestBytes);
+        metrics.requestBytesLast.set(requestBytes);
+        updateMax(metrics.requestBytesMax, requestBytes);
+    }
+
+    public void recordResponseBytes(int opcode, long responseBytes) {
+        if (responseBytes < 0) {
+            return;
+        }
+
+        OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
+        metrics.responseBytesTotal.add(responseBytes);
+        metrics.responseBytesLast.set(responseBytes);
+        updateMax(metrics.responseBytesMax, responseBytes);
+    }
+
     public void recordRequestSuccess(int opcode, long elapsedNanos) {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
         metrics.successes.increment();
@@ -94,6 +116,10 @@ public class MetricsRegistry {
             long maxLatency = m.maxLatencyNanos.get();
             long lastLatency = m.lastLatencyNanos.get();
             long avgLatency = requestCount == 0 ? 0 : totalLatency / requestCount;
+            long requestBytesTotal = m.requestBytesTotal.sum();
+            long responseBytesTotal = m.responseBytesTotal.sum();
+            long avgRequestBytes = requestCount == 0 ? 0 : requestBytesTotal / requestCount;
+            long avgResponseBytes = requestCount == 0 ? 0 : responseBytesTotal / requestCount;
 
             lines.add(StructuredLog.event(
                     "metrics_opcode",
@@ -107,6 +133,14 @@ public class MetricsRegistry {
                     "min_latency_ns", minLatency,
                     "max_latency_ns", maxLatency,
                     "last_latency_ns", lastLatency,
+                    "request_bytes_total", requestBytesTotal,
+                    "request_bytes_last", m.requestBytesLast.get(),
+                    "request_bytes_max", m.requestBytesMax.get(),
+                    "request_bytes_avg", avgRequestBytes,
+                    "response_bytes_total", responseBytesTotal,
+                    "response_bytes_last", m.responseBytesLast.get(),
+                    "response_bytes_max", m.responseBytesMax.get(),
+                    "response_bytes_avg", avgResponseBytes,
                     "last_error", m.lastError.get()
             ));
         });
@@ -143,6 +177,10 @@ public class MetricsRegistry {
             long requests = m.requests.sum();
             long totalLatency = m.totalLatencyNanos.sum();
             long avgLatency = requests == 0 ? 0 : totalLatency / requests;
+            long requestBytesTotal = m.requestBytesTotal.sum();
+            long responseBytesTotal = m.responseBytesTotal.sum();
+            long avgRequestBytes = requests == 0 ? 0 : requestBytesTotal / requests;
+            long avgResponseBytes = requests == 0 ? 0 : responseBytesTotal / requests;
 
             out.append('{');
             out.append("\"opcode\":").append(opcode).append(',');
@@ -155,6 +193,14 @@ public class MetricsRegistry {
             out.append("\"minLatencyNs\":").append(normalizedMin(m.minLatencyNanos.get())).append(',');
             out.append("\"maxLatencyNs\":").append(m.maxLatencyNanos.get()).append(',');
             out.append("\"lastLatencyNs\":").append(m.lastLatencyNanos.get()).append(',');
+            out.append("\"requestBytesTotal\":").append(requestBytesTotal).append(',');
+            out.append("\"requestBytesLast\":").append(m.requestBytesLast.get()).append(',');
+            out.append("\"requestBytesMax\":").append(m.requestBytesMax.get()).append(',');
+            out.append("\"requestBytesAvg\":").append(avgRequestBytes).append(',');
+            out.append("\"responseBytesTotal\":").append(responseBytesTotal).append(',');
+            out.append("\"responseBytesLast\":").append(m.responseBytesLast.get()).append(',');
+            out.append("\"responseBytesMax\":").append(m.responseBytesMax.get()).append(',');
+            out.append("\"responseBytesAvg\":").append(avgResponseBytes).append(',');
             out.append("\"lastUpdatedEpochMs\":").append(m.lastUpdatedEpochMs.get()).append(',');
 
             String lastError = m.lastError.get();
@@ -209,6 +255,10 @@ public class MetricsRegistry {
             long unknown = m.unknown.sum();
             long totalLatency = m.totalLatencyNanos.sum();
             long avgLatency = requests == 0 ? 0 : totalLatency / requests;
+            long requestBytesTotal = m.requestBytesTotal.sum();
+            long responseBytesTotal = m.responseBytesTotal.sum();
+            long avgRequestBytes = requests == 0 ? 0 : requestBytesTotal / requests;
+            long avgResponseBytes = requests == 0 ? 0 : responseBytesTotal / requests;
 
             String labels = labels(opcode, operation);
 
@@ -221,6 +271,14 @@ public class MetricsRegistry {
             appendMetric(out, "protogemcouch_operation_latency_min_ns", labels, normalizedMin(m.minLatencyNanos.get()));
             appendMetric(out, "protogemcouch_operation_latency_max_ns", labels, m.maxLatencyNanos.get());
             appendMetric(out, "protogemcouch_operation_latency_last_ns", labels, m.lastLatencyNanos.get());
+            appendMetric(out, "protogemcouch_operation_request_bytes_total", labels, requestBytesTotal);
+            appendMetric(out, "protogemcouch_operation_request_bytes_last", labels, m.requestBytesLast.get());
+            appendMetric(out, "protogemcouch_operation_request_bytes_max", labels, m.requestBytesMax.get());
+            appendMetric(out, "protogemcouch_operation_request_bytes_avg", labels, avgRequestBytes);
+            appendMetric(out, "protogemcouch_operation_response_bytes_total", labels, responseBytesTotal);
+            appendMetric(out, "protogemcouch_operation_response_bytes_last", labels, m.responseBytesLast.get());
+            appendMetric(out, "protogemcouch_operation_response_bytes_max", labels, m.responseBytesMax.get());
+            appendMetric(out, "protogemcouch_operation_response_bytes_avg", labels, avgResponseBytes);
             appendMetric(out, "protogemcouch_operation_last_updated_epoch_ms", labels, m.lastUpdatedEpochMs.get());
         }
 
@@ -286,6 +344,25 @@ public class MetricsRegistry {
         appendMetricType(out, "protogemcouch_operation_latency_max_ns", "gauge");
         appendMetricHelp(out, "protogemcouch_operation_latency_last_ns", "Last request latency by opcode and operation in nanoseconds.");
         appendMetricType(out, "protogemcouch_operation_latency_last_ns", "gauge");
+
+        appendMetricHelp(out, "protogemcouch_operation_request_bytes_total", "Total decoded request bytes by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_request_bytes_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_request_bytes_last", "Last decoded request byte size by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_request_bytes_last", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_request_bytes_max", "Maximum decoded request byte size by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_request_bytes_max", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_request_bytes_avg", "Average decoded request byte size by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_request_bytes_avg", "gauge");
+
+        appendMetricHelp(out, "protogemcouch_operation_response_bytes_total", "Total response bytes recorded by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_response_bytes_total", "counter");
+        appendMetricHelp(out, "protogemcouch_operation_response_bytes_last", "Last response byte size recorded by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_response_bytes_last", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_response_bytes_max", "Maximum response byte size recorded by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_response_bytes_max", "gauge");
+        appendMetricHelp(out, "protogemcouch_operation_response_bytes_avg", "Average response byte size recorded by opcode and operation.");
+        appendMetricType(out, "protogemcouch_operation_response_bytes_avg", "gauge");
+
         appendMetricHelp(out, "protogemcouch_operation_last_updated_epoch_ms", "Last update time by opcode and operation in epoch milliseconds.");
         appendMetricType(out, "protogemcouch_operation_last_updated_epoch_ms", "gauge");
     }
@@ -336,6 +413,15 @@ public class MetricsRegistry {
         private final LongAdder errors = new LongAdder();
         private final LongAdder unknown = new LongAdder();
         private final LongAdder totalLatencyNanos = new LongAdder();
+
+        private final LongAdder requestBytesTotal = new LongAdder();
+        private final AtomicLong requestBytesLast = new AtomicLong(0L);
+        private final AtomicLong requestBytesMax = new AtomicLong(0L);
+
+        private final LongAdder responseBytesTotal = new LongAdder();
+        private final AtomicLong responseBytesLast = new AtomicLong(0L);
+        private final AtomicLong responseBytesMax = new AtomicLong(0L);
+
         private final AtomicLong minLatencyNanos = new AtomicLong(Long.MAX_VALUE);
         private final AtomicLong maxLatencyNanos = new AtomicLong(0L);
         private final AtomicLong lastLatencyNanos = new AtomicLong(0L);
