@@ -1,3 +1,0 @@
-CONTAINER ID   NAME                      CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O   PIDS
-5de47ca1719c   protogemcouch-shim        2.43%     420.7MiB / 62.67GiB   0.66%     18.9MB / 17MB     0B / 0B     108
-8e3fc932e841   protogemcouch-couchbase   5.06%     1.041GiB / 62.67GiB   1.66%     10.4MB / 11.6MB   0B / 0B     705
