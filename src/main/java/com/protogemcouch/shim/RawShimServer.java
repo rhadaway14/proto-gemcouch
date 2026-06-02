@@ -15,6 +15,7 @@ import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
 import com.protogemcouch.ops.UnknownOpcodeHandler;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.wire.FrameLimits;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemFrameDecoder;
 import com.protogemcouch.wire.GemPart;
@@ -58,6 +59,7 @@ public class RawShimServer {
             AttributeKey.valueOf("protogemcouch.currentOpcode");
 
     private static ServerConfig config;
+    private static FrameLimits frameLimits;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
@@ -85,6 +87,13 @@ public class RawShimServer {
             healthState.markConfigValidated();
 
             metrics = new MetricsRegistry();
+
+            frameLimits = FrameLimits.fromEnv();
+            log.info(StructuredLog.event(
+                    "frame_limits_configured",
+                    "maxFrameBytes", frameLimits.maxFrameBytes(),
+                    "maxParts", frameLimits.maxParts()
+            ));
 
             healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState, metrics);
             healthHttpServer.start();
@@ -197,6 +206,22 @@ public class RawShimServer {
         }
     }
 
+    /**
+     * Invoked by {@link GemFrameDecoder} when an inbound frame is rejected as malformed or oversized.
+     * Records the event in metrics and logs it; the decoder closes the offending connection.
+     */
+    static void onMalformedFrame(String reason, java.net.SocketAddress remote, long offendingValue) {
+        if (metrics != null) {
+            metrics.recordMalformedFrame();
+        }
+        log.warn(StructuredLog.event(
+                "malformed_frame",
+                "reason", reason,
+                "remote", remote,
+                "offendingValue", offendingValue
+        ));
+    }
+
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {
         private boolean handshakeDone = false;
 
@@ -240,7 +265,7 @@ public class RawShimServer {
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(HANDSHAKE_REPLY));
                 handshakeDone = true;
 
-                ctx.pipeline().addLast(new GemFrameDecoder());
+                ctx.pipeline().addLast(new GemFrameDecoder(frameLimits, RawShimServer::onMalformedFrame));
                 ctx.pipeline().addLast(new ResponseByteMetricsHandler());
                 ctx.pipeline().addLast(new GemRequestHandler());
                 ctx.pipeline().remove(this);

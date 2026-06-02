@@ -160,6 +160,7 @@ load profile changes
 protogemcouch_handshake_requests_total
 protogemcouch_unknown_opcodes_total
 protogemcouch_request_errors_total
+protogemcouch_malformed_frames_total
 ```
 
 Useful for:
@@ -168,7 +169,13 @@ Useful for:
 new client behavior
 unsupported protocol requests
 error tracking
+malformed / oversized frame rejection (possible corruption or abuse)
 ```
+
+`protogemcouch_malformed_frames_total` increments whenever an inbound frame is rejected by
+the decoder for violating the configured frame limits (oversized payload, too many parts,
+or an out-of-bounds part length). A sustained nonzero rate indicates a misbehaving client,
+protocol corruption, or a probe/abuse attempt; the offending connection is closed.
 
 ### Per-operation metrics
 

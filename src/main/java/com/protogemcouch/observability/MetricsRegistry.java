@@ -16,6 +16,7 @@ public class MetricsRegistry {
     private final LongAdder handshakeRequests = new LongAdder();
     private final LongAdder unknownOpcodes = new LongAdder();
     private final LongAdder requestErrors = new LongAdder();
+    private final LongAdder malformedFrames = new LongAdder();
 
     private final Map<Integer, OpMetrics> perOpcode = new ConcurrentHashMap<>();
 
@@ -54,6 +55,10 @@ public class MetricsRegistry {
 
     public void recordHandshakeRequest() {
         handshakeRequests.increment();
+    }
+
+    public void recordMalformedFrame() {
+        malformedFrames.increment();
     }
 
     public void recordRequestStart(int opcode) {
@@ -127,7 +132,8 @@ public class MetricsRegistry {
                 "connections_closed", connectionsClosed.sum(),
                 "handshake_requests", handshakeRequests.sum(),
                 "unknown_opcodes", unknownOpcodes.sum(),
-                "request_errors", requestErrors.sum()
+                "request_errors", requestErrors.sum(),
+                "malformed_frames", malformedFrames.sum()
         ));
 
         sortedOpcodeEntries().forEach(entry -> {
@@ -187,7 +193,8 @@ public class MetricsRegistry {
         out.append("\"requests\":{");
         out.append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',');
         out.append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',');
-        out.append("\"requestErrors\":").append(requestErrors.sum());
+        out.append("\"requestErrors\":").append(requestErrors.sum()).append(',');
+        out.append("\"malformedFrames\":").append(malformedFrames.sum());
         out.append("},");
 
         out.append("\"operations\":[");
@@ -270,6 +277,10 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_request_errors_total", "Total request errors across all opcodes.");
         appendMetricType(out, "protogemcouch_request_errors_total", "counter");
         appendMetric(out, "protogemcouch_request_errors_total", requestErrors.sum());
+
+        appendMetricHelp(out, "protogemcouch_malformed_frames_total", "Total inbound frames rejected as malformed or oversized.");
+        appendMetricType(out, "protogemcouch_malformed_frames_total", "counter");
+        appendMetric(out, "protogemcouch_malformed_frames_total", malformedFrames.sum());
 
         appendOperationMetricHeaders(out);
 

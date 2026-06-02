@@ -109,6 +109,31 @@ Recommended:
 
 ---
 
+## Inbound frame validation
+
+The Geode protocol encodes payload length, part count, and per-part length as raw 32-bit
+integers supplied by the client. The frame decoder validates every one of these against
+configurable limits before allocating memory or reading bytes, so a corrupt or hostile frame
+cannot drive the shim into an oversized allocation and crash it with an `OutOfMemoryError`.
+
+Limits (with defaults):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `MAX_FRAME_BYTES` | 52428800 (50 MiB) | Maximum declared payload size, and per-part length cap. |
+| `MAX_FRAME_PARTS` | 100000 | Maximum number of parts a single frame may declare. |
+
+When a frame violates a limit, the shim:
+
+- increments `protogemcouch_malformed_frames_total`
+- logs a structured `malformed_frame` event with a reason code and the offending value
+- closes the offending connection (the byte stream can no longer be trusted to be frame-aligned)
+
+Tune the limits down to the smallest values that comfortably fit legitimate traffic for your
+deployment to reduce the per-connection memory exposure further.
+
+---
+
 ## Container hardening
 
 Current hardening includes:

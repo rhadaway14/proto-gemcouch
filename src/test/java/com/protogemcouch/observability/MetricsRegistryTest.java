@@ -255,6 +255,24 @@ class MetricsRegistryTest {
     }
 
     @Test
+    void malformedFrameCounterShouldAppearInAllRenderings() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        registry.recordMalformedFrame();
+        registry.recordMalformedFrame();
+
+        String json = registry.snapshotJson();
+        assertTrue(json.contains("\"malformedFrames\":2"));
+
+        String prometheus = registry.snapshotPrometheus();
+        assertTrue(prometheus.contains("# TYPE protogemcouch_malformed_frames_total counter"));
+        assertTrue(prometheus.contains("protogemcouch_malformed_frames_total 2"));
+
+        List<String> lines = registry.snapshotLines();
+        assertTrue(lines.get(0).contains("malformed_frames=2"));
+    }
+
+    @Test
     void snapshotPrometheusShouldIncludeLatencyHistogram() {
         MetricsRegistry registry = new MetricsRegistry();
 
