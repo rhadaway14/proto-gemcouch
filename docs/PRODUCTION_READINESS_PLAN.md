@@ -249,11 +249,16 @@ Done:
   (`MAX_CONNECTIONS`, default unlimited), with `protogemcouch_idle_connections_closed_total` and
   `protogemcouch_connections_rejected_total` metrics. In-flight work is drained on shutdown via
   graceful shutdown of the handler executor group and event-loop groups.
+- Failure-mode integration tests + CI gate: `ProtoGemCouchFailureIntegrationTest` validates, against
+  a real Geode client and the Dockerized backend, that an oversized frame is rejected and the
+  connection closed, that an abrupt client disconnect does not affect server health, and that a
+  Couchbase outage surfaces as a recorded operation error (not a silent empty read) and recovers.
+  A CI workflow (`.github/workflows/integration.yml`) runs `mvn verify` on main and pull requests,
+  so the compatibility and failure suites are enforced before merge.
 
 Remaining:
 
 - Validate the EXCEPTION frame against a live Geode client, then make `exception` the default.
-- Validate reconnect / failure behavior end-to-end (Testcontainers outage tests) + CI verify gate.
 - Optional: full slowloris mitigation (first-request deadline) and bounded handler-queue
   backpressure / load shedding under sustained backend slowness.
 

@@ -304,9 +304,10 @@ Required for stronger release confidence:
 
 Current status:
 
-- [ ] Confirm CI status against current repository state
-- [ ] Confirm Docker image build automation against current repository state
-- [ ] Confirm dependency/static analysis automation against current repository state
+- [x] CI runs unit tests on every push (`build-test.yml`)
+- [x] CI runs the Docker-backed integration + failure suite via `mvn verify` on main and PRs (`integration.yml`)
+- [x] CI builds the Docker image (`docker-image.yml`)
+- [x] CI runs dependency submission + CodeQL static analysis (`dependency-scan.yml`)
 - [ ] Optional release/tag artifact publishing can be expanded later
 
 ---
