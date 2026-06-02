@@ -37,6 +37,10 @@ Optional:
 - `ERROR_RESPONSE_MODE` default `close` (`close` = drop the connection on operation failure;
   `exception` = reply with a Geode EXCEPTION frame and keep the connection open). `exception`
   mode is pending live-client validation and should stay `close` until then.
+- `HANDLER_THREADS` default `64` (size of the executor pool that runs request handlers off the
+  Netty event loop; raise it if many connections may block on a slow backend at once)
+- `CB_KV_TIMEOUT_MS` default `5000` (per-operation Couchbase KV timeout)
+- `CB_CONNECT_TIMEOUT_MS` default `10000` (Couchbase connect timeout)
 
 Example:
 

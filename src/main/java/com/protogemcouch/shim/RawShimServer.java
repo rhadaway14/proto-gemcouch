@@ -35,6 +35,8 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.EventExecutorGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +63,7 @@ public class RawShimServer {
     private static ServerConfig config;
     private static FrameLimits frameLimits;
     private static ErrorResponsePolicy errorResponsePolicy;
+    private static EventExecutorGroup handlerExecutorGroup;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
@@ -113,6 +116,13 @@ public class RawShimServer {
 
             startMetricsReporter();
 
+            HandlerExecutorConfig handlerExecutorConfig = HandlerExecutorConfig.fromEnv();
+            handlerExecutorGroup = new DefaultEventExecutorGroup(handlerExecutorConfig.threads());
+            log.info(StructuredLog.event(
+                    "handler_executor_configured",
+                    "threads", handlerExecutorConfig.threads()
+            ));
+
             boss = new NioEventLoopGroup(1);
             workers = new NioEventLoopGroup();
 
@@ -161,6 +171,9 @@ public class RawShimServer {
             }
             if (boss != null) {
                 boss.shutdownGracefully();
+            }
+            if (handlerExecutorGroup != null) {
+                handlerExecutorGroup.shutdownGracefully();
             }
 
             closeRepository(repository);
@@ -287,7 +300,12 @@ public class RawShimServer {
 
                 ctx.pipeline().addLast(new GemFrameDecoder(frameLimits, RawShimServer::onMalformedFrame));
                 ctx.pipeline().addLast(new ResponseByteMetricsHandler());
-                ctx.pipeline().addLast(new GemRequestHandler());
+                /*
+                 * Run the request handler on a dedicated executor group, not the Netty event loop.
+                 * Handlers make blocking Couchbase calls, so keeping them off the I/O loop prevents
+                 * one slow backend call from stalling every other connection on the same loop.
+                 */
+                ctx.pipeline().addLast(handlerExecutorGroup, new GemRequestHandler());
                 ctx.pipeline().remove(this);
                 return;
             }
@@ -318,10 +336,17 @@ public class RawShimServer {
             metrics.recordRequestBytes(opcode, requestBytes);
 
             /*
-             * Individual OperationHandler implementations write responses directly
-             * through the ChannelHandlerContext. Store the current opcode on the
-             * channel so the outbound response-byte recorder can attribute the
-             * written ByteBuf size to the operation that produced it.
+             * Individual OperationHandler implementations write responses directly through the
+             * ChannelHandlerContext. Store the current opcode on the channel so the outbound
+             * response-byte recorder can attribute the written ByteBuf size to the operation that
+             * produced it.
+             *
+             * The handler runs on a dedicated executor (not the event loop), so writeAndFlush is
+             * asynchronous: the outbound recorder reads this attribute later, on the event loop. We
+             * therefore do NOT clear it after the request — clearing could null it before the write
+             * is processed. Leaving the last opcode set is correct because the Geode client is
+             * synchronous per connection (it waits for each response before sending the next
+             * request), so the next request overwrites it only after this response has been sent.
              */
             ctx.channel().attr(CURRENT_OPCODE).set(opcode);
 
@@ -391,8 +416,6 @@ public class RawShimServer {
                  * place that owns post-decode operation-failure behavior.
                  */
                 errorResponsePolicy.onFailure(ctx, opcode, frame.getTransactionId(), e);
-            } finally {
-                ctx.channel().attr(CURRENT_OPCODE).set(null);
             }
         }
 

@@ -91,10 +91,19 @@ public class CouchbaseRepository implements Repository {
                 "collection", config.getCouchbaseCollection()
         ));
 
+        long kvTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_KV_TIMEOUT_MS"), 5_000L);
+        long connectTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_CONNECT_TIMEOUT_MS"), 10_000L);
+
+        log.info(StructuredLog.event(
+                "repository_timeouts_configured",
+                "kvTimeoutMs", kvTimeoutMs,
+                "connectTimeoutMs", connectTimeoutMs
+        ));
+
         ClusterEnvironment env = ClusterEnvironment.builder()
                 .timeoutConfig(tc -> tc
-                        .connectTimeout(Duration.ofSeconds(10))
-                        .kvTimeout(Duration.ofSeconds(5)))
+                        .connectTimeout(Duration.ofMillis(connectTimeoutMs))
+                        .kvTimeout(Duration.ofMillis(kvTimeoutMs)))
                 .build();
 
         cluster = Cluster.connect(
@@ -111,6 +120,22 @@ public class CouchbaseRepository implements Repository {
         collection = scope.collection(config.getCouchbaseCollection());
 
         log.info(StructuredLog.event("repository_connected"));
+    }
+
+    /**
+     * Parse a positive millisecond timeout, falling back to the default for an unset, blank,
+     * non-numeric, or non-positive value. Package-private for testing.
+     */
+    static long parsePositiveLongOrDefault(String rawValue, long defaultValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            long parsed = Long.parseLong(rawValue.trim());
+            return parsed > 0 ? parsed : defaultValue;
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     public void disconnect() {

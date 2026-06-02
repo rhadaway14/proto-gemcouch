@@ -239,12 +239,17 @@ Done:
   and keeps the connection open. The EXCEPTION wire shape is built and structurally tested but
   not yet the default, pending live-client validation in the integration suite.
 
+- Event-loop isolation: request handlers run on a dedicated executor group (`HANDLER_THREADS`,
+  default 64) instead of the Netty I/O event loop, so a slow Couchbase call no longer stalls
+  other connections on the same loop. Couchbase KV and connect timeouts are now configurable
+  (`CB_KV_TIMEOUT_MS`, `CB_CONNECT_TIMEOUT_MS`) to bound per-operation latency explicitly.
+
 Remaining:
 
 - Validate the EXCEPTION frame against a live Geode client, then make `exception` the default.
-- Move blocking backend calls off the Netty event loop with explicit per-operation timeouts.
 - Connection lifecycle guards (idle/slow-connection reaping, in-flight drain on shutdown).
 - Validate reconnect behavior end-to-end (Testcontainers outage tests).
+- Optional: bounded handler-queue backpressure / load shedding under sustained backend slowness.
 
 Tasks:
 
