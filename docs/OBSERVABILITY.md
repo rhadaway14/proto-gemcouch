@@ -190,6 +190,17 @@ protogemcouch_operation_response_bytes_last{opcode="...",operation="..."}
 protogemcouch_operation_response_bytes_max{opcode="...",operation="..."}
 protogemcouch_operation_response_bytes_avg{opcode="...",operation="..."}
 protogemcouch_operation_last_updated_epoch_ms{opcode="...",operation="..."}
+protogemcouch_operation_latency_seconds_bucket{opcode="...",operation="...",le="..."}
+protogemcouch_operation_latency_seconds_sum{opcode="...",operation="..."}
+protogemcouch_operation_latency_seconds_count{opcode="...",operation="..."}
+```
+
+The `protogemcouch_operation_latency_seconds` family is a true Prometheus histogram
+(`# TYPE ... histogram`), so it supports `histogram_quantile()` for percentiles. Buckets
+are cumulative, expressed in seconds, with bounds:
+
+```text
+0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, +Inf
 ```
 
 Useful for:
@@ -198,6 +209,7 @@ Useful for:
 request rate by operation
 success/error rate by operation
 latency per operation
+latency percentiles (p50/p95/p99) per operation
 request payload size by operation
 response payload size by operation
 detecting risky operations such as GET_ALL, PUT_ALL, and keySetOnServer
@@ -237,6 +249,18 @@ protogemcouch_operation_latency_avg_ns / 1000000
 
 ```promql
 protogemcouch_operation_latency_max_ns / 1000000
+```
+
+p95 latency per operation (seconds), from the histogram:
+
+```promql
+histogram_quantile(0.95, sum by (operation, le) (rate(protogemcouch_operation_latency_seconds_bucket[5m])))
+```
+
+p99 latency per operation (seconds):
+
+```promql
+histogram_quantile(0.99, sum by (operation, le) (rate(protogemcouch_operation_latency_seconds_bucket[5m])))
 ```
 
 ```promql
@@ -334,7 +358,11 @@ mvn clean verify
 
 The metrics registry is currently in-process and resets on restart.
 
-The current latency and byte-size metrics are summary-style values maintained in memory. They are useful for operational visibility and trend correlation, but they are not full Prometheus histograms.
+Operation latency is now also exposed as a true Prometheus histogram
+(`protogemcouch_operation_latency_seconds`), so percentiles are available via
+`histogram_quantile()`. The avg/min/max/last latency gauges and the byte-size metrics
+remain summary-style values maintained in memory, useful for operational visibility and
+trend correlation but not themselves histograms.
 
 Request byte metrics are estimated from the decoded `GemFrame` after the raw Netty frame has already been parsed. They are intended for trend analysis and operation correlation, not exact packet accounting.
 
@@ -343,8 +371,8 @@ Response byte metrics are captured centrally from outbound Netty `ByteBuf` write
 Future enhancements may include:
 
 ```text
-Prometheus histogram buckets
 Couchbase repository latency separation
 serialization latency separation
 handler-level last-error labels or structured event counters
+configurable histogram bucket bounds
 ```

@@ -254,4 +254,57 @@ class MetricsRegistryTest {
         assertTrue(json.contains("\"responseBytesMax\":0"));
     }
 
+    @Test
+    void snapshotPrometheusShouldIncludeLatencyHistogram() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        int opcode = MessageTypes.GET_ALL_70;
+        String labelPrefix = "{opcode=\"" + opcode + "\",operation=\"GET_ALL\"";
+        String summaryLabels = labelPrefix + "}";
+
+        // 0.4 ms -> le 0.0005, 0.8 ms -> le 0.001, 3 ms -> le 0.005
+        registry.recordRequestStart(opcode);
+        registry.recordRequestSuccess(opcode, 400_000L);
+        registry.recordRequestStart(opcode);
+        registry.recordRequestSuccess(opcode, 800_000L);
+        registry.recordRequestStart(opcode);
+        registry.recordRequestError(opcode, 3_000_000L, new RuntimeException("boom"));
+
+        String metrics = registry.snapshotPrometheus();
+
+        assertTrue(metrics.contains("# TYPE protogemcouch_operation_latency_seconds histogram"));
+
+        // Buckets are cumulative.
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_bucket" + labelPrefix + ",le=\"0.0005\"} 1"));
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_bucket" + labelPrefix + ",le=\"0.001\"} 2"));
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_bucket" + labelPrefix + ",le=\"0.0025\"} 2"));
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_bucket" + labelPrefix + ",le=\"0.005\"} 3"));
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_bucket" + labelPrefix + ",le=\"+Inf\"} 3"));
+
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_count" + summaryLabels + " 3"));
+        // (400000 + 800000 + 3000000) ns = 0.004200000 s
+        assertTrue(metrics.contains("protogemcouch_operation_latency_seconds_sum" + summaryLabels + " 0.004200000"));
+    }
+
+    @Test
+    void snapshotJsonShouldIncludeLatencyHistogram() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        int opcode = MessageTypes.GET_ALL_70;
+
+        registry.recordRequestStart(opcode);
+        registry.recordRequestSuccess(opcode, 400_000L);
+        registry.recordRequestStart(opcode);
+        registry.recordRequestSuccess(opcode, 3_000_000L);
+
+        String json = registry.snapshotJson();
+
+        assertTrue(json.contains("\"latencyBucketsSeconds\":{"));
+        assertTrue(json.contains("\"0.0005\":1"));
+        assertTrue(json.contains("\"0.005\":2"));
+        assertTrue(json.contains("\"+Inf\":2"));
+        assertTrue(json.contains("\"latencyCount\":2"));
+        assertTrue(json.contains("\"latencySumSeconds\":0.003400000"));
+    }
+
 }

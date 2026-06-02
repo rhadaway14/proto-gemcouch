@@ -19,6 +19,31 @@ public class MetricsRegistry {
 
     private final Map<Integer, OpMetrics> perOpcode = new ConcurrentHashMap<>();
 
+    /**
+     * Cumulative histogram bucket upper bounds for operation latency, expressed in nanoseconds for
+     * cheap integer comparison against observed latencies. The matching {@code le} labels in
+     * {@link #LATENCY_BUCKET_LE} are expressed in seconds, following Prometheus base-unit convention.
+     * An implicit {@code +Inf} bucket captures everything above the largest finite bound.
+     */
+    private static final long[] LATENCY_BUCKET_BOUNDS_NANOS = {
+            500_000L,        // 0.5 ms
+            1_000_000L,      // 1 ms
+            2_500_000L,      // 2.5 ms
+            5_000_000L,      // 5 ms
+            10_000_000L,     // 10 ms
+            25_000_000L,     // 25 ms
+            50_000_000L,     // 50 ms
+            100_000_000L,    // 100 ms
+            250_000_000L,    // 250 ms
+            500_000_000L,    // 500 ms
+            1_000_000_000L   // 1 s
+    };
+
+    private static final String[] LATENCY_BUCKET_LE = {
+            "0.0005", "0.001", "0.0025", "0.005", "0.01", "0.025",
+            "0.05", "0.1", "0.25", "0.5", "1"
+    };
+
     public void recordConnectionOpened() {
         connectionsOpened.increment();
     }
@@ -61,6 +86,7 @@ public class MetricsRegistry {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
         metrics.successes.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
+        metrics.observeLatency(elapsedNanos);
         metrics.lastLatencyNanos.set(elapsedNanos);
         metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
         metrics.lastError.set(null);
@@ -76,6 +102,7 @@ public class MetricsRegistry {
         OpMetrics metrics = perOpcode.computeIfAbsent(opcode, ignored -> new OpMetrics());
         metrics.errors.increment();
         metrics.totalLatencyNanos.add(elapsedNanos);
+        metrics.observeLatency(elapsedNanos);
         metrics.lastLatencyNanos.set(elapsedNanos);
         metrics.lastUpdatedEpochMs.set(System.currentTimeMillis());
         metrics.lastError.set(error == null ? null : safeError(error));
@@ -203,6 +230,8 @@ public class MetricsRegistry {
             out.append("\"responseBytesAvg\":").append(avgResponseBytes).append(',');
             out.append("\"lastUpdatedEpochMs\":").append(m.lastUpdatedEpochMs.get()).append(',');
 
+            appendJsonLatencyHistogram(out, m);
+
             String lastError = m.lastError.get();
             if (lastError == null) {
                 out.append("\"lastError\":null");
@@ -280,9 +309,46 @@ public class MetricsRegistry {
             appendMetric(out, "protogemcouch_operation_response_bytes_max", labels, m.responseBytesMax.get());
             appendMetric(out, "protogemcouch_operation_response_bytes_avg", labels, avgResponseBytes);
             appendMetric(out, "protogemcouch_operation_last_updated_epoch_ms", labels, m.lastUpdatedEpochMs.get());
+
+            appendLatencyHistogram(out, opcode, operation, m);
         }
 
         return out.toString();
+    }
+
+    private static void appendLatencyHistogram(StringBuilder out, int opcode, String operation, OpMetrics m) {
+        long cumulative = 0L;
+        for (int i = 0; i < LATENCY_BUCKET_LE.length; i++) {
+            cumulative += m.latencyBuckets[i].sum();
+            out.append("protogemcouch_operation_latency_seconds_bucket")
+                    .append(bucketLabels(opcode, operation, LATENCY_BUCKET_LE[i]))
+                    .append(' ').append(cumulative).append('\n');
+        }
+
+        long total = cumulative + m.latencyBuckets[LATENCY_BUCKET_LE.length].sum();
+        out.append("protogemcouch_operation_latency_seconds_bucket")
+                .append(bucketLabels(opcode, operation, "+Inf"))
+                .append(' ').append(total).append('\n');
+
+        String labels = labels(opcode, operation);
+        out.append("protogemcouch_operation_latency_seconds_sum")
+                .append(labels).append(' ').append(secondsString(m.totalLatencyNanos.sum())).append('\n');
+        out.append("protogemcouch_operation_latency_seconds_count")
+                .append(labels).append(' ').append(total).append('\n');
+    }
+
+    private static void appendJsonLatencyHistogram(StringBuilder out, OpMetrics m) {
+        out.append("\"latencyBucketsSeconds\":{");
+        long cumulative = 0L;
+        for (int i = 0; i < LATENCY_BUCKET_LE.length; i++) {
+            cumulative += m.latencyBuckets[i].sum();
+            out.append('"').append(LATENCY_BUCKET_LE[i]).append("\":").append(cumulative).append(',');
+        }
+        long total = cumulative + m.latencyBuckets[LATENCY_BUCKET_LE.length].sum();
+        out.append("\"+Inf\":").append(total);
+        out.append("},");
+        out.append("\"latencySumSeconds\":").append(secondsString(m.totalLatencyNanos.sum())).append(',');
+        out.append("\"latencyCount\":").append(total).append(',');
     }
 
     private List<Map.Entry<Integer, OpMetrics>> sortedOpcodeEntries() {
@@ -365,6 +431,9 @@ public class MetricsRegistry {
 
         appendMetricHelp(out, "protogemcouch_operation_last_updated_epoch_ms", "Last update time by opcode and operation in epoch milliseconds.");
         appendMetricType(out, "protogemcouch_operation_last_updated_epoch_ms", "gauge");
+
+        appendMetricHelp(out, "protogemcouch_operation_latency_seconds", "Request latency histogram by opcode and operation in seconds.");
+        appendMetricType(out, "protogemcouch_operation_latency_seconds", "histogram");
     }
 
     private static void appendMetricHelp(StringBuilder out, String metric, String help) {
@@ -386,6 +455,16 @@ public class MetricsRegistry {
     private static String labels(int opcode, String operation) {
         return "{opcode=\"" + prometheusEscape(String.valueOf(opcode))
                 + "\",operation=\"" + prometheusEscape(operation) + "\"}";
+    }
+
+    private static String bucketLabels(int opcode, String operation, String le) {
+        return "{opcode=\"" + prometheusEscape(String.valueOf(opcode))
+                + "\",operation=\"" + prometheusEscape(operation)
+                + "\",le=\"" + prometheusEscape(le) + "\"}";
+    }
+
+    private static String secondsString(long nanos) {
+        return new java.math.BigDecimal(nanos).movePointLeft(9).toPlainString();
     }
 
     private static String prometheusEscape(String value) {
@@ -427,5 +506,31 @@ public class MetricsRegistry {
         private final AtomicLong lastLatencyNanos = new AtomicLong(0L);
         private final AtomicLong lastUpdatedEpochMs = new AtomicLong(0L);
         private final AtomicReference<String> lastError = new AtomicReference<>();
+
+        /**
+         * Per-bucket observation counts. Indices align with {@link #LATENCY_BUCKET_BOUNDS_NANOS};
+         * the final slot is the implicit {@code +Inf} bucket. Counts are non-cumulative here and are
+         * accumulated at render time.
+         */
+        private final LongAdder[] latencyBuckets = newLatencyBuckets();
+
+        private void observeLatency(long elapsedNanos) {
+            int index = LATENCY_BUCKET_BOUNDS_NANOS.length;
+            for (int i = 0; i < LATENCY_BUCKET_BOUNDS_NANOS.length; i++) {
+                if (elapsedNanos <= LATENCY_BUCKET_BOUNDS_NANOS[i]) {
+                    index = i;
+                    break;
+                }
+            }
+            latencyBuckets[index].increment();
+        }
+
+        private static LongAdder[] newLatencyBuckets() {
+            LongAdder[] buckets = new LongAdder[LATENCY_BUCKET_BOUNDS_NANOS.length + 1];
+            for (int i = 0; i < buckets.length; i++) {
+                buckets[i] = new LongAdder();
+            }
+            return buckets;
+        }
     }
 }
