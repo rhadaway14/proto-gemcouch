@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Load any dashboard JSON found in /var/lib/grafana/dashboards (mounted from grafana/dashboards).
+providers:
+  - name: ProtoGemCouch
+    orgId: 1
+    folder: ProtoGemCouch
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
