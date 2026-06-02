@@ -41,6 +41,10 @@ Optional:
   Netty event loop; raise it if many connections may block on a slow backend at once)
 - `CB_KV_TIMEOUT_MS` default `5000` (per-operation Couchbase KV timeout)
 - `CB_CONNECT_TIMEOUT_MS` default `10000` (Couchbase connect timeout)
+- `CONNECTION_IDLE_TIMEOUT_SECONDS` default `300` (close a connection with no read/write activity
+  for this long; `0` disables idle reaping)
+- `MAX_CONNECTIONS` default `0` (max concurrent client connections; new connections beyond this
+  are rejected and closed; `0` means unlimited)
 
 Example:
 

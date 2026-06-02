@@ -273,6 +273,30 @@ class MetricsRegistryTest {
     }
 
     @Test
+    void connectionGuardCountersShouldAppearInAllRenderings() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        registry.recordConnectionRejected();
+        registry.recordConnectionRejected();
+        registry.recordConnectionRejected();
+        registry.recordIdleConnectionClosed();
+
+        String json = registry.snapshotJson();
+        assertTrue(json.contains("\"rejected\":3"));
+        assertTrue(json.contains("\"idleClosed\":1"));
+
+        String prometheus = registry.snapshotPrometheus();
+        assertTrue(prometheus.contains("# TYPE protogemcouch_connections_rejected_total counter"));
+        assertTrue(prometheus.contains("protogemcouch_connections_rejected_total 3"));
+        assertTrue(prometheus.contains("# TYPE protogemcouch_idle_connections_closed_total counter"));
+        assertTrue(prometheus.contains("protogemcouch_idle_connections_closed_total 1"));
+
+        List<String> lines = registry.snapshotLines();
+        assertTrue(lines.get(0).contains("connections_rejected=3"));
+        assertTrue(lines.get(0).contains("idle_connections_closed=1"));
+    }
+
+    @Test
     void snapshotPrometheusShouldIncludeLatencyHistogram() {
         MetricsRegistry registry = new MetricsRegistry();
 

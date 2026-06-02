@@ -144,6 +144,8 @@ Use `/metrics` for Prometheus, Grafana Agent, Grafana Alloy, or any compatible s
 ```text
 protogemcouch_connections_opened_total
 protogemcouch_connections_closed_total
+protogemcouch_connections_rejected_total
+protogemcouch_idle_connections_closed_total
 ```
 
 Useful for:
@@ -152,6 +154,8 @@ Useful for:
 client churn
 unexpected disconnects
 load profile changes
+connections rejected at the max-connections cap (capacity pressure)
+connections reaped for being idle (dead peers / leaked connections)
 ```
 
 ### Request metrics

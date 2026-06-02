@@ -35,6 +35,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import org.slf4j.Logger;
@@ -64,6 +65,8 @@ public class RawShimServer {
     private static FrameLimits frameLimits;
     private static ErrorResponsePolicy errorResponsePolicy;
     private static EventExecutorGroup handlerExecutorGroup;
+    private static ConnectionLimits connectionLimits;
+    private static ConnectionLimiter connectionLimiter;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
@@ -123,6 +126,14 @@ public class RawShimServer {
                     "threads", handlerExecutorConfig.threads()
             ));
 
+            connectionLimits = ConnectionLimits.fromEnv();
+            connectionLimiter = new ConnectionLimiter(connectionLimits.maxConnections());
+            log.info(StructuredLog.event(
+                    "connection_limits_configured",
+                    "idleTimeoutSeconds", connectionLimits.idleTimeoutSeconds(),
+                    "maxConnections", connectionLimits.maxConnections()
+            ));
+
             boss = new NioEventLoopGroup(1);
             workers = new NioEventLoopGroup();
 
@@ -132,6 +143,12 @@ public class RawShimServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
+                            if (connectionLimits.idleReapingEnabled()) {
+                                // allIdle: fire when neither a read nor a write has happened for the timeout.
+                                ch.pipeline().addLast(new IdleStateHandler(
+                                        0, 0, connectionLimits.idleTimeoutSeconds(), TimeUnit.SECONDS));
+                                ch.pipeline().addLast(new IdleConnectionHandler(RawShimServer::onIdleConnection));
+                            }
                             ch.pipeline().addLast(new HandshakeThenFrameHandler());
                         }
                     });
@@ -240,6 +257,21 @@ public class RawShimServer {
     }
 
     /**
+     * Invoked by {@link IdleConnectionHandler} when a connection is closed for being idle past the
+     * configured timeout. Records the event in metrics and logs it.
+     */
+    static void onIdleConnection(java.net.SocketAddress remote) {
+        if (metrics != null) {
+            metrics.recordIdleConnectionClosed();
+        }
+        log.info(StructuredLog.event(
+                "connection_idle_closed",
+                "remote", remote,
+                "idleTimeoutSeconds", connectionLimits == null ? -1 : connectionLimits.idleTimeoutSeconds()
+        ));
+    }
+
+    /**
      * Invoked by {@link GemFrameDecoder} when an inbound frame is rejected as malformed or oversized.
      * Records the event in metrics and logs it; the decoder closes the offending connection.
      */
@@ -257,23 +289,41 @@ public class RawShimServer {
 
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {
         private boolean handshakeDone = false;
+        private boolean acquired = false;
 
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
+            if (!connectionLimiter.tryAcquire()) {
+                metrics.recordConnectionRejected();
+                log.warn(StructuredLog.event(
+                        "connection_rejected",
+                        "reason", "max_connections_exceeded",
+                        "maxConnections", connectionLimiter.maxConnections(),
+                        "remote", ctx.channel().remoteAddress()
+                ));
+                ctx.close();
+                return;
+            }
+
+            acquired = true;
             metrics.recordConnectionOpened();
             log.info(StructuredLog.event(
                     "client_connected",
-                    "remote", ctx.channel().remoteAddress()
+                    "remote", ctx.channel().remoteAddress(),
+                    "activeConnections", connectionLimiter.activeConnections()
             ));
         }
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            metrics.recordConnectionClosed();
-            log.info(StructuredLog.event(
-                    "client_disconnected",
-                    "remote", ctx.channel().remoteAddress()
-            ));
+            if (acquired) {
+                metrics.recordConnectionClosed();
+                connectionLimiter.release();
+                log.info(StructuredLog.event(
+                        "client_disconnected",
+                        "remote", ctx.channel().remoteAddress()
+                ));
+            }
             super.channelInactive(ctx);
         }
 

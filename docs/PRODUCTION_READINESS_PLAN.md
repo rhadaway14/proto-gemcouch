@@ -244,12 +244,18 @@ Done:
   other connections on the same loop. Couchbase KV and connect timeouts are now configurable
   (`CB_KV_TIMEOUT_MS`, `CB_CONNECT_TIMEOUT_MS`) to bound per-operation latency explicitly.
 
+- Connection lifecycle guards: idle connections are reaped via an IdleStateHandler
+  (`CONNECTION_IDLE_TIMEOUT_SECONDS`, default 300) and concurrent connections can be capped
+  (`MAX_CONNECTIONS`, default unlimited), with `protogemcouch_idle_connections_closed_total` and
+  `protogemcouch_connections_rejected_total` metrics. In-flight work is drained on shutdown via
+  graceful shutdown of the handler executor group and event-loop groups.
+
 Remaining:
 
 - Validate the EXCEPTION frame against a live Geode client, then make `exception` the default.
-- Connection lifecycle guards (idle/slow-connection reaping, in-flight drain on shutdown).
-- Validate reconnect behavior end-to-end (Testcontainers outage tests).
-- Optional: bounded handler-queue backpressure / load shedding under sustained backend slowness.
+- Validate reconnect / failure behavior end-to-end (Testcontainers outage tests) + CI verify gate.
+- Optional: full slowloris mitigation (first-request deadline) and bounded handler-queue
+  backpressure / load shedding under sustained backend slowness.
 
 Tasks:
 

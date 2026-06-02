@@ -99,6 +99,24 @@ For higher-trust environments, future work should include:
 
 ---
 
+## Connection resource guards
+
+To limit resource exhaustion from dead, slow, or excessive client connections:
+
+| Env var | Default | Effect |
+|---|---|---|
+| `CONNECTION_IDLE_TIMEOUT_SECONDS` | 300 | Connections idle (no read/write) this long are closed and reaped. `0` disables. |
+| `MAX_CONNECTIONS` | 0 (unlimited) | New connections beyond this concurrent count are rejected and closed. |
+
+Rejections and idle reaps are observable via `protogemcouch_connections_rejected_total` and
+`protogemcouch_idle_connections_closed_total`. Set `MAX_CONNECTIONS` to a value matched to the
+shim's resources, and keep an idle timeout enabled on untrusted networks.
+
+Note: idle reaping bounds inactive connections but is not by itself full slowloris protection
+(a client trickling bytes resets the idle timer); a first-request deadline is planned.
+
+---
+
 ## Network exposure guidance
 
 Recommended:

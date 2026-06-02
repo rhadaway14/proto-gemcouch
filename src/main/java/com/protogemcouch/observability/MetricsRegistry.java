@@ -13,6 +13,8 @@ public class MetricsRegistry {
 
     private final LongAdder connectionsOpened = new LongAdder();
     private final LongAdder connectionsClosed = new LongAdder();
+    private final LongAdder connectionsRejected = new LongAdder();
+    private final LongAdder idleConnectionsClosed = new LongAdder();
     private final LongAdder handshakeRequests = new LongAdder();
     private final LongAdder unknownOpcodes = new LongAdder();
     private final LongAdder requestErrors = new LongAdder();
@@ -51,6 +53,14 @@ public class MetricsRegistry {
 
     public void recordConnectionClosed() {
         connectionsClosed.increment();
+    }
+
+    public void recordConnectionRejected() {
+        connectionsRejected.increment();
+    }
+
+    public void recordIdleConnectionClosed() {
+        idleConnectionsClosed.increment();
     }
 
     public void recordHandshakeRequest() {
@@ -130,6 +140,8 @@ public class MetricsRegistry {
                 "metrics_summary",
                 "connections_opened", connectionsOpened.sum(),
                 "connections_closed", connectionsClosed.sum(),
+                "connections_rejected", connectionsRejected.sum(),
+                "idle_connections_closed", idleConnectionsClosed.sum(),
                 "handshake_requests", handshakeRequests.sum(),
                 "unknown_opcodes", unknownOpcodes.sum(),
                 "request_errors", requestErrors.sum(),
@@ -187,7 +199,9 @@ public class MetricsRegistry {
         out.append('{');
         out.append("\"connections\":{");
         out.append("\"opened\":").append(connectionsOpened.sum()).append(',');
-        out.append("\"closed\":").append(connectionsClosed.sum());
+        out.append("\"closed\":").append(connectionsClosed.sum()).append(',');
+        out.append("\"rejected\":").append(connectionsRejected.sum()).append(',');
+        out.append("\"idleClosed\":").append(idleConnectionsClosed.sum());
         out.append("},");
 
         out.append("\"requests\":{");
@@ -265,6 +279,14 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_connections_closed_total", "Total client connections closed.");
         appendMetricType(out, "protogemcouch_connections_closed_total", "counter");
         appendMetric(out, "protogemcouch_connections_closed_total", connectionsClosed.sum());
+
+        appendMetricHelp(out, "protogemcouch_connections_rejected_total", "Total client connections rejected for exceeding the max-connections limit.");
+        appendMetricType(out, "protogemcouch_connections_rejected_total", "counter");
+        appendMetric(out, "protogemcouch_connections_rejected_total", connectionsRejected.sum());
+
+        appendMetricHelp(out, "protogemcouch_idle_connections_closed_total", "Total client connections closed for being idle past the timeout.");
+        appendMetricType(out, "protogemcouch_idle_connections_closed_total", "counter");
+        appendMetric(out, "protogemcouch_idle_connections_closed_total", idleConnectionsClosed.sum());
 
         appendMetricHelp(out, "protogemcouch_handshake_requests_total", "Total Geode handshake requests received.");
         appendMetricType(out, "protogemcouch_handshake_requests_total", "counter");
