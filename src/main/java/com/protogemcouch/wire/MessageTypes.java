@@ -40,6 +40,12 @@ public final class MessageTypes {
     public static final int RESPONSE = 1;
     public static final int REPLY = 6;
 
+    /**
+     * Geode server-side exception response. The client deserializes part 0 into a Throwable and
+     * raises a ServerOperationException, rather than seeing an abrupt connection close.
+     */
+    public static final int EXCEPTION = 22;
+
     // Contains modes
     public static final int CONTAINS_MODE_KEY = 0;
     public static final int CONTAINS_MODE_VALUE_FOR_KEY = 1;

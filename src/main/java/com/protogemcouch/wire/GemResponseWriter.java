@@ -530,6 +530,51 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * Build a Geode EXCEPTION response so a failed operation returns a structured error the client
+     * can interpret, instead of an abrupt connection close.
+     *
+     * <p>Part 0 is a Geode-framed, Java-serialized {@link Throwable}; part 1 is the message string.
+     * The serialized throwable is a plain {@link Exception} (a type guaranteed to be on every Geode
+     * client's classpath) with its stack trace cleared, so the client can always deserialize it and
+     * no server-internal class names or stack frames leak across the wire.
+     *
+     * <p>NOTE: the exact byte shape is validated against a live Geode client in the integration
+     * suite (robustness Phase 6). Until then this builder is exercised structurally and is reachable
+     * only via the opt-in error-response policy.
+     */
+    public static byte[] buildExceptionResponse(int txId, String message) {
+        String safeMessage = (message == null || message.isBlank())
+                ? "ProtoGemCouch operation failed"
+                : message;
+
+        byte[] serializedException = javaSerializeClientSafeException(safeMessage);
+
+        return buildMessage(
+                MessageTypes.EXCEPTION,
+                txId,
+                List.of(
+                        new Part(geodeSerializedJavaObject(serializedException), (byte) 1),
+                        new Part(ValueEncoding.encodeGeodeStringValue(safeMessage), (byte) 1)
+                )
+        );
+    }
+
+    private static byte[] javaSerializeClientSafeException(String message) {
+        Exception exception = new Exception(message);
+        // Drop the stack trace: keeps the payload small and avoids leaking server internals.
+        exception.setStackTrace(new StackTraceElement[0]);
+
+        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+             ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(exception);
+            out.flush();
+            return bytes.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to serialize exception response", e);
+        }
+    }
+
     public static byte[] buildSimpleAck(int txId) {
         return buildMessage(
                 MessageTypes.REPLY,

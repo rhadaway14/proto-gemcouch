@@ -60,6 +60,7 @@ public class RawShimServer {
 
     private static ServerConfig config;
     private static FrameLimits frameLimits;
+    private static ErrorResponsePolicy errorResponsePolicy;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
@@ -93,6 +94,12 @@ public class RawShimServer {
                     "frame_limits_configured",
                     "maxFrameBytes", frameLimits.maxFrameBytes(),
                     "maxParts", frameLimits.maxParts()
+            ));
+
+            errorResponsePolicy = createErrorResponsePolicy();
+            log.info(StructuredLog.event(
+                    "error_response_policy_configured",
+                    "policy", errorResponsePolicy.getClass().getSimpleName()
             ));
 
             healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState, metrics);
@@ -204,6 +211,19 @@ public class RawShimServer {
         if (metricsReporter != null) {
             metricsReporter.shutdownNow();
         }
+    }
+
+    /**
+     * Select the error-response policy from the {@code ERROR_RESPONSE_MODE} environment variable.
+     * Defaults to closing the connection. {@code exception} opts in to sending a Geode EXCEPTION
+     * frame (kept off by default until validated against a live client; see robustness Phase 6).
+     */
+    static ErrorResponsePolicy createErrorResponsePolicy() {
+        String mode = System.getenv("ERROR_RESPONSE_MODE");
+        if (mode != null && mode.trim().equalsIgnoreCase("exception")) {
+            return new ExceptionFrameErrorPolicy();
+        }
+        return new CloseConnectionErrorPolicy();
     }
 
     /**
@@ -364,7 +384,13 @@ public class RawShimServer {
                         "error", e.getMessage()
                 ), e);
 
-                throw e;
+                /*
+                 * Centralized failure seam: the metric and structured log are recorded above, then
+                 * the configured policy decides the client-facing response (close by default, or a
+                 * Geode EXCEPTION frame when opted in). We do not rethrow, so this is the single
+                 * place that owns post-decode operation-failure behavior.
+                 */
+                errorResponsePolicy.onFailure(ctx, opcode, frame.getTransactionId(), e);
             } finally {
                 ctx.channel().attr(CURRENT_OPCODE).set(null);
             }

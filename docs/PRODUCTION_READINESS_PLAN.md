@@ -233,9 +233,15 @@ Done:
   `RepositoryException` and recorded as operation errors instead of being masked as empty
   results. See `docs/RUNBOOK.md` "Backend (Couchbase) failure behavior".
 
+- Graceful error-response seam: post-decode operation failures flow through a single
+  `ErrorResponsePolicy`. The default `close` policy preserves existing behavior; an opt-in
+  `exception` policy (env `ERROR_RESPONSE_MODE=exception`) replies with a Geode EXCEPTION frame
+  and keeps the connection open. The EXCEPTION wire shape is built and structurally tested but
+  not yet the default, pending live-client validation in the integration suite.
+
 Remaining:
 
-- Graceful per-request error responses to clients (instead of closing the connection).
+- Validate the EXCEPTION frame against a live Geode client, then make `exception` the default.
 - Move blocking backend calls off the Netty event loop with explicit per-operation timeouts.
 - Connection lifecycle guards (idle/slow-connection reaping, in-flight drain on shutdown).
 - Validate reconnect behavior end-to-end (Testcontainers outage tests).
