@@ -146,12 +146,12 @@ public class CouchbaseRepository implements Repository {
             ));
             return null;
         } catch (Exception e) {
-            log.warn(StructuredLog.event(
-                    "repository_get_miss_or_error",
+            log.error(StructuredLog.event(
+                    "repository_get_error",
                     "docId", docId,
                     "error", e.getMessage()
-            ));
-            return null;
+            ), e);
+            throw new RepositoryException("get failed for docId=" + docId, e);
         }
     }
 
@@ -185,7 +185,18 @@ public class CouchbaseRepository implements Repository {
         }
 
         JsonObject body = encodeStoredValue(value);
-        collection.upsert(docId, body);
+
+        try {
+            collection.upsert(docId, body);
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_put_error",
+                    "docId", docId,
+                    "valueType", value.type(),
+                    "error", e.getMessage()
+            ), e);
+            throw new RepositoryException("put failed for docId=" + docId, e);
+        }
 
         updateKeySetMetadataForDocId(docId, true);
 
@@ -214,11 +225,12 @@ public class CouchbaseRepository implements Repository {
                     "docId", docId
             ));
         } catch (Exception e) {
-            log.warn(StructuredLog.event(
-                    "repository_remove_miss_or_error",
+            log.error(StructuredLog.event(
+                    "repository_remove_error",
                     "docId", docId,
                     "error", e.getMessage()
-            ));
+            ), e);
+            throw new RepositoryException("remove failed for docId=" + docId, e);
         }
     }
 
@@ -235,12 +247,12 @@ public class CouchbaseRepository implements Repository {
 
             return exists;
         } catch (Exception e) {
-            log.warn(StructuredLog.event(
+            log.error(StructuredLog.event(
                     "repository_contains_key_error",
                     "docId", docId,
                     "error", e.getMessage()
-            ));
-            return false;
+            ), e);
+            throw new RepositoryException("containsKey failed for docId=" + docId, e);
         }
     }
 
@@ -269,12 +281,12 @@ public class CouchbaseRepository implements Repository {
 
             return false;
         } catch (Exception e) {
-            log.warn(StructuredLog.event(
+            log.error(StructuredLog.event(
                     "repository_contains_value_for_key_error",
                     "docId", docId,
                     "error", e.getMessage()
-            ));
-            return false;
+            ), e);
+            throw new RepositoryException("containsValueForKey failed for docId=" + docId, e);
         }
     }
 
@@ -330,13 +342,13 @@ public class CouchbaseRepository implements Repository {
 
             return new ArrayList<>();
         } catch (Exception e) {
-            log.warn(StructuredLog.event(
+            log.error(StructuredLog.event(
                     "repository_key_set_error",
                     "region", region,
                     "metadataDocId", keySetMetadataDocId(region),
                     "error", e.getMessage()
             ), e);
-            return new ArrayList<>();
+            throw new RepositoryException("keySet failed for region=" + region, e);
         }
     }
 

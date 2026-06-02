@@ -32,6 +32,8 @@ Required:
 Optional:
 - `SHIM_PORT` default `40405`
 - `HEALTH_PORT` default `8081`
+- `MAX_FRAME_BYTES` default `52428800` (inbound frame size cap; see `docs/SECURITY.md`)
+- `MAX_FRAME_PARTS` default `100000` (inbound frame part-count cap)
 
 Example:
 
@@ -44,3 +46,34 @@ export CB_SCOPE=_default
 export CB_COLLECTION=_default
 export SHIM_PORT=40405
 export HEALTH_PORT=8081
+```
+
+---
+
+## Backend (Couchbase) failure behavior
+
+The shim distinguishes a legitimate **miss** from an infrastructure **failure**:
+
+- A missing document (`get`, `containsKey`, `containsValueForKey`) or a region with no keys
+  (`keySet`, `size`) returns a normal empty/absent result — this is correct and expected.
+- An infrastructure failure (Couchbase unreachable, KV timeout, auth rejected, decode failure)
+  is **not** masked as an empty result. The operation fails: it is recorded as an operation
+  error and the request is terminated.
+
+This matters because masking a failure as "empty" would let a Couchbase outage look to clients
+like a cache that genuinely has no data, which can cause incorrect application decisions
+(treating absent data as authoritative). Failing loudly is the safer behavior.
+
+### What you will observe during a Couchbase outage
+
+- Per-operation error counters rise: `protogemcouch_operation_errors_total` and
+  `protogemcouch_request_errors_total` (visible on the Grafana dashboard and `/metrics`).
+- Structured `repository_*_error` logs are emitted with the cause.
+- Affected client connections are closed (graceful per-request error responses are planned;
+  see the robustness roadmap). Clients should reconnect/retry.
+
+### Operator actions
+
+1. Confirm Couchbase health (cluster up, bucket reachable, credentials valid).
+2. Check shim logs for `repository_*_error` events to identify the failing operation and cause.
+3. Once Couchbase recovers, error rates should return to zero with no shim restart required.

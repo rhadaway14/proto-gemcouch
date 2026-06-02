@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.couchbase.RepositoryException;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
@@ -91,6 +92,10 @@ public class KeySetOnServerHandler implements OperationHandler {
                     ), future.cause());
                 }
             });
+        } catch (RepositoryException e) {
+            // Infrastructure failure (e.g. Couchbase unavailable): propagate so the dispatch loop
+            // records it as an operation error and the outage is visible, rather than masking it.
+            throw e;
         } catch (Throwable t) {
             log.error(StructuredLog.event(
                     "handler_key_set_unhandled_error",

@@ -221,6 +221,25 @@ Tasks:
 
 # Phase 4 - Failure Handling and Robustness
 
+## Status
+
+In progress.
+
+Done:
+
+- Inbound frame hardening: payload/part-count/part-length bounds checks reject malformed or
+  oversized frames (preventing OOM/DoS), with a `protogemcouch_malformed_frames_total` metric.
+- Deterministic backend failure semantics: infrastructure failures are surfaced as
+  `RepositoryException` and recorded as operation errors instead of being masked as empty
+  results. See `docs/RUNBOOK.md` "Backend (Couchbase) failure behavior".
+
+Remaining:
+
+- Graceful per-request error responses to clients (instead of closing the connection).
+- Move blocking backend calls off the Netty event loop with explicit per-operation timeouts.
+- Connection lifecycle guards (idle/slow-connection reaping, in-flight drain on shutdown).
+- Validate reconnect behavior end-to-end (Testcontainers outage tests).
+
 Tasks:
 
 - Define backend failure behavior.
