@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "protogemcouch.fullname" . }}
+  labels:
+    {{- include "protogemcouch.labels" . | nindent 4 }}
+data:
+  CB_CONNSTR: {{ .Values.couchbase.connectionString | quote }}
+  CB_BUCKET: {{ .Values.couchbase.bucket | quote }}
+  CB_SCOPE: {{ .Values.couchbase.scope | quote }}
+  CB_COLLECTION: {{ .Values.couchbase.collection | quote }}
+  SHIM_PORT: {{ .Values.shimPort | quote }}
+  HEALTH_PORT: {{ .Values.healthPort | quote }}
+  ERROR_RESPONSE_MODE: {{ .Values.shim.errorResponseMode | quote }}
+  HANDLER_THREADS: {{ .Values.shim.handlerThreads | quote }}
+  MAX_CONNECTIONS: {{ .Values.shim.maxConnections | quote }}
+  CONNECTION_IDLE_TIMEOUT_SECONDS: {{ .Values.shim.connectionIdleTimeoutSeconds | quote }}
+  FIRST_REQUEST_TIMEOUT_SECONDS: {{ .Values.shim.firstRequestTimeoutSeconds | quote }}
+  # Credentials are read from mounted files, not env, via these *_FILE paths.
+  CB_USERNAME_FILE: "/etc/protogemcouch/secrets/cb-username"
+  CB_PASSWORD_FILE: "/etc/protogemcouch/secrets/cb-password"

@@ -43,17 +43,22 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2b. Deployment hardening
 
-- [ ] **Kubernetes** — Helm chart / manifests, liveness+readiness probes, resource requests/limits,
-  HPA, PodDisruptionBudget, rolling-update / zero-downtime config.
-- [ ] **Graceful shutdown** validated under load (drain in-flight, LB deregistration, signal
-  handling).
+- [x] **Kubernetes** — Helm chart (`charts/protogemcouch`): multi-replica Deployment, Service,
+  ConfigMap, Secret (or `existingSecret`), startup/liveness/readiness probes, resource
+  requests/limits, HPA, PodDisruptionBudget, `terminationGracePeriodSeconds`, config-checksum
+  rollout. Validated with `helm lint` + `helm template`.
+- [~] **Graceful shutdown** — `terminationGracePeriodSeconds` + Netty graceful executor/event-loop
+  shutdown in place; a SIGTERM shutdown hook (so the drain runs on pod termination, not just JVM
+  exit) and under-load validation remain.
 - [ ] **Image hardening** — pin base-image digests, confirm non-root, minimize image, SBOM.
 - [ ] **Resource sizing guidance** tied to capacity tests.
 
 ### 2c. Security (remaining)
 
-- [ ] **Secret management** — K8s Secrets / Vault / cloud secret managers; stop relying on
-  plaintext env vars for `CB_PASSWORD`.
+- [x] **Secret management** — credentials read from file mounts via `CB_USERNAME_FILE` /
+  `CB_PASSWORD_FILE` (Kubernetes Secret volumes / Docker secrets) instead of env vars; the Helm
+  chart mounts a chart-managed or external (`existingSecret`) Secret as files, so secrets stay out
+  of the process environment. Vault / external-secrets integrate via `existingSecret`.
 - [ ] **Vulnerability-scan enforcement** — make CodeQL/dependency findings gating; triage SLA.
 - [ ] **TLS policy** — pin TLS 1.2/1.3 and cipher suites; certificate rotation story.
 - [ ] **Audit logging** — distinct stream for auth failures / rejected connections.

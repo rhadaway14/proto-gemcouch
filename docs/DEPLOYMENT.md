@@ -155,6 +155,54 @@ docker compose down -v
 
 ---
 
+## Run on Kubernetes (Helm)
+
+A Helm chart is provided at `charts/protogemcouch`. It deploys the shim as a multi-replica,
+horizontally scalable Deployment (the shim is stateless apart from Couchbase-backed state, validated
+by the multi-replica integration test) with a Service, ConfigMap, Secret, probes, resource
+limits, optional HPA, and a PodDisruptionBudget.
+
+Install with chart-managed credentials:
+
+```bash
+helm install pgc charts/protogemcouch \
+  --set couchbase.connectionString=couchbase://my-couchbase \
+  --set couchbase.username=Administrator \
+  --set couchbase.password='<password>'
+```
+
+Or with an externally managed Secret (Vault / external-secrets / sealed-secrets) that contains keys
+`cb-username` and `cb-password`:
+
+```bash
+helm install pgc charts/protogemcouch \
+  --set couchbase.connectionString=couchbase://my-couchbase \
+  --set couchbase.existingSecret=my-couchbase-secret
+```
+
+Credentials are mounted as files and read via `CB_USERNAME_FILE` / `CB_PASSWORD_FILE`, so they never
+appear in the container environment (see `docs/SECURITY.md`).
+
+Key values (`charts/protogemcouch/values.yaml`):
+
+```text
+replicaCount                  number of shim replicas (or set autoscaling.enabled)
+image.repository / image.tag  the published shim image
+couchbase.*                   connection string, bucket/scope/collection, credentials / existingSecret
+shim.*                        tunables (error mode, handler threads, connection limits)
+resources                     requests/limits
+autoscaling                   HPA (enabled, min/max, target CPU)
+podDisruptionBudget           minAvailable for safe rollouts/drains
+```
+
+Geode clients connect to the Service on the Geode port (default `40405`). For TLS, supply a keystore
+(see the TLS variables in `docs/RUNBOOK.md` / `docs/SECURITY.md`).
+
+Validated with `helm lint` and `helm template`. (A live-cluster smoke test is a follow-up; it
+requires a cluster.)
+
+---
+
 ## Health, readiness, and metrics endpoints
 
 The health/admin port is separate from the Geode shim protocol port.

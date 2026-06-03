@@ -1,5 +1,9 @@
 package com.protogemcouch.config;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class ServerConfig {
 
     private final String couchbaseConnectionString;
@@ -35,12 +39,12 @@ public class ServerConfig {
 
     public static ServerConfig fromEnv() {
         return new ServerConfig(
-                env("CB_CONNSTR"),
-                env("CB_USERNAME"),
-                env("CB_PASSWORD"),
-                env("CB_BUCKET"),
-                env("CB_SCOPE"),
-                env("CB_COLLECTION"),
+                envOrFile("CB_CONNSTR"),
+                envOrFile("CB_USERNAME"),
+                envOrFile("CB_PASSWORD"),
+                envOrFile("CB_BUCKET"),
+                envOrFile("CB_SCOPE"),
+                envOrFile("CB_COLLECTION"),
                 parsePort("SHIM_PORT", envOrDefault("SHIM_PORT", "40405")),
                 parsePort("HEALTH_PORT", envOrDefault("HEALTH_PORT", "8081"))
         );
@@ -91,6 +95,28 @@ public class ServerConfig {
 
     private static String env(String name) {
         return System.getenv(name);
+    }
+
+    /**
+     * Resolve a value, preferring a file-mounted secret. If {@code <name>_FILE} is set, the value is
+     * read (trimmed) from that file; this lets secrets be mounted as files (Kubernetes Secret
+     * volumes, Docker secrets) instead of exposed in the process environment. Otherwise the plain
+     * {@code <name>} environment variable is used.
+     */
+    static String envOrFile(String name) {
+        return resolveSecret(System.getenv(name), System.getenv(name + "_FILE"));
+    }
+
+    /** Package-private for testing: prefer the file content when {@code filePath} is set. */
+    static String resolveSecret(String directValue, String filePath) {
+        if (filePath != null && !filePath.isBlank()) {
+            try {
+                return Files.readString(Path.of(filePath.trim())).strip();
+            } catch (IOException e) {
+                throw new ConfigException("Failed to read secret file: " + filePath, e);
+            }
+        }
+        return directValue;
     }
 
     private static String envOrDefault(String name, String defaultValue) {

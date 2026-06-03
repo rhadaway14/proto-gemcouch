@@ -1,0 +1,6 @@
+apiVersion: v2
+name: protogemcouch
+description: A Geode/GemFire-to-Couchbase protocol shim (multi-replica, stateless apart from Couchbase-backed state).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -37,6 +37,22 @@ Recommended secret sources:
 - CI/CD secret stores
 - cloud secret managers
 
+### File-mounted secrets (preferred)
+
+Any config value can be supplied from a file instead of an environment variable by setting
+`<NAME>_FILE` to a path; the value is read (trimmed) from that file. This is the preferred way to
+provide credentials, since env vars can leak via `/proc`, crash dumps, and `docker inspect`:
+
+```text
+CB_USERNAME_FILE=/etc/protogemcouch/secrets/cb-username
+CB_PASSWORD_FILE=/etc/protogemcouch/secrets/cb-password
+```
+
+The Helm chart (`charts/protogemcouch`) uses this: it mounts a Kubernetes Secret (chart-managed, or
+an external one via `couchbase.existingSecret` for Vault / external-secrets / sealed-secrets) as
+files and points `CB_USERNAME_FILE` / `CB_PASSWORD_FILE` at them, so credentials never appear in the
+container's environment.
+
 ---
 
 ## Logging safety
