@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 
 public class CouchbaseRepository implements Repository {
 
@@ -230,6 +231,118 @@ public class CouchbaseRepository implements Repository {
                 "docId", docId,
                 "valueType", value.type()
         ));
+    }
+
+    @Override
+    public void putAll(String region, Map<String, StoredValue> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+
+        // Issue all value upserts concurrently rather than one blocking round-trip per entry.
+        List<CompletableFuture<?>> upserts = new ArrayList<>(values.size());
+        List<String> storedKeys = new ArrayList<>(values.size());
+
+        for (Map.Entry<String, StoredValue> entry : values.entrySet()) {
+            StoredValue value = entry.getValue();
+            if (value == null) {
+                log.warn(StructuredLog.event(
+                        "repository_put_all_skipped_null_value",
+                        "region", region,
+                        "key", entry.getKey()
+                ));
+                continue;
+            }
+
+            String docId = DocumentKeyUtil.docId(region, entry.getKey());
+            JsonObject body = encodeStoredValue(value);
+            upserts.add(collection.async().upsert(docId, body));
+            storedKeys.add(entry.getKey());
+        }
+
+        if (upserts.isEmpty()) {
+            return;
+        }
+
+        try {
+            CompletableFuture.allOf(upserts.toArray(new CompletableFuture[0])).join();
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_put_all_error",
+                    "region", region,
+                    "valueCount", upserts.size(),
+                    "error", e.getMessage()
+            ), e);
+            throw new RepositoryException(
+                    "putAll failed for region=" + region + " (" + upserts.size() + " values)", e);
+        }
+
+        // Update the region's keyset metadata once for the whole batch (one read + one write),
+        // rather than a get+upsert per key.
+        updateKeySetMetadataBatch(region, storedKeys);
+
+        log.info(StructuredLog.event(
+                "repository_put_all_ok",
+                "region", region,
+                "stored_count", storedKeys.size()
+        ));
+    }
+
+    private void updateKeySetMetadataBatch(String region, List<String> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return;
+        }
+
+        String metadataDocId = keySetMetadataDocId(region);
+
+        try {
+            TreeSet<String> allKeys = new TreeSet<>();
+
+            try {
+                GetResult existing = collection.get(metadataDocId);
+                JsonArray existingKeys = existing.contentAsObject().getArray(FIELD_KEYS);
+                if (existingKeys != null) {
+                    for (Object rawKey : existingKeys) {
+                        if (rawKey != null) {
+                            allKeys.add(String.valueOf(rawKey));
+                        }
+                    }
+                }
+            } catch (DocumentNotFoundException ignored) {
+                // First keys for this region.
+            }
+
+            allKeys.addAll(keys);
+
+            JsonArray keyArray = JsonArray.create();
+            for (String currentKey : allKeys) {
+                keyArray.add(currentKey);
+            }
+
+            JsonObject metadata = JsonObject.create()
+                    .put(FIELD_TYPE, "keySetMetadata")
+                    .put("region", region)
+                    .put(FIELD_KEYS, keyArray)
+                    .put(FIELD_LENGTH, allKeys.size());
+
+            collection.upsert(metadataDocId, metadata);
+
+            log.info(StructuredLog.event(
+                    "repository_key_set_metadata_batch_updated",
+                    "region", region,
+                    "metadataDocId", metadataDocId,
+                    "added", keys.size(),
+                    "count", allKeys.size()
+            ));
+        } catch (Exception e) {
+            // Keyset metadata is a best-effort secondary index, consistent with the single-key path.
+            log.warn(StructuredLog.event(
+                    "repository_key_set_metadata_batch_update_error",
+                    "region", region,
+                    "metadataDocId", metadataDocId,
+                    "error", e.getMessage()
+            ), e);
+        }
     }
 
     @Override

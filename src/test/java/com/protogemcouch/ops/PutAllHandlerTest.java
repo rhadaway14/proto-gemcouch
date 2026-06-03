@@ -4,6 +4,8 @@ import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
+import java.util.Map;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import io.netty.channel.ChannelHandlerContext;
@@ -17,6 +19,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -33,6 +37,36 @@ class PutAllHandlerTest {
         handler = new PutAllHandler(repository);
 
         when(ctx.writeAndFlush(any())).thenReturn(null);
+
+        // The handler now stores the batch via a single putAll. Replay it as per-entry put calls on
+        // the same mock so the per-value-type assertions below (verify(repository).put(...)) still
+        // exercise the decode-and-store path. The real batching/concurrency is covered by the
+        // CouchbaseRepository integration tests.
+        doAnswer(invocation -> {
+            String region = invocation.getArgument(0);
+            Map<String, StoredValue> values = invocation.getArgument(1);
+            for (Map.Entry<String, StoredValue> e : values.entrySet()) {
+                if (e.getValue() != null) {
+                    repository.put(DocumentKeyUtil.docId(region, e.getKey()), e.getValue());
+                }
+            }
+            return null;
+        }).when(repository).putAll(anyString(), anyMap());
+    }
+
+    @Test
+    void handle_stores_batch_in_a_single_putAll_call() {
+        GemFrame frame = putAllFrame(
+                "/helloWorld",
+                2,
+                entry("k1", ValueEncoding.encodeGeodeStringValue("v1")),
+                entry("k2", ValueEncoding.encodeGeodeStringValue("v2"))
+        );
+
+        handler.handle(ctx, frame);
+
+        verify(repository, times(1)).putAll(eq("/helloWorld"), anyMap());
+        verify(ctx).writeAndFlush(any());
     }
 
     @Test

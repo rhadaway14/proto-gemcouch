@@ -7,7 +7,6 @@ import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.serialization.ValueEncoding;
 import com.protogemcouch.util.ByteUtils;
-import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -105,29 +104,17 @@ public class PutAllHandler implements OperationHandler {
             entries.put(key, value);
         }
 
-        for (Map.Entry<String, StoredValue> entry : entries.entrySet()) {
-            if (entry.getValue() != null) {
-                String docId = DocumentKeyUtil.docId(region, entry.getKey());
+        // Store the whole batch in one repository call so the value writes can be issued
+        // concurrently and the region's keyset metadata updated once, instead of paying a
+        // value upsert plus a keyset get+upsert per entry.
+        repository.putAll(region, entries);
 
-                repository.put(docId, entry.getValue());
-
-                log.info(StructuredLog.event(
-                        "handler_put_all_store_ok",
-                        "region", region,
-                        "key", entry.getKey(),
-                        "docId", docId,
-                        "valueType", entry.getValue().type(),
-                        "txId", frame.getTransactionId()
-                ));
-            } else {
-                log.warn(StructuredLog.event(
-                        "handler_put_all_skip_null",
-                        "region", region,
-                        "key", entry.getKey(),
-                        "txId", frame.getTransactionId()
-                ));
-            }
-        }
+        log.info(StructuredLog.event(
+                "handler_put_all_stored",
+                "region", region,
+                "entry_count", entries.size(),
+                "txId", frame.getTransactionId()
+        ));
 
         ctx.writeAndFlush(Unpooled.wrappedBuffer(
                 GemResponseWriter.buildPutAllChunkedResponse(frame.getTransactionId())
