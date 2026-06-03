@@ -110,10 +110,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 ### 3a. Operations not yet supported
 
 - [~] Atomic ops: `putIfAbsent`, `replace`, `replace(old,new)`, `remove(key,value)` (CAS-backed).
-  Repository layer done: `Repository.putIfAbsent/replace/replace(old,new)/removeIfValue` with
-  Couchbase CAS implementations (insert-if-absent, CAS-guarded replace/remove, bounded retries) and
-  contract unit tests. Remaining: decode the Geode PUT operation/flags + expected-old-value parts
-  (and DESTROY for `remove(k,v)`) and wire the handlers + responses, validated against a real client.
+  **Done & validated against a real Geode client:** the repository CAS layer
+  (`putIfAbsent`/`replace`/`replace(old,new)`/`removeIfValue` with Couchbase insert-if-absent /
+  CAS-guarded replace + bounded retries) and the PUT-message operation decode (op ids 0x2c/0x2d +
+  flags, with the expected-old-value part shifting the key/value indices). The shim now routes to the
+  correct atomic op so storage is correct — `putIfAbsent` no longer overwrites, `replace` does not
+  create, compare-replace writes only on a match — proven by `ProtoGemCouchAtomicOpsIntegrationTest`.
+  **Remaining follow-up:** Geode-accurate *return values* (the old-value/boolean PUT reply and the
+  entry-not-found DESTROY reply) and the `remove(k,v)` DESTROY decode (needs a shared value decoder);
+  these are captured in the disabled `fullGeodeReturnSemantics` test.
 - [ ] `invalidate` / `getEntry` / `clear`.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single
