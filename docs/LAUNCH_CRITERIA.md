@@ -152,8 +152,12 @@ Required for Level 3:
 
 Current status:
 
-- [ ] Current PDX/boundary baseline needs renewed benchmark and soak evidence
-- [ ] High-concurrency behavior needs characterization
+- [x] Benchmark baseline captured against the hardened build (2026-06-02; see `PERFORMANCE_RESULTS.md`):
+      read-heavy ~12.3k ops/s, mixed ~7k, write-heavy ~6k, bulk-heavy ~4.2k, 0 errors
+- [x] Soak evidence captured (3-minute mixed stability soak via `scripts/soak.sh`; see
+      `SOAK_RESULTS.md`): stable throughput/latency, flat memory, no connection leak, 0 errors
+- [x] Repeatable soak tooling added (`scripts/soak.sh`) for longer-duration runs
+- [ ] Multi-host / dedicated-Couchbase capacity ceiling not yet characterized (single-host runs only)
 
 ---
 

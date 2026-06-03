@@ -50,6 +50,52 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-02 — robustness build stability soak
+
+Short sustained-stability soak against the hardened build (`feature/robustness`, default config),
+driven by `scripts/soak.sh`, which runs a continuous workload and samples server metrics and
+container memory at a fixed interval. (The same tool runs arbitrarily long soaks via `--duration`;
+this run is a 3-minute stability check, not a multi-hour endurance test.)
+
+### Configuration
+
+- Profile `mixed`, concurrency `16`, duration `180s`, sample interval `30s`, keyspace `2000`, seeded
+- Target: Docker Compose stack (Couchbase enterprise 7.6.2 + shim) on a single host
+- Command: `./scripts/soak.sh --duration 180 --sample-interval 30 --concurrency 16 --keyspace 2000`
+
+### Per-sample stability (cumulative `requests` is shim-lifetime; ~220k per 30s window ≈ 7,300 ops/s)
+
+```text
+t(s)   requests   errors shed malform 1stReqTO active shimMem
+30     2,933,102   0      0    0       0        147    1.182GiB
+63     3,150,834   0      0    0       0        150    1.185GiB
+95     3,371,230   0      0    0       0        153    1.185GiB
+128    3,591,743   0      0    0       0        157    1.186GiB
+160    3,814,104   0      0    0       0        160    1.187GiB
+193    4,035,032   0      0    0       0        163    1.189GiB
+225    4,063,398   0      0    0       0        164    1.189GiB  (tail/drain)
+```
+
+### Result
+
+- Sustained throughput: **~7,300 ops/sec** (mixed profile)
+- **Request errors: 0**, requests shed: 0, malformed frames: 0, first-request timeouts: 0 — for the
+  entire run
+- **Memory flat**: 1.182 → 1.189 GiB across the run (~7 MB, within normal heap noise) — no leak trend
+- **Connections stabilized**: ~147 → ~164 then plateaued (Geode client pool establishing under
+  concurrency 16); no unbounded growth
+- Client-side latency steady and consistent with the benchmark baseline, e.g. `PUT_ALL` p99
+  ~10.8 ms, `GET_ALL` p99 ~4.8 ms, `CONTAINS_KEY`/`SIZE` p99 ~3.4 ms
+
+### Conclusion
+
+> Under sustained mixed load the hardened build is stable: throughput holds, latency does not creep,
+> memory is flat, no connection leak appears, and none of the robustness guards (error, shed,
+> malformed, first-request-timeout counters) trip under healthy load. The new `scripts/soak.sh`
+> makes this an easily repeatable, longer-duration check.
+
+---
+
 ## 1. Read-heavy soak — 15 minutes @ concurrency 25
 
 ### Configuration

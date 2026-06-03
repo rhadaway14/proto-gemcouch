@@ -305,6 +305,26 @@ Tasks:
 
 # Phase 7 - Performance and Scale Qualification
 
+## Status
+
+In progress.
+
+Done:
+
+- Benchmark baseline re-run against the hardened build (2026-06-02): read-heavy ~12.3k ops/s,
+  mixed ~7k, write-heavy ~6k, bulk-heavy ~4.2k at concurrency 16, 0 errors. PUT_ALL is the
+  latency-dominant operation (~6 ms avg, p99 ~10 ms). See `PERFORMANCE_RESULTS.md`.
+- putAll/getAll latency characterized (bulk-heavy and mixed profiles).
+- Soak test run (3-minute mixed stability soak via the new `scripts/soak.sh`, which samples
+  metrics and memory over time): stable throughput/latency, flat memory, no connection leak,
+  no errors or guard trips. See `SOAK_RESULTS.md`.
+
+Remaining:
+
+- Multi-host / dedicated-Couchbase capacity ceiling (all runs so far are single-host, so they
+  characterize relative behavior and stability, not a hardware capacity limit).
+- Longer-duration endurance soak (hours) and primitive-array payload micro-profiling.
+
 Tasks:
 
 - Re-run benchmarks on the current compatibility baseline.

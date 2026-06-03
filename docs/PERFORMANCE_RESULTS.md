@@ -23,6 +23,86 @@ PERFORMANCE_BASELINE.md
 
 ## Current baseline run
 
+## Run: 2026-06-02 — robustness build baseline (feature/robustness)
+
+Benchmark pass against the hardened build (all failure-mode robustness phases, with default config:
+graceful EXCEPTION error mode, handler executor off the event loop with a bounded queue, idle
+reaping, first-request deadline, and connection cap unlimited).
+
+### Environment
+
+- Target: `RawShimServer` at `127.0.0.1:40405` (Docker Compose: Couchbase enterprise 7.6.2 + shim)
+- Harness: `ConcurrentBenchmarkRunner`, concurrency `16`, warmup `5s`, measured `30s`
+- Keyspace `1000`, seeded; region `helloWorld`
+- Single host (shim, Couchbase, and client co-located) — numbers are relative, not a capacity ceiling
+
+### Throughput (measured phase, 0 errors across every profile)
+
+| Profile | Ops/sec | Notes |
+|---|---|---|
+| read-heavy | 12,281 | GET/CONTAINS_KEY/GET_ALL |
+| mixed | 7,010 | full CRUD + bulk + metadata mix |
+| write-heavy | 5,966 | PUT/REMOVE dominant (each = upsert + keyset-metadata) |
+| bulk-heavy | 4,200 | GET_ALL/PUT_ALL dominant |
+
+### Per-operation latency (ms; measured phase)
+
+read-heavy:
+
+```text
+GET          avg 1.22  p95 1.79  p99 2.47
+CONTAINS_KEY avg 1.20  p95 1.76  p99 2.42
+GET_ALL      avg 1.92  p95 2.75  p99 3.61
+```
+
+write-heavy:
+
+```text
+GET          avg 1.56  p95 2.28  p99 3.32
+PUT          avg 2.80  p95 3.82  p99 5.07
+REMOVE       avg 2.81  p95 3.82  p99 5.12
+CONTAINS_KEY avg 1.64  p95 2.56  p99 3.49
+PUT_ALL      avg 6.31  p95 8.08  p99 9.66
+```
+
+bulk-heavy:
+
+```text
+GET          avg 1.66  p95 2.47  p99 3.94
+PUT          avg 3.02  p95 4.05  p99 5.62
+GET_ALL      avg 2.78  p95 3.86  p99 5.57
+PUT_ALL      avg 6.74  p95 8.48  p99 10.46
+SIZE         avg 1.79  p95 2.59  p99 4.01
+KEY_SET      avg 2.30  p95 3.27  p99 5.02
+```
+
+mixed:
+
+```text
+GET          avg 1.61  p95 2.41  p99 3.79
+PUT          avg 2.80  p95 3.83  p99 5.44
+REMOVE       avg 2.81  p95 3.85  p99 5.58
+CONTAINS_KEY avg 1.66  p95 2.54  p99 3.97
+GET_ALL      avg 2.66  p95 3.74  p99 5.37
+PUT_ALL      avg 6.16  p95 7.88  p99 10.04
+SIZE         avg 1.71  p95 2.48  p99 3.92
+KEY_SET      avg 2.21  p95 3.16  p99 5.07
+```
+
+### Observations
+
+- **Zero errors, zero shed, zero malformed frames** across all profiles — the hardening adds no
+  measurable overhead on the happy path.
+- Latency tiers reflect Couchbase round-trips per operation: reads (1 KV get) are fastest, writes
+  (`PUT`/`REMOVE` = value upsert + keyset-metadata update) are ~2x, and bulk (`PUT_ALL`/`GET_ALL`,
+  many sub-operations) are the slowest. `PUT_ALL` is the latency-dominant operation (~6 ms avg, p99
+  ~10 ms) and the natural focus for future optimization (e.g. batched/parallel backend writes).
+- Server-side histogram percentiles (`protogemcouch_operation_latency_seconds`, via Prometheus)
+  tracked the client-side numbers and ran slightly lower (e.g. server p99: GET 2.4 ms, PUT_ALL
+  10.0 ms), as expected since they exclude client and network overhead.
+
+---
+
 ## Run: 2026-05-18 — current observability and serialization baseline
 
 ### Run artifact directory
