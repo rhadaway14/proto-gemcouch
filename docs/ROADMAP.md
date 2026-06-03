@@ -109,7 +109,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3a. Operations not yet supported
 
-- [ ] Atomic ops: `putIfAbsent`, `replace`, `replace(old,new)`, `remove(key,value)` (CAS-backed).
+- [~] Atomic ops: `putIfAbsent`, `replace`, `replace(old,new)`, `remove(key,value)` (CAS-backed).
+  Repository layer done: `Repository.putIfAbsent/replace/replace(old,new)/removeIfValue` with
+  Couchbase CAS implementations (insert-if-absent, CAS-guarded replace/remove, bounded retries) and
+  contract unit tests. Remaining: decode the Geode PUT operation/flags + expected-old-value parts
+  (and DESTROY for `remove(k,v)`) and wire the handlers + responses, validated against a real client.
 - [ ] `invalidate` / `getEntry` / `clear`.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single

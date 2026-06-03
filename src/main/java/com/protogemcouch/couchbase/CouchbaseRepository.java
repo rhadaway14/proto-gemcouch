@@ -11,6 +11,7 @@ import com.couchbase.client.java.env.ClusterEnvironment;
 import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.kv.RemoveOptions;
 import com.couchbase.client.java.kv.ReplaceOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
@@ -47,6 +48,9 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_OPAQUE_GEODE_TYPE_NAME = "opaqueGeodeTypeName";
     private static final String FIELD_KEYS = "keys";
     private static final String KEYSET_META_PREFIX = "__protogemcouch::keyset::";
+
+    /** Bounded retries for compare-and-swap atomic operations under concurrent contention. */
+    private static final int CAS_MAX_ATTEMPTS = 32;
 
     private static final String TYPE_STRING = "string";
     private static final String TYPE_BOOLEAN = "boolean";
@@ -356,6 +360,151 @@ public class CouchbaseRepository implements Repository {
             ), e);
             throw new RepositoryException("remove failed for docId=" + docId, e);
         }
+    }
+
+    /**
+     * Atomic insert-if-absent using Couchbase {@code insert} (fails if the document already exists).
+     * Returns {@code null} when the value was inserted, or the existing value when the key was
+     * already present (nothing stored). This is genuinely atomic across concurrent writers and shim
+     * replicas, unlike a get-then-put.
+     */
+    @Override
+    public StoredValue putIfAbsent(String docId, StoredValue value) {
+        if (value == null) {
+            return get(docId);
+        }
+        JsonObject body = encodeStoredValue(value);
+        try {
+            collection.insert(docId, body);
+            updateKeySetMetadataForDocId(docId, true);
+            log.info(StructuredLog.event(
+                    "repository_put_if_absent_inserted", "docId", docId, "valueType", value.type()));
+            return null;
+        } catch (DocumentExistsException e) {
+            log.info(StructuredLog.event("repository_put_if_absent_present", "docId", docId));
+            return get(docId);
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_put_if_absent_error", "docId", docId, "error", e.getMessage()), e);
+            throw new RepositoryException("putIfAbsent failed for docId=" + docId, e);
+        }
+    }
+
+    /**
+     * Atomic replace-if-present: read the current document (capturing its CAS) and replace only if
+     * unchanged, retrying on a concurrent change. Returns the previous value, or {@code null} if the
+     * key was (or became) absent — in which case nothing is stored. The keyset is unchanged because
+     * the key was already present.
+     */
+    @Override
+    public StoredValue replace(String docId, StoredValue value) {
+        if (value == null) {
+            return get(docId);
+        }
+        JsonObject body = encodeStoredValue(value);
+        for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
+            try {
+                GetResult existing;
+                try {
+                    existing = collection.get(docId);
+                } catch (DocumentNotFoundException notFound) {
+                    return null; // absent: replace is a no-op
+                }
+                StoredValue previous = decodeStoredValue(existing.contentAsObject());
+                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                log.info(StructuredLog.event(
+                        "repository_replace_ok", "docId", docId, "valueType", value.type(), "attempt", attempt));
+                return previous;
+            } catch (CasMismatchException conflict) {
+                // changed concurrently: re-read and retry
+            } catch (DocumentNotFoundException removedConcurrently) {
+                return null;
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "repository_replace_error", "docId", docId, "error", e.getMessage()), e);
+                throw new RepositoryException("replace failed for docId=" + docId, e);
+            }
+        }
+        log.warn(StructuredLog.event("repository_replace_cas_exhausted", "docId", docId));
+        return get(docId);
+    }
+
+    /**
+     * Atomic compare-and-replace: replace only if the current value equals {@code expected}, guarded
+     * by CAS so a concurrent change cannot slip between the compare and the write. Returns whether
+     * the replace happened.
+     */
+    @Override
+    public boolean replace(String docId, StoredValue expected, StoredValue newValue) {
+        if (newValue == null) {
+            return false;
+        }
+        JsonObject body = encodeStoredValue(newValue);
+        for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
+            try {
+                GetResult existing;
+                try {
+                    existing = collection.get(docId);
+                } catch (DocumentNotFoundException notFound) {
+                    return false;
+                }
+                StoredValue current = decodeStoredValue(existing.contentAsObject());
+                if (current == null || !current.equals(expected)) {
+                    return false;
+                }
+                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                log.info(StructuredLog.event(
+                        "repository_compare_replace_ok", "docId", docId, "attempt", attempt));
+                return true;
+            } catch (CasMismatchException conflict) {
+                // changed concurrently: re-read and retry
+            } catch (DocumentNotFoundException removedConcurrently) {
+                return false;
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "repository_compare_replace_error", "docId", docId, "error", e.getMessage()), e);
+                throw new RepositoryException("compare-replace failed for docId=" + docId, e);
+            }
+        }
+        log.warn(StructuredLog.event("repository_compare_replace_cas_exhausted", "docId", docId));
+        return false;
+    }
+
+    /**
+     * Atomic compare-and-remove: remove only if the current value equals {@code expected}, guarded by
+     * CAS. Returns whether the remove happened.
+     */
+    @Override
+    public boolean removeIfValue(String docId, StoredValue expected) {
+        for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
+            try {
+                GetResult existing;
+                try {
+                    existing = collection.get(docId);
+                } catch (DocumentNotFoundException notFound) {
+                    return false;
+                }
+                StoredValue current = decodeStoredValue(existing.contentAsObject());
+                if (current == null || !current.equals(expected)) {
+                    return false;
+                }
+                collection.remove(docId, RemoveOptions.removeOptions().cas(existing.cas()));
+                updateKeySetMetadataForDocId(docId, false);
+                log.info(StructuredLog.event(
+                        "repository_compare_remove_ok", "docId", docId, "attempt", attempt));
+                return true;
+            } catch (CasMismatchException conflict) {
+                // changed concurrently: re-read and retry
+            } catch (DocumentNotFoundException removedConcurrently) {
+                return false;
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "repository_compare_remove_error", "docId", docId, "error", e.getMessage()), e);
+                throw new RepositoryException("compare-remove failed for docId=" + docId, e);
+            }
+        }
+        log.warn(StructuredLog.event("repository_compare_remove_cas_exhausted", "docId", docId));
+        return false;
     }
 
     @Override
