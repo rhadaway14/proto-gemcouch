@@ -40,3 +40,7 @@ build/
 # Benchmark run artifacts
 benchmarks/results/*
 !benchmarks/results/.gitkeep
+
+# Local-only Claude memory / credentials (never commit)
+.claude/
+*.local
