@@ -105,11 +105,8 @@ class ProtoGemCouchAtomicOpsIntegrationTest {
         assertEquals("v2", region.get(key), "compare-replace writes on an exact match");
     }
 
-    @Disabled("Follow-up: Geode-accurate return values need the old-value/boolean PUT reply and the "
-            + "entry-not-found DESTROY reply; remove(k,v) also needs the shared value decoder. The "
-            + "request decode + CAS storage routing are done and validated by the tests above.")
     @Test
-    void fullGeodeReturnSemantics() {
+    void putSideReturnValues() {
         String key = "sem-" + UUID.randomUUID();
 
         assertNull(region.putIfAbsent(key, "first"), "putIfAbsent on absent returns null");
@@ -120,9 +117,17 @@ class ProtoGemCouchAtomicOpsIntegrationTest {
 
         assertFalse(region.replace(key, "wrong", "v2"), "compare-replace false on mismatch");
         assertTrue(region.replace(key, "third", "v2"), "compare-replace true on match");
+    }
+
+    @Disabled("Follow-up: remove(k,v) needs the entry-not-found DESTROY reply and a shared value "
+            + "decoder for the DESTROY expected-value part. The PUT-side atomic ops (above) are done.")
+    @Test
+    void removeKeyValueReturnValue() {
+        String key = "crm-" + UUID.randomUUID();
+        region.put(key, "v1");
 
         assertFalse(region.remove(key, "wrong"), "remove(k,v) false on mismatch");
-        assertTrue(region.remove(key, "v2"), "remove(k,v) true on match");
+        assertTrue(region.remove(key, "v1"), "remove(k,v) true on match");
         assertFalse(region.containsKeyOnServer(key));
     }
 

@@ -517,6 +517,26 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * PUT reply that carries an old value, for {@code putIfAbsent}/{@code replace} which return the
+     * prior value to the client. The Geode client reads part[1] as a flags int: bit {@code 0x01}
+     * means "old value present" (read as the object in part[2]). We keep the existing {@code 0x04}
+     * bit and add {@code 0x01}, append the old value as an object part, then the version tag — so
+     * the version tag lands at the next index the client expects (after the old value).
+     */
+    public static byte[] buildPutResponseWithOldValue(int txId, StoredValue oldValue) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(
+                        new Part(PUT_REPLY_PART1, (byte) 0),
+                        new Part(new byte[] {0x00, 0x00, 0x00, 0x05}, (byte) 0),
+                        new Part(encodeStoredValueForGetAll(oldValue), (byte) 1),
+                        new Part(PUT_REPLY_PART3, (byte) 1)
+                )
+        );
+    }
+
     public static byte[] buildRemoveResponse(int txId) {
         return buildMessage(
                 MessageTypes.REPLY,

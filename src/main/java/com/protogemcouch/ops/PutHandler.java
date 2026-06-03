@@ -103,32 +103,45 @@ public class PutHandler implements OperationHandler {
         // match. NOTE: the reply still uses the plain put reply, so the value the client *returns*
         // from putIfAbsent/replace/replace(old,new) is not yet the Geode-accurate old-value/boolean;
         // building that PUT reply is the remaining follow-up.
+        int txId = frame.getTransactionId();
+        byte[] response;
         switch (operation) {
             case OP_PUT_IF_ABSENT -> {
                 StoredValue previous = repository.putIfAbsent(docId, value);
-                logRouted("put_if_absent", region, key, docId, value, frame.getTransactionId(),
+                response = oldValueReply(txId, previous);
+                logRouted("put_if_absent", region, key, docId, value, txId,
                         previous == null ? "inserted" : "present");
             }
             case OP_REPLACE -> {
                 if (hasExpectedOldValue) {
                     boolean replaced = repository.replace(docId, expectedOldValue, value);
-                    logRouted("replace_compare", region, key, docId, value, frame.getTransactionId(),
-                            String.valueOf(replaced));
+                    // Geode's replace(k,old,new) returns a boolean: the client casts the reply's
+                    // old-value object straight to Boolean, so we return a serialized Boolean object.
+                    response = GemResponseWriter.buildPutResponseWithOldValue(
+                            txId, StoredValue.booleanValue(replaced));
+                    logRouted("replace_compare", region, key, docId, value, txId, String.valueOf(replaced));
                 } else {
                     StoredValue previous = repository.replace(docId, value);
-                    logRouted("replace", region, key, docId, value, frame.getTransactionId(),
+                    response = oldValueReply(txId, previous);
+                    logRouted("replace", region, key, docId, value, txId,
                             previous == null ? "absent" : "replaced");
                 }
             }
             default -> {
                 repository.put(docId, value);
-                logRouted("put", region, key, docId, value, frame.getTransactionId(), "ok");
+                response = GemResponseWriter.buildPutResponse(txId);
+                logRouted("put", region, key, docId, value, txId, "ok");
             }
         }
 
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(
-                GemResponseWriter.buildPutResponse(frame.getTransactionId())
-        ));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /** PUT reply that returns the prior value, or the plain (no-old-value) reply when it was null. */
+    private static byte[] oldValueReply(int txId, StoredValue previous) {
+        return previous == null
+                ? GemResponseWriter.buildPutResponse(txId)
+                : GemResponseWriter.buildPutResponseWithOldValue(txId, previous);
     }
 
     private static void logRouted(String op, String region, String key, String docId,
