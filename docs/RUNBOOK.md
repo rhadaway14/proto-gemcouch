@@ -52,6 +52,16 @@ Optional:
 - `HANDLER_MAX_PENDING_TASKS` default `10000` (per-handler-thread queue bound; once full, further
   requests are shed and the connection closed, instead of letting the backlog grow unbounded;
   `0` means unbounded)
+- `TLS_ENABLED` default `false` (terminate TLS on the Geode listener)
+- `TLS_KEYSTORE_PATH` / `TLS_KEYSTORE_PASSWORD` / `TLS_KEYSTORE_TYPE` (server keystore; type default
+  `PKCS12`; path+password required when `TLS_ENABLED=true`)
+- `TLS_CLIENT_AUTH` default `none` (`require` enables mutual TLS / client-certificate auth)
+- `TLS_TRUSTSTORE_PATH` / `TLS_TRUSTSTORE_PASSWORD` / `TLS_TRUSTSTORE_TYPE` (truststore for verifying
+  client certs; required when `TLS_CLIENT_AUTH=require`)
+
+Geode clients connect to a TLS-enabled shim with `ssl-enabled-components=server` and a truststore
+trusting the shim certificate. See `docs/SECURITY.md` and the `protogemcouch-tls` service in
+`docker-compose.yml`.
 
 Example:
 

@@ -89,13 +89,33 @@ For broader deployment:
 - document certificate/trust requirements
 - validate TLS-enabled Couchbase connections
 
-### Shim-side transport
-The GemFire protocol listener and health server are plain listeners today.
+### Shim-side transport (inbound TLS)
 
-For higher-trust environments, future work should include:
-- TLS termination in front of the shim
-- or native TLS support
-- access controls around the health port
+The Geode protocol listener supports native TLS. When enabled, the shim terminates TLS on the
+Geode port using a server keystore, validated against a real Geode SSL client
+(`ProtoGemCouchTlsIntegrationTest`). It is **off by default**; enable it for any deployment that
+crosses an untrusted network.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `TLS_ENABLED` | `false` | Enable TLS on the Geode listener. |
+| `TLS_KEYSTORE_PATH` | — | Path to the server keystore (required when enabled). |
+| `TLS_KEYSTORE_PASSWORD` | — | Keystore password. |
+| `TLS_KEYSTORE_TYPE` | `PKCS12` | Keystore type. |
+| `TLS_CLIENT_AUTH` | `none` | `require` enables mutual TLS (client-certificate authentication). |
+| `TLS_TRUSTSTORE_PATH` / `_PASSWORD` / `_TYPE` | — | Truststore for verifying client certs (required when client auth is `require`). |
+
+Geode clients connect with `ssl-enabled-components=server` and a truststore trusting the shim's
+certificate. See `docs/RUNBOOK.md` for the full variable list and `docker-compose.yml`
+(`protogemcouch-tls`) for a working example.
+
+Mutual TLS (`TLS_CLIENT_AUTH=require`) provides transport-level client authentication: only clients
+presenting a certificate trusted by the shim's truststore can connect. This is the recommended
+client-auth model for the shim (it does not implement the Geode application-level security
+handshake).
+
+The health/admin server is still plain HTTP and is intended for trusted operator/monitoring
+networks; keep `HEALTH_PORT` access restricted (see network exposure guidance below).
 
 ---
 

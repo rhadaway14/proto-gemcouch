@@ -61,6 +61,39 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # TLS-enabled shim instance for validating inbound TLS against a real Geode SSL client.
+  # Shares the same Couchbase; the plaintext shim above remains for all other integration tests.
+  protogemcouch-tls:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-tls
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40406:40405"
+      - "8082:8082"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8082"
+      TLS_ENABLED: "true"
+      TLS_KEYSTORE_PATH: "/certs/server-keystore.p12"
+      TLS_KEYSTORE_PASSWORD: "changeit"
+      TLS_KEYSTORE_TYPE: "PKCS12"
+    volumes:
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8082/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: protogemcouch-prometheus
