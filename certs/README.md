@@ -8,6 +8,12 @@ These are **self-signed, test-only** TLS materials used by the TLS integration t
 - `client-truststore.p12` — trusts the server cert (for the Geode SSL client). Password: `changeit`.
 - `server-cert.pem` — exported server certificate.
 
+For mutual TLS:
+
+- `client-keystore.p12` — client key + self-signed client cert (`CN=protogemcouch-client`). Password: `changeit`.
+- `server-truststore.p12` — trusts the client cert (used by the shim when `TLS_CLIENT_AUTH=require`). Password: `changeit`.
+- `client-cert.pem` — exported client certificate.
+
 Regenerate with:
 
 ```bash

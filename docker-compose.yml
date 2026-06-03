@@ -94,6 +94,43 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Mutual-TLS shim instance: requires clients to present a certificate trusted by the server
+  # truststore (transport-level client authentication). Validated by ProtoGemCouchMutualTlsIntegrationTest.
+  protogemcouch-mtls:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-mtls
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40407:40405"
+      - "8083:8083"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8083"
+      TLS_ENABLED: "true"
+      TLS_KEYSTORE_PATH: "/certs/server-keystore.p12"
+      TLS_KEYSTORE_PASSWORD: "changeit"
+      TLS_KEYSTORE_TYPE: "PKCS12"
+      TLS_CLIENT_AUTH: "require"
+      TLS_TRUSTSTORE_PATH: "/certs/server-truststore.p12"
+      TLS_TRUSTSTORE_PASSWORD: "changeit"
+      TLS_TRUSTSTORE_TYPE: "PKCS12"
+    volumes:
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8083/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: protogemcouch-prometheus
