@@ -26,12 +26,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2a. Data correctness & high availability — highest priority
 
-- [~] **Keyset-metadata concurrency.** `size`/`keySet` are backed by a single per-region metadata
-  document updated via read-modify-write, which is not atomic. Concurrent writes — or multiple shim
-  replicas — can lose updates and drift counts. **Blocks safe horizontal scaling.** Fix with
-  CAS/optimistic-locking retries (or move to a query/scan-based key enumeration).
+- [x] **Keyset-metadata concurrency.** `size`/`keySet` are backed by a single per-region metadata
+  document; it was updated via a non-atomic read-modify-write that lost updates under concurrent
+  writers (or multiple shim replicas). **Fixed** with compare-and-swap + bounded retries
+  (insert-when-absent / replace-with-CAS, re-read on conflict). Validated by
+  `ProtoGemCouchKeysetConcurrencyIntegrationTest` (120 concurrent puts → exact `size`/`keySet`).
 - [ ] **Multi-replica validation** — prove correctness with N shims behind a load balancer against
-  shared Couchbase (depends on the keyset fix above).
+  shared Couchbase (the keyset fix above makes this safe; still to be exercised end-to-end).
 - [ ] **Durability/consistency options** — configurable Couchbase durability; partial-failure
   behavior for `putAll`.
 - [ ] **TTL / expiration & eviction** — map Geode entry expiry to Couchbase TTL.

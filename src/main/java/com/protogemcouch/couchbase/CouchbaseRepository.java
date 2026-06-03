@@ -1,5 +1,7 @@
 package com.protogemcouch.couchbase;
 
+import com.couchbase.client.core.error.CasMismatchException;
+import com.couchbase.client.core.error.DocumentExistsException;
 import com.couchbase.client.core.error.DocumentNotFoundException;
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
@@ -9,6 +11,7 @@ import com.couchbase.client.java.env.ClusterEnvironment;
 import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.kv.ReplaceOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
@@ -30,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 public class CouchbaseRepository implements Repository {
 
@@ -324,57 +328,7 @@ public class CouchbaseRepository implements Repository {
         if (keys == null || keys.isEmpty()) {
             return;
         }
-
-        String metadataDocId = keySetMetadataDocId(region);
-
-        try {
-            TreeSet<String> allKeys = new TreeSet<>();
-
-            try {
-                GetResult existing = collection.get(metadataDocId);
-                JsonArray existingKeys = existing.contentAsObject().getArray(FIELD_KEYS);
-                if (existingKeys != null) {
-                    for (Object rawKey : existingKeys) {
-                        if (rawKey != null) {
-                            allKeys.add(String.valueOf(rawKey));
-                        }
-                    }
-                }
-            } catch (DocumentNotFoundException ignored) {
-                // First keys for this region.
-            }
-
-            allKeys.addAll(keys);
-
-            JsonArray keyArray = JsonArray.create();
-            for (String currentKey : allKeys) {
-                keyArray.add(currentKey);
-            }
-
-            JsonObject metadata = JsonObject.create()
-                    .put(FIELD_TYPE, "keySetMetadata")
-                    .put("region", region)
-                    .put(FIELD_KEYS, keyArray)
-                    .put(FIELD_LENGTH, allKeys.size());
-
-            collection.upsert(metadataDocId, metadata);
-
-            log.info(StructuredLog.event(
-                    "repository_key_set_metadata_batch_updated",
-                    "region", region,
-                    "metadataDocId", metadataDocId,
-                    "added", keys.size(),
-                    "count", allKeys.size()
-            ));
-        } catch (Exception e) {
-            // Keyset metadata is a best-effort secondary index, consistent with the single-key path.
-            log.warn(StructuredLog.event(
-                    "repository_key_set_metadata_batch_update_error",
-                    "region", region,
-                    "metadataDocId", metadataDocId,
-                    "error", e.getMessage()
-            ), e);
-        }
+        mutateKeySetMetadata(region, current -> current.addAll(keys), "batch_add:" + keys.size());
     }
 
     @Override
@@ -543,64 +497,107 @@ public class CouchbaseRepository implements Repository {
     }
 
     private void updateKeySetMetadata(String region, String key, boolean add) {
+        mutateKeySetMetadata(
+                region,
+                current -> {
+                    if (add) {
+                        current.add(key);
+                    } else {
+                        current.remove(key);
+                    }
+                },
+                (add ? "add:" : "remove:") + key);
+    }
+
+    /**
+     * Apply a mutation to a region's keyset-metadata document atomically, using compare-and-swap
+     * with bounded retries.
+     *
+     * <p>The keyset metadata is a single per-region document maintained by read-modify-write. A
+     * plain read-then-upsert would lose updates under concurrent writers (multiple in-flight
+     * operations, or multiple shim replicas sharing one Couchbase). Instead we read the current
+     * document (capturing its CAS), apply the mutation, and {@code insert} (when absent) or
+     * {@code replace} with the CAS. A concurrent change invalidates the CAS (or the insert finds the
+     * document already created), so we re-read and re-apply. This keeps {@code size}/{@code keySet}
+     * correct under concurrency. It remains best-effort: if all attempts conflict, we log and move on.
+     */
+    private void mutateKeySetMetadata(String region, Consumer<TreeSet<String>> mutation, String description) {
         String metadataDocId = keySetMetadataDocId(region);
+        int maxAttempts = 32;
 
-        try {
-            TreeSet<String> keys = new TreeSet<>();
-
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                GetResult existing = collection.get(metadataDocId);
-                JsonObject existingContent = existing.contentAsObject();
-                JsonArray existingKeys = existingContent.getArray(FIELD_KEYS);
+                TreeSet<String> keys = new TreeSet<>();
+                Long cas = null;
 
-                if (existingKeys != null) {
-                    for (Object rawKey : existingKeys) {
-                        if (rawKey != null) {
-                            keys.add(String.valueOf(rawKey));
+                try {
+                    GetResult existing = collection.get(metadataDocId);
+                    cas = existing.cas();
+                    JsonArray existingKeys = existing.contentAsObject().getArray(FIELD_KEYS);
+                    if (existingKeys != null) {
+                        for (Object rawKey : existingKeys) {
+                            if (rawKey != null) {
+                                keys.add(String.valueOf(rawKey));
+                            }
                         }
                     }
+                } catch (DocumentNotFoundException notFound) {
+                    cas = null; // document does not exist yet; we will insert it
                 }
-            } catch (DocumentNotFoundException ignored) {
-                // First key for this region.
+
+                mutation.accept(keys);
+
+                JsonArray keyArray = JsonArray.create();
+                for (String currentKey : keys) {
+                    keyArray.add(currentKey);
+                }
+                JsonObject metadata = JsonObject.create()
+                        .put(FIELD_TYPE, "keySetMetadata")
+                        .put("region", region)
+                        .put(FIELD_KEYS, keyArray)
+                        .put(FIELD_LENGTH, keys.size());
+
+                if (cas == null) {
+                    // Create only if still absent; a concurrent create makes this fail and retry.
+                    collection.insert(metadataDocId, metadata);
+                } else {
+                    // Replace only if unchanged since our read; a concurrent change fails and retries.
+                    collection.replace(metadataDocId, metadata,
+                            ReplaceOptions.replaceOptions().cas(cas));
+                }
+
+                log.info(StructuredLog.event(
+                        "repository_key_set_metadata_updated",
+                        "region", region,
+                        "metadataDocId", metadataDocId,
+                        "mutation", description,
+                        "count", keys.size(),
+                        "attempt", attempt
+                ));
+                return;
+            } catch (CasMismatchException | DocumentExistsException conflict) {
+                // A concurrent writer changed the document; re-read and re-apply.
+                if (attempt == maxAttempts) {
+                    log.warn(StructuredLog.event(
+                            "repository_key_set_metadata_cas_exhausted",
+                            "region", region,
+                            "metadataDocId", metadataDocId,
+                            "mutation", description,
+                            "attempts", maxAttempts
+                    ));
+                    return;
+                }
+            } catch (Exception e) {
+                // Keyset metadata is a best-effort secondary index; never fail the primary op for it.
+                log.warn(StructuredLog.event(
+                        "repository_key_set_metadata_update_error",
+                        "region", region,
+                        "metadataDocId", metadataDocId,
+                        "mutation", description,
+                        "error", e.getMessage()
+                ), e);
+                return;
             }
-
-            if (add) {
-                keys.add(key);
-            } else {
-                keys.remove(key);
-            }
-
-            JsonArray keyArray = JsonArray.create();
-
-            for (String currentKey : keys) {
-                keyArray.add(currentKey);
-            }
-
-            JsonObject metadata = JsonObject.create()
-                    .put(FIELD_TYPE, "keySetMetadata")
-                    .put("region", region)
-                    .put(FIELD_KEYS, keyArray)
-                    .put(FIELD_LENGTH, keys.size());
-
-            collection.upsert(metadataDocId, metadata);
-
-            log.info(StructuredLog.event(
-                    "repository_key_set_metadata_updated",
-                    "region", region,
-                    "metadataDocId", metadataDocId,
-                    "key", key,
-                    "add", add,
-                    "count", keys.size()
-            ));
-        } catch (Exception e) {
-            log.warn(StructuredLog.event(
-                    "repository_key_set_metadata_update_error",
-                    "region", region,
-                    "metadataDocId", metadataDocId,
-                    "key", key,
-                    "add", add,
-                    "error", e.getMessage()
-            ), e);
         }
     }
 
