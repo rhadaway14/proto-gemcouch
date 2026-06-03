@@ -46,7 +46,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] **Kubernetes** — Helm chart (`charts/protogemcouch`): multi-replica Deployment, Service,
   ConfigMap, Secret (or `existingSecret`), startup/liveness/readiness probes, resource
   requests/limits, HPA, PodDisruptionBudget, `terminationGracePeriodSeconds`, config-checksum
-  rollout. Validated with `helm lint` + `helm template`.
+  rollout. Validated with `helm lint`/`helm template` **and a full in-cluster e2e** on the test
+  cluster: image pulled from Docker Hub, 2-replica Helm deploy with file-mounted secrets, in-cluster
+  Couchbase, and a real in-cluster Geode client round-trip (**42,606 ops, 0 errors**). The e2e
+  surfaced and fixed a multi-release-jar packaging bug (the Geode client crashed from the fat jar on
+  JDK 9+ until the shaded manifest was marked `Multi-Release: true`).
 - [~] **Graceful shutdown** — `terminationGracePeriodSeconds` + Netty graceful executor/event-loop
   shutdown in place; a SIGTERM shutdown hook (so the drain runs on pod termination, not just JVM
   exit) and under-load validation remain.
