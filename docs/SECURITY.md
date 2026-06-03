@@ -226,10 +226,21 @@ Current hardening includes:
 - **SBOM + build provenance** generated and attached to the published image as OCI attestations by
   CI (`sbom: true`, `provenance: mode=max` in the Docker publish workflow). Inspect with
   `docker buildx imagetools inspect docker.io/rhadaway14/protogemcouch:latest --format '{{ json .SBOM }}'`.
+- **Image vulnerability scanning** (Trivy) runs in CI on every build, including pull requests, before
+  the image is ever published. HIGH+CRITICAL findings (OS packages and bundled jar libraries) are
+  uploaded to the GitHub **code-scanning / Security** tab for triage. The build **hard-fails on a
+  fixable CRITICAL in an OS package** — the part remediable by bumping the pinned base-image digest.
+  Jar/library CVEs are deliberately scoped out of the hard gate because they originate in Geode's
+  transitive dependencies (e.g. Shiro `CVE-2022-40664`), which cannot be upgraded without breaking
+  Geode; gating on them would block every release. Operators must triage those via the Security tab.
+- **Keyless image signing** (cosign + GitHub OIDC) signs every published image by digest, with the
+  signature recorded in the Rekor transparency log. No long-lived keys are stored. Verify with
+  `cosign verify docker.io/rhadaway14/protogemcouch:latest --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 Recommended future improvements:
-- run image vulnerability scans (e.g. Trivy/Grype) in CI and gate on severity
-- sign images (cosign) if a verified-publisher policy is required
+- bump the pinned base-image digest on a cadence to clear OS-package findings
+- pin a stricter cosign certificate-identity in `cosign verify` policies once the repo path is fixed
+- adopt a vulnerability-exception file (`.trivyignore`) with documented expiry for accepted jar CVEs
 
 ---
 
@@ -237,7 +248,7 @@ Recommended future improvements:
 
 GitHub Actions now provides automated scanning coverage through:
 - build and test workflow
-- Docker image build workflow
+- Docker image build workflow (Trivy image vulnerability scanning + keyless cosign signing)
 - dependency graph submission
 - CodeQL analysis
 
@@ -245,6 +256,9 @@ GitHub Actions now provides automated scanning coverage through:
 - Maven build runs automatically in CI
 - dependency graph submission is automated
 - CodeQL static analysis is automated
+- Trivy scans the container image on every build (PRs included); HIGH+CRITICAL findings go to the
+  Security tab and a fixable CRITICAL OS-package CVE hard-fails the build
+- published images are signed with keyless cosign (GitHub OIDC + Rekor)
 - scans run on push and pull request for mainline branches
 - dependency/code scanning can also run on schedule
 

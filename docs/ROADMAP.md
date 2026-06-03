@@ -57,7 +57,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   `terminationGracePeriodSeconds`. Exercised by `docker compose stop` in the integration flow.
 - [x] **Image hardening** — base image pinned by digest, runs as a fixed non-root UID
   (`USER 10001:10001`), JRE-only runtime, and CI attaches an SBOM + build provenance (SLSA) to the
-  published image. Remaining: in-CI vulnerability scanning and optional image signing.
+  published image. CI also runs Trivy vulnerability scanning on every build (HIGH+CRITICAL uploaded
+  to the Security tab; hard gate on fixable CRITICAL OS-package CVEs — jar CVEs from Geode's
+  transitive deps are triaged, not gated) and signs every published image with keyless cosign
+  (GitHub OIDC + Rekor). Remaining: periodic base-digest bumps and a documented `.trivyignore`.
 - [ ] **Resource sizing guidance** tied to capacity tests.
 
 ### 2c. Security (remaining)

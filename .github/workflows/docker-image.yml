@@ -1,8 +1,9 @@
 name: Docker Image Build and Publish
 
-# Builds the shim image and, on pushes to the default branch and version tags, publishes it to
-# Docker Hub (docker.io/rhadaway14/protogemcouch). Pull requests build only (no push), so the image
-# build is still validated without publishing.
+# Builds the shim image, scans it for vulnerabilities, and — on pushes to the default branch and
+# version tags — publishes it to Docker Hub (docker.io/rhadaway14/protogemcouch) with an SBOM +
+# build provenance, then signs it with keyless cosign. Pull requests build and scan only (no push),
+# so the image is validated without publishing.
 on:
   push:
     branches:
@@ -18,6 +19,11 @@ on:
 jobs:
   docker-build:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write  # upload the Trivy SARIF report to GitHub code scanning
+      id-token: write         # OIDC token for keyless cosign signing
 
     steps:
       - name: Check out repository
@@ -54,16 +60,80 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
 
-      - name: Build and push
+      # Build the image into the local daemon (all events, including PRs) so it can be scanned
+      # before it is ever published. Layers are cached via the GitHub Actions cache and reused by
+      # the publish step below, so the image content is effectively built once.
+      - name: Build image for scanning
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          load: true
+          tags: protogemcouch:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Hard gate: fail the build on a fixable CRITICAL in an OS package — i.e. something we can
+      # actually remediate by bumping the pinned base-image digest. Library/jar CVEs are scoped out
+      # of the gate (and reported below instead) because they come from Geode's transitive
+      # dependencies (e.g. Shiro), which cannot be upgraded without breaking Geode compatibility;
+      # gating on them would block every publish indefinitely. They are triaged via code scanning.
+      - name: Scan base image for CRITICAL OS vulnerabilities (gate)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: protogemcouch:scan
+          scanners: vuln
+          vuln-type: os
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      # Report HIGH+CRITICAL findings to the GitHub Security tab regardless of the gate result.
+      - name: Scan image and report to code scanning (non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: protogemcouch:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      # Publish the scanned image (default branch / tags only) with an SBOM and full build
+      # provenance (SLSA) attached as OCI attestations. Inspect with:
+      #   docker buildx imagetools inspect <image> --format '{{ json .SBOM }}'
+      - name: Build and push
+        id: publish
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Generate and attach an SBOM and full build provenance (SLSA) as OCI attestations to the
-          # published image, so downstream consumers can inspect dependencies and verify how the
-          # image was built (e.g. `docker buildx imagetools inspect --format '{{ json .SBOM }}'`).
+          cache-from: type=gha
           sbom: true
           provenance: mode=max
+
+      # Keyless signing via GitHub OIDC (no long-lived keys): the signature and its Rekor
+      # transparency-log entry let consumers verify provenance with `cosign verify`.
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the published image (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: cosign sign --yes "docker.io/rhadaway14/protogemcouch@${DIGEST}"
