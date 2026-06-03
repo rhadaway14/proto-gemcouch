@@ -150,7 +150,22 @@ public class RawShimServer {
                     "policy", errorResponsePolicy.getClass().getSimpleName()
             ));
 
-            healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState, metrics);
+            TlsConfig tlsConfig = TlsConfig.fromEnv();
+            if (tlsConfig.enabled()) {
+                shimSslContext = tlsConfig.buildServerSslContext();
+            }
+            log.info(StructuredLog.event(
+                    "tls_configured",
+                    "geodeListenerTls", tlsConfig.enabled(),
+                    "clientAuth", tlsConfig.requireClientAuth() ? "require" : "none",
+                    "healthTls", tlsConfig.healthTlsEnabled()
+            ));
+
+            javax.net.ssl.SSLContext healthSslContext =
+                    tlsConfig.healthTlsEnabled() ? tlsConfig.buildJdkSslContext() : null;
+            healthHttpServer = new HealthHttpServer(
+                    config.getHealthPort(), healthState, metrics,
+                    System.getenv("HEALTH_BIND_ADDRESS"), healthSslContext);
             healthHttpServer.start();
 
             repository = createRepository(config);
@@ -180,16 +195,6 @@ public class RawShimServer {
                     "idleTimeoutSeconds", connectionLimits.idleTimeoutSeconds(),
                     "maxConnections", connectionLimits.maxConnections(),
                     "firstRequestTimeoutSeconds", connectionLimits.firstRequestTimeoutSeconds()
-            ));
-
-            TlsConfig tlsConfig = TlsConfig.fromEnv();
-            if (tlsConfig.enabled()) {
-                shimSslContext = tlsConfig.buildServerSslContext();
-            }
-            log.info(StructuredLog.event(
-                    "tls_configured",
-                    "enabled", tlsConfig.enabled(),
-                    "clientAuth", tlsConfig.requireClientAuth() ? "require" : "none"
             ));
 
             boss = new NioEventLoopGroup(1);

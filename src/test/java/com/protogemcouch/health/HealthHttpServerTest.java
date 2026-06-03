@@ -1,16 +1,25 @@
 package com.protogemcouch.health;
 
 import com.protogemcouch.observability.MetricsRegistry;
+import com.protogemcouch.shim.TlsConfig;
 import com.protogemcouch.wire.MessageTypes;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -209,6 +218,48 @@ class HealthHttpServerTest {
                 .build();
 
         return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void healthEndpointsAreServedOverHttpsWhenConfigured() throws Exception {
+        Assumptions.assumeTrue(Files.exists(Path.of("certs/server-keystore.p12")), "test keystore present");
+
+        SSLContext serverContext = new TlsConfig(
+                false, "certs/server-keystore.p12", "changeit", "PKCS12", false, null, null, null)
+                .buildJdkSslContext();
+
+        HealthState healthState = new HealthState();
+        healthState.markStarting();
+
+        int port = freePort();
+        server = new HealthHttpServer(port, healthState, new MetricsRegistry(), null, serverContext);
+        server.start();
+
+        HttpClient client = HttpClient.newBuilder().sslContext(trustAllContext()).build();
+        HttpResponse<String> response = client.send(
+                HttpRequest.newBuilder(URI.create("https://localhost:" + port + "/live")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(200, response.statusCode());
+        assertTrue(response.body().contains("\"endpoint\":\"live\""));
+        assertTrue(response.body().contains("\"ok\":true"));
+    }
+
+    private static SSLContext trustAllContext() throws Exception {
+        TrustManager[] trustAll = {
+                new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) { }
+
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) { }
+
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                }
+        };
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(null, trustAll, new SecureRandom());
+        return context;
     }
 
     private static int freePort() throws IOException {

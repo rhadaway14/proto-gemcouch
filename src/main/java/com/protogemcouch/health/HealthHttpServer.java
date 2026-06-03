@@ -4,9 +4,12 @@ import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.observability.StructuredLog;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -20,6 +23,8 @@ public class HealthHttpServer {
     private final int port;
     private final HealthState healthState;
     private final MetricsRegistry metricsRegistry;
+    private final String bindAddress;
+    private final SSLContext sslContext;
     private HttpServer server;
 
     public HealthHttpServer(int port, HealthState healthState) {
@@ -27,13 +32,35 @@ public class HealthHttpServer {
     }
 
     public HealthHttpServer(int port, HealthState healthState, MetricsRegistry metricsRegistry) {
+        this(port, healthState, metricsRegistry, null, null);
+    }
+
+    /**
+     * @param bindAddress interface to bind to; {@code null}/blank binds all interfaces
+     * @param sslContext  when non-null, the admin endpoints are served over HTTPS
+     */
+    public HealthHttpServer(int port, HealthState healthState, MetricsRegistry metricsRegistry,
+                            String bindAddress, SSLContext sslContext) {
         this.port = port;
         this.healthState = healthState;
         this.metricsRegistry = metricsRegistry;
+        this.bindAddress = bindAddress;
+        this.sslContext = sslContext;
     }
 
     public void start() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(port), 0);
+        InetSocketAddress address = (bindAddress == null || bindAddress.isBlank())
+                ? new InetSocketAddress(port)
+                : new InetSocketAddress(bindAddress, port);
+
+        if (sslContext != null) {
+            HttpsServer https = HttpsServer.create(address, 0);
+            https.setHttpsConfigurator(new HttpsConfigurator(sslContext));
+            server = https;
+        } else {
+            server = HttpServer.create(address, 0);
+        }
+
         server.createContext("/live", this::handleLive);
         server.createContext("/ready", this::handleReady);
         server.createContext("/metrics/json", this::handleMetricsJson);
@@ -44,6 +71,8 @@ public class HealthHttpServer {
         log.info(StructuredLog.event(
                 "health_server_started",
                 "port", port,
+                "bindAddress", (bindAddress == null || bindAddress.isBlank()) ? "0.0.0.0" : bindAddress,
+                "scheme", sslContext != null ? "https" : "http",
                 "livePath", "/live",
                 "readyPath", "/ready",
                 "metricsJsonPath", "/metrics/json",

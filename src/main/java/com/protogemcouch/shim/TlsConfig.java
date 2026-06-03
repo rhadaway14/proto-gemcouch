@@ -6,6 +6,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
 
 import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -30,6 +31,7 @@ import java.security.KeyStore;
 public final class TlsConfig {
 
     private final boolean enabled;
+    private final boolean healthTlsEnabled;
     private final String keystorePath;
     private final String keystorePassword;
     private final String keystoreType;
@@ -42,7 +44,16 @@ public final class TlsConfig {
                      String keystorePath, String keystorePassword, String keystoreType,
                      boolean requireClientAuth,
                      String truststorePath, String truststorePassword, String truststoreType) {
+        this(enabled, false, keystorePath, keystorePassword, keystoreType,
+                requireClientAuth, truststorePath, truststorePassword, truststoreType);
+    }
+
+    public TlsConfig(boolean enabled, boolean healthTlsEnabled,
+                     String keystorePath, String keystorePassword, String keystoreType,
+                     boolean requireClientAuth,
+                     String truststorePath, String truststorePassword, String truststoreType) {
         this.enabled = enabled;
+        this.healthTlsEnabled = healthTlsEnabled;
         this.keystorePath = keystorePath;
         this.keystorePassword = keystorePassword;
         this.keystoreType = (keystoreType == null || keystoreType.isBlank()) ? "PKCS12" : keystoreType;
@@ -54,9 +65,11 @@ public final class TlsConfig {
 
     public static TlsConfig fromEnv() {
         boolean enabled = Boolean.parseBoolean(envOrDefault("TLS_ENABLED", "false"));
+        boolean healthTlsEnabled = Boolean.parseBoolean(envOrDefault("HEALTH_TLS_ENABLED", "false"));
         boolean requireClientAuth = "require".equalsIgnoreCase(envOrDefault("TLS_CLIENT_AUTH", "none"));
         return new TlsConfig(
                 enabled,
+                healthTlsEnabled,
                 System.getenv("TLS_KEYSTORE_PATH"),
                 System.getenv("TLS_KEYSTORE_PASSWORD"),
                 System.getenv("TLS_KEYSTORE_TYPE"),
@@ -72,6 +85,10 @@ public final class TlsConfig {
 
     public boolean requireClientAuth() {
         return requireClientAuth;
+    }
+
+    public boolean healthTlsEnabled() {
+        return healthTlsEnabled;
     }
 
     public String keystorePath() {
@@ -114,6 +131,27 @@ public final class TlsConfig {
         }
 
         return builder.build();
+    }
+
+    /**
+     * Build a JDK {@link SSLContext} from the configured server keystore, for serving the
+     * health/admin endpoints over HTTPS. Fails fast if no keystore is configured.
+     */
+    public SSLContext buildJdkSslContext() throws Exception {
+        if (keystorePath == null || keystorePath.isBlank()) {
+            throw new IllegalStateException("HEALTH_TLS_ENABLED is set but TLS_KEYSTORE_PATH is not set");
+        }
+        char[] pass = keystorePassword == null ? new char[0] : keystorePassword.toCharArray();
+        KeyStore keyStore = KeyStore.getInstance(keystoreType);
+        try (InputStream in = Files.newInputStream(Path.of(keystorePath))) {
+            keyStore.load(in, pass);
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, pass);
+
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(kmf.getKeyManagers(), null, null);
+        return context;
     }
 
     private static String envOrDefault(String name, String fallback) {

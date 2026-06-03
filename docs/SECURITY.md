@@ -121,8 +121,19 @@ presenting a certificate trusted by the shim's truststore can connect. This is t
 client-auth model for the shim (it does not implement the Geode application-level security
 handshake).
 
-The health/admin server is still plain HTTP and is intended for trusted operator/monitoring
-networks; keep `HEALTH_PORT` access restricted (see network exposure guidance below).
+### Health/admin endpoint
+
+The health/admin server (`/live`, `/ready`, `/metrics`, `/metrics/json`) defaults to plain HTTP on
+all interfaces, which is appropriate for a trusted operator/monitoring network. It can be hardened:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `HEALTH_TLS_ENABLED` | `false` | Serve the admin endpoints over HTTPS, using the same keystore as `TLS_KEYSTORE_*`. |
+| `HEALTH_BIND_ADDRESS` | all interfaces | Bind to a specific interface (e.g. `127.0.0.1` or an internal address) to restrict exposure. |
+
+Enable HTTPS for metrics scraping over untrusted networks, and/or restrict the bind address. Keep
+`HEALTH_PORT` access limited to operators and monitoring systems regardless (see network exposure
+guidance below). The endpoints expose no credentials or sensitive payloads.
 
 ---
 

@@ -62,6 +62,10 @@ Optional:
 - `CB_TLS_CERT_PATH` (PEM cert to trust for the Couchbase connection)
 - `CB_TLS_VERIFY_HOSTNAME` default `true` (verify the Couchbase host against its cert; disable only
   for self-signed certs whose SAN does not match the host)
+- `HEALTH_TLS_ENABLED` default `false` (serve the health/admin endpoints over HTTPS, using the same
+  server keystore as `TLS_KEYSTORE_*`)
+- `HEALTH_BIND_ADDRESS` (interface the health/admin server binds to; unset/blank = all interfaces.
+  Set to e.g. `127.0.0.1` or an internal address to restrict exposure)
 
 Geode clients connect to a TLS-enabled shim with `ssl-enabled-components=server` and a truststore
 trusting the shim certificate. See `docs/SECURITY.md` and the `protogemcouch-tls` service in

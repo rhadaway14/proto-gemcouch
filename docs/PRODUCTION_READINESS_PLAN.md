@@ -302,9 +302,11 @@ Transport security implemented and validated against a real Geode client and a T
   `ProtoGemCouchMutualTlsIntegrationTest` (accept) and `...RejectionIntegrationTest` (reject).
 - Couchbase (backend) TLS (`CB_TLS_ENABLED` / `couchbases://`), validated by
   `ProtoGemCouchBackendTlsIntegrationTest`.
+- Health/admin endpoint hardening: optional HTTPS (`HEALTH_TLS_ENABLED`) and configurable bind
+  address (`HEALTH_BIND_ADDRESS`), unit-tested.
 
-Remaining: secret-manager integration, image digest pinning / vulnerability-scan enforcement,
-Kubernetes deployment guidance, and health-port hardening.
+Remaining: secret-manager integration, image digest pinning / vulnerability-scan enforcement, and
+Kubernetes deployment guidance.
 
 Tasks:
 
