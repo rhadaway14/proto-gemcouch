@@ -42,6 +42,7 @@ import io.netty.util.concurrent.EventExecutorGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.SocketAddress;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +62,44 @@ public class RawShimServer {
 
     private static final AttributeKey<Integer> CURRENT_OPCODE =
             AttributeKey.valueOf("protogemcouch.currentOpcode");
+
+    /**
+     * Connection lifecycle accounting + logging. Lives on {@link ConnectionTrackingHandler} (the
+     * first, permanent pipeline handler) so closes are always counted and limiter slots released —
+     * the handshake handler cannot own this because it removes itself after the handshake.
+     */
+    private static final ConnectionTrackingListener CONNECTION_TRACKING_LISTENER =
+            new ConnectionTrackingListener() {
+                @Override
+                public void onConnectionOpened(SocketAddress remote, int activeConnections) {
+                    metrics.recordConnectionOpened();
+                    log.info(StructuredLog.event(
+                            "client_connected",
+                            "remote", remote,
+                            "activeConnections", activeConnections
+                    ));
+                }
+
+                @Override
+                public void onConnectionClosed(SocketAddress remote) {
+                    metrics.recordConnectionClosed();
+                    log.info(StructuredLog.event(
+                            "client_disconnected",
+                            "remote", remote
+                    ));
+                }
+
+                @Override
+                public void onConnectionRejected(SocketAddress remote, int maxConnections) {
+                    metrics.recordConnectionRejected();
+                    log.warn(StructuredLog.event(
+                            "connection_rejected",
+                            "reason", "max_connections_exceeded",
+                            "maxConnections", maxConnections,
+                            "remote", remote
+                    ));
+                }
+            };
 
     private static ServerConfig config;
     private static FrameLimits frameLimits;
@@ -150,6 +189,10 @@ public class RawShimServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
+                            // First and permanent: tracks the connection for its whole lifetime
+                            // (open/close accounting + max-connections cap).
+                            ch.pipeline().addLast(new ConnectionTrackingHandler(
+                                    connectionLimiter, CONNECTION_TRACKING_LISTENER));
                             if (connectionLimits.idleReapingEnabled()) {
                                 // allIdle: fire when neither a read nor a write has happened for the timeout.
                                 ch.pipeline().addLast(new IdleStateHandler(
@@ -328,43 +371,10 @@ public class RawShimServer {
 
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {
         private boolean handshakeDone = false;
-        private boolean acquired = false;
 
-        @Override
-        public void channelActive(ChannelHandlerContext ctx) {
-            if (!connectionLimiter.tryAcquire()) {
-                metrics.recordConnectionRejected();
-                log.warn(StructuredLog.event(
-                        "connection_rejected",
-                        "reason", "max_connections_exceeded",
-                        "maxConnections", connectionLimiter.maxConnections(),
-                        "remote", ctx.channel().remoteAddress()
-                ));
-                ctx.close();
-                return;
-            }
-
-            acquired = true;
-            metrics.recordConnectionOpened();
-            log.info(StructuredLog.event(
-                    "client_connected",
-                    "remote", ctx.channel().remoteAddress(),
-                    "activeConnections", connectionLimiter.activeConnections()
-            ));
-        }
-
-        @Override
-        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            if (acquired) {
-                metrics.recordConnectionClosed();
-                connectionLimiter.release();
-                log.info(StructuredLog.event(
-                        "client_disconnected",
-                        "remote", ctx.channel().remoteAddress()
-                ));
-            }
-            super.channelInactive(ctx);
-        }
+        // Connection open/close accounting and the max-connections cap live on
+        // ConnectionTrackingHandler, which stays in the pipeline for the connection's lifetime.
+        // This handler removes itself after the handshake, so it must not own that accounting.
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {

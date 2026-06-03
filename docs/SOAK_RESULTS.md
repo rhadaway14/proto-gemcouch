@@ -50,6 +50,43 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-02 — 15-minute soak (optimized build) + connection-accounting bug found & fixed
+
+A longer (15-minute) sustained soak against the build with the PUT_ALL optimization, driven by
+`scripts/soak.sh` (mixed profile, concurrency 16, 60s samples, keyspace 3000).
+
+### Result
+
+- Total operations: **6,561,931** over 900s (sustained ~7.0–7.3k ops/sec, mixed)
+- **Request errors: 0**, shed: 0, malformed: 0, first-request timeouts: 0 — entire run
+- **Memory flat**: 979.7 MiB → ~1.119 GiB (rose to working-set early, flat thereafter — no leak)
+- Latency steady under sustained load: `PUT_ALL` p99 ~6.9 ms, `GET_ALL` p99 ~5.5 ms,
+  `CONTAINS_KEY`/`SIZE` p99 ~4.1–4.3 ms
+
+### Bug found by the soak: connection-accounting leak (and fix)
+
+The soak's connection sampling showed `active` climbing steadily (82 → 167) with
+`protogemcouch_connections_closed_total` stuck at **0** — closes were never being counted, and a
+post-run probe confirmed connections stayed counted-open after the client disconnected.
+
+Root cause: the connection accounting (open/close counting and the `ConnectionLimiter` acquire/
+release) lived on `HandshakeThenFrameHandler`, **which removes itself from the pipeline after the
+handshake** — so its `channelInactive` never fired. With the default `MAX_CONNECTIONS=0` there was
+no functional impact, but with a cap set the limiter would leak slots until it falsely rejected all
+new connections, and the active-connections metric was wrong.
+
+Fix: a dedicated `ConnectionTrackingHandler` that is the first, permanent handler in the pipeline,
+so `channelInactive` always fires. Re-verified with a real client run: 18 opened → **18 closed,
+active 0** after disconnect (previously 18 opened → 0 closed). See the `feature/robustness` history.
+
+### Conclusion
+
+> Throughput, latency, and memory are stable over 15 minutes with the optimized build and no guard
+> trips. The soak also did its real job — it surfaced a latent connection-accounting bug that unit
+> and short functional tests missed, which has been fixed and re-verified.
+
+---
+
 ## Run: 2026-06-02 — robustness build stability soak
 
 Short sustained-stability soak against the hardened build (`feature/robustness`, default config),

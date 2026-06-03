@@ -23,6 +23,35 @@ PERFORMANCE_BASELINE.md
 
 ## Current baseline run
 
+## Run: 2026-06-02 — PUT_ALL optimization (concurrent writes + batched keyset)
+
+PUT_ALL was the latency-dominant operation in the baseline below. It previously did, per entry, a
+value upsert plus a keyset-metadata get+upsert, all sequential — so an N-entry batch cost ~3N
+Couchbase round-trips. The optimization issues all value upserts concurrently and updates the
+keyset metadata once per batch (~3 round-trips total). Same harness/environment as the baseline.
+
+### PUT_ALL latency, before → after (concurrency 16)
+
+| Profile | avg before | avg after | p99 before | p99 after |
+|---|---|---|---|---|
+| write-heavy | 6.31 ms | **2.62 ms** (−58%) | 9.66 ms | **4.40 ms** |
+| bulk-heavy | 6.74 ms | **2.98 ms** (−56%) | 10.46 ms | **5.37 ms** |
+| mixed | 6.16 ms | **2.76 ms** (−55%) | 10.04 ms | **5.03 ms** |
+
+### Throughput, before → after
+
+| Profile | before | after | Δ |
+|---|---|---|---|
+| bulk-heavy (most PUT_ALL) | 4,200 ops/s | **6,346 ops/s** | +51% |
+| write-heavy | 5,966 ops/s | **7,413 ops/s** | +24% |
+| mixed | 7,010 ops/s | **8,525 ops/s** | +22% |
+
+PUT_ALL latency roughly halved and the PUT_ALL-heavy profile gained ~50% throughput, with 0 errors.
+GET_ALL also improved slightly (less backend contention). Correctness validated by the full
+integration suite (149 tests, 0 failures, including PUT_ALL round-trips for all value types).
+
+---
+
 ## Run: 2026-06-02 — robustness build baseline (feature/robustness)
 
 Benchmark pass against the hardened build (all failure-mode robustness phases, with default config:
