@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  repository: protogemcouch
+  repository: docker.io/rhadaway14/protogemcouch
   tag: latest
   pullPolicy: IfNotPresent
 

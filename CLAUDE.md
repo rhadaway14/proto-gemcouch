@@ -26,10 +26,18 @@ sudo cp -f /etc/kubernetes/admin.conf /home/rob/.kube/config && sudo chown rob:r
 Certs last renewed 2026-06-03 (valid to ~2027-06).
 
 ### Running the shim itself on the cluster
-The `protogemcouch` image is not in a registry, so a full in-cluster run requires: (1) getting the
-image onto the cluster (`docker save` → `pscp` → `sudo ctr -n k8s.io images import`, or push to a
-registry), and (2) a reachable Couchbase. The Helm chart objects themselves are validated on the
-live cluster (`charts/protogemcouch`).
+The image is published (see below) and the Helm chart references it, so a full in-cluster run now
+just needs a reachable Couchbase (deploy one in-cluster or point at an external instance).
+
+## Container image / registry
+
+- Image: **`docker.io/rhadaway14/protogemcouch`** (public Docker Hub repo). Tags: `latest`, the short
+  git SHA, and `vX.Y.Z` for release tags. The Helm chart's `image.repository` points here.
+- CI publishes automatically: `.github/workflows/docker-image.yml` builds the jar and pushes the
+  image on pushes to the default branch and on `v*` tags (pull requests build only). GitHub Actions
+  secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` are configured on the repo.
+- Local push: `docker login -u rhadaway14` then `docker build`/`docker push`. The Docker Hub access
+  token ("claude") is in `.claude/dockerhub.local` (gitignored).
 
 ## Build / test quick reference
 
