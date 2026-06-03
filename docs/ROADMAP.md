@@ -51,10 +51,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   Couchbase, and a real in-cluster Geode client round-trip (**42,606 ops, 0 errors**). The e2e
   surfaced and fixed a multi-release-jar packaging bug (the Geode client crashed from the fat jar on
   JDK 9+ until the shaded manifest was marked `Multi-Release: true`).
-- [~] **Graceful shutdown** — `terminationGracePeriodSeconds` + Netty graceful executor/event-loop
-  shutdown in place; a SIGTERM shutdown hook (so the drain runs on pod termination, not just JVM
-  exit) and under-load validation remain.
-- [ ] **Image hardening** — pin base-image digests, confirm non-root, minimize image, SBOM.
+- [x] **Graceful shutdown** — a `SIGTERM` shutdown hook (the signal Kubernetes/`docker stop` send)
+  runs an idempotent drain: stop accepting, drain in-flight request handlers and event loops within
+  a bounded grace period, then close Couchbase and the health server. Pairs with
+  `terminationGracePeriodSeconds`. Exercised by `docker compose stop` in the integration flow.
+- [x] **Image hardening** — base image pinned by digest, runs as a fixed non-root UID
+  (`USER 10001:10001`), JRE-only runtime, and CI attaches an SBOM + build provenance (SLSA) to the
+  published image. Remaining: in-CI vulnerability scanning and optional image signing.
 - [ ] **Resource sizing guidance** tied to capacity tests.
 
 ### 2c. Security (remaining)

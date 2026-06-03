@@ -214,14 +214,22 @@ deployment to reduce the per-connection memory exposure further.
 ## Container hardening
 
 Current hardening includes:
-- multi-stage build
-- JRE-only runtime image
-- non-root application user
+- JRE-only runtime image (no build toolchain or source shipped; the shaded jar is built before the
+  image and copied in)
+- base image **pinned by digest** (`eclipse-temurin:17-jre@sha256:…` in the `Dockerfile`) for
+  reproducible, tamper-evident builds
+- runs as a **fixed non-root UID/GID** (`USER 10001:10001`), compatible with read-only root
+  filesystems and arbitrary-UID admission policies
+- graceful shutdown on `SIGTERM` (the signal Kubernetes/`docker stop` send): the listener stops
+  accepting, in-flight requests drain within the termination grace period, then the Couchbase
+  connection and health server close cleanly
+- **SBOM + build provenance** generated and attached to the published image as OCI attestations by
+  CI (`sbom: true`, `provenance: mode=max` in the Docker publish workflow). Inspect with
+  `docker buildx imagetools inspect docker.io/rhadaway14/protogemcouch:latest --format '{{ json .SBOM }}'`.
 
 Recommended future improvements:
-- pin base image digests
-- run image vulnerability scans
-- sign images if needed
+- run image vulnerability scans (e.g. Trivy/Grype) in CI and gate on severity
+- sign images (cosign) if a verified-publisher policy is required
 
 ---
 
@@ -258,7 +266,8 @@ Before non-lab deployment:
 - [ ] health port exposure restricted
 - [ ] Couchbase credentials are least-privilege
 - [ ] shim port exposure restricted
-- [ ] deployment image built from known source state
+- [x] deployment image built from known source state (base pinned by digest; SBOM + provenance attested)
+- [x] container runs as non-root
 - [x] dependency/code scanning configured in CI
 - [ ] CI security findings reviewed before release
 

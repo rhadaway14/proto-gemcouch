@@ -116,13 +116,26 @@ public class RawShimServer {
     private static ScheduledExecutorService metricsReporter;
     private static HealthState healthState;
     private static HealthHttpServer healthHttpServer;
+    private static EventLoopGroup bossGroup;
+    private static EventLoopGroup workerGroup;
+    private static Channel serverChannel;
+
+    // Ensures the shutdown sequence runs exactly once whether it is triggered by a SIGTERM
+    // shutdown hook (the normal path under Kubernetes/Docker) or by the main thread unwinding.
+    private static final java.util.concurrent.atomic.AtomicBoolean SHUTDOWN_STARTED =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public static void main(String[] args) throws Exception {
-        EventLoopGroup boss = null;
-        EventLoopGroup workers = null;
-
         healthState = new HealthState();
         healthState.markStarting();
+
+        // Run the graceful drain on SIGTERM, which is how Kubernetes and `docker stop` ask the
+        // process to exit. Without this, the cleanup in the finally block below would not run on a
+        // signal (the JVM exits straight after hooks), so in-flight requests and connections would
+        // be dropped instead of drained. The hook closes the listener, which unblocks the main
+        // thread's closeFuture().sync() and lets it converge on the same idempotent shutdown.
+        Runtime.getRuntime().addShutdownHook(new Thread(
+                () -> gracefulShutdown("signal"), "protogemcouch-shutdown"));
 
         try {
             config = ServerConfig.fromEnv();
@@ -197,11 +210,11 @@ public class RawShimServer {
                     "firstRequestTimeoutSeconds", connectionLimits.firstRequestTimeoutSeconds()
             ));
 
-            boss = new NioEventLoopGroup(1);
-            workers = new NioEventLoopGroup();
+            bossGroup = new NioEventLoopGroup(1);
+            workerGroup = new NioEventLoopGroup();
 
             ServerBootstrap bootstrap = new ServerBootstrap();
-            bootstrap.group(boss, workers)
+            bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
@@ -229,7 +242,7 @@ public class RawShimServer {
                         }
                     });
 
-            Channel ch = bootstrap.bind(config.getShimPort()).sync().channel();
+            serverChannel = bootstrap.bind(config.getShimPort()).sync().channel();
             healthState.markServerBound();
 
             log.info(StructuredLog.event(
@@ -239,7 +252,7 @@ public class RawShimServer {
                     "metricsJsonPath", "/metrics/json"
             ));
 
-            ch.closeFuture().sync();
+            serverChannel.closeFuture().sync();
         } catch (ConfigException e) {
             healthState.markStartupFailed(e.getMessage());
             log.error(StructuredLog.event(
@@ -255,28 +268,78 @@ public class RawShimServer {
             ), e);
             throw e;
         } finally {
+            gracefulShutdown("main-thread-exit");
+        }
+    }
+
+    /**
+     * Drains and releases every server resource exactly once. Safe to call from both the SIGTERM
+     * shutdown hook and the main thread's {@code finally}; whichever calls first runs the body and
+     * the other returns immediately. The JVM blocks on the shutdown-hook thread until this returns,
+     * so the drain completes before exit.
+     *
+     * <p>Order: mark not-ready (so orchestrators stop routing) → stop new accepts by closing the
+     * listener → drain in-flight request handlers and event loops with a bounded grace period →
+     * close the Couchbase repository → stop the health server.
+     */
+    static void gracefulShutdown(String trigger) {
+        if (!SHUTDOWN_STARTED.compareAndSet(false, true)) {
+            return;
+        }
+        log.info(StructuredLog.event("server_stopping", "trigger", trigger));
+
+        if (healthState != null) {
             healthState.markStopping();
+        }
 
-            stopMetricsReporter();
+        stopMetricsReporter();
 
-            if (workers != null) {
-                workers.shutdownGracefully();
+        // Stop accepting new connections first. Closing the listener also unblocks
+        // serverChannel.closeFuture().sync() on the main thread.
+        if (serverChannel != null) {
+            try {
+                serverChannel.close().await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-            if (boss != null) {
-                boss.shutdownGracefully();
-            }
-            if (handlerExecutorGroup != null) {
-                handlerExecutorGroup.shutdownGracefully();
-            }
+        }
 
-            closeRepository(repository);
+        // Kick off graceful drains concurrently (each returns immediately), then await them. The
+        // quiet period lets in-flight requests finish; the timeout bounds the wait so we stay
+        // within the container's termination grace period.
+        if (handlerExecutorGroup != null) {
+            handlerExecutorGroup.shutdownGracefully(2, 8, TimeUnit.SECONDS);
+        }
+        if (workerGroup != null) {
+            workerGroup.shutdownGracefully(2, 8, TimeUnit.SECONDS);
+        }
+        if (bossGroup != null) {
+            bossGroup.shutdownGracefully(1, 5, TimeUnit.SECONDS);
+        }
+        awaitQuietly(handlerExecutorGroup, 11);
+        awaitQuietly(workerGroup, 11);
+        awaitQuietly(bossGroup, 6);
 
-            if (healthHttpServer != null) {
-                healthHttpServer.stop();
-            }
+        closeRepository(repository);
 
+        if (healthHttpServer != null) {
+            healthHttpServer.stop();
+        }
+
+        if (healthState != null) {
             healthState.markStopped();
-            log.info(StructuredLog.event("server_stopped"));
+        }
+        log.info(StructuredLog.event("server_stopped", "trigger", trigger));
+    }
+
+    private static void awaitQuietly(EventExecutorGroup group, long seconds) {
+        if (group == null) {
+            return;
+        }
+        try {
+            group.awaitTermination(seconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

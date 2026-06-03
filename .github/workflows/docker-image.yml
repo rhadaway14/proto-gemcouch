@@ -62,3 +62,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Generate and attach an SBOM and full build provenance (SLSA) as OCI attestations to the
+          # published image, so downstream consumers can inspect dependencies and verify how the
+          # image was built (e.g. `docker buildx imagetools inspect --format '{{ json .SBOM }}'`).
+          sbom: true
+          provenance: mode=max
