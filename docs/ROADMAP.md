@@ -31,8 +31,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   writers (or multiple shim replicas). **Fixed** with compare-and-swap + bounded retries
   (insert-when-absent / replace-with-CAS, re-read on conflict). Validated by
   `ProtoGemCouchKeysetConcurrencyIntegrationTest` (120 concurrent puts → exact `size`/`keySet`).
-- [ ] **Multi-replica validation** — prove correctness with N shims behind a load balancer against
-  shared Couchbase (the keyset fix above makes this safe; still to be exercised end-to-end).
+- [x] **Multi-replica validation** — `ProtoGemCouchMultiReplicaIntegrationTest` runs two shim
+  replicas (`protogemcouch-replica`) sharing one Couchbase, drives concurrent puts across both via a
+  multi-server Geode pool, and asserts `size`/`keySet` reflect every key (cross-process CAS) while
+  confirming both replicas served traffic. The shim is otherwise stateless, so it scales
+  horizontally behind a load balancer.
 - [ ] **Durability/consistency options** — configurable Couchbase durability; partial-failure
   behavior for `putAll`.
 - [ ] **TTL / expiration & eviction** — map Geode entry expiry to Couchbase TTL.

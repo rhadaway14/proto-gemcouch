@@ -62,6 +62,33 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # A second, identical plaintext shim replica sharing the same Couchbase, for validating
+  # multi-replica / horizontal-scaling correctness (e.g. cross-process keyset-metadata CAS).
+  protogemcouch-replica:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-replica
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40409:40405"
+      - "8085:8085"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8085"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8085/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # TLS-enabled shim instance for validating inbound TLS against a real Geode SSL client.
   # Shares the same Couchbase; the plaintext shim above remains for all other integration tests.
   protogemcouch-tls:
