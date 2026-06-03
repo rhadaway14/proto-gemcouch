@@ -79,7 +79,7 @@ jobs:
       # dependencies (e.g. Shiro), which cannot be upgraded without breaking Geode compatibility;
       # gating on them would block every publish indefinitely. They are triaged via code scanning.
       - name: Scan base image for CRITICAL OS vulnerabilities (gate)
-        uses: aquasecurity/trivy-action@v0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: protogemcouch:scan
           scanners: vuln
@@ -92,7 +92,7 @@ jobs:
       # Report HIGH+CRITICAL findings to the GitHub Security tab regardless of the gate result.
       - name: Scan image and report to code scanning (non-blocking)
         if: always()
-        uses: aquasecurity/trivy-action@v0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: protogemcouch:scan
           scanners: vuln
