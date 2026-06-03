@@ -22,6 +22,7 @@ jobs:
 
     permissions:
       contents: read
+      actions: read           # upload-sarif reads workflow-run metadata
       security-events: write  # upload the Trivy SARIF report to GitHub code scanning
       id-token: write         # OIDC token for keyless cosign signing
 
@@ -104,6 +105,10 @@ jobs:
 
       - name: Upload Trivy SARIF to code scanning
         if: always()
+        # Best-effort: surfacing findings in the Security tab must never block publishing/signing
+        # (e.g. if code scanning is unavailable on the repo plan). The scan results are also in the
+        # job logs regardless.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
