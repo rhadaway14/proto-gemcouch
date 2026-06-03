@@ -101,11 +101,33 @@ public class CouchbaseRepository implements Repository {
                 "connectTimeoutMs", connectTimeoutMs
         ));
 
-        ClusterEnvironment env = ClusterEnvironment.builder()
+        boolean tlsEnabled = couchbaseTlsEnabled(
+                config.getCouchbaseConnectionString(), System.getenv("CB_TLS_ENABLED"));
+        String certPath = System.getenv("CB_TLS_CERT_PATH");
+        boolean verifyHostname = !"false".equalsIgnoreCase(System.getenv("CB_TLS_VERIFY_HOSTNAME"));
+
+        ClusterEnvironment.Builder envBuilder = ClusterEnvironment.builder()
                 .timeoutConfig(tc -> tc
                         .connectTimeout(Duration.ofMillis(connectTimeoutMs))
-                        .kvTimeout(Duration.ofMillis(kvTimeoutMs)))
-                .build();
+                        .kvTimeout(Duration.ofMillis(kvTimeoutMs)));
+
+        if (tlsEnabled) {
+            envBuilder.securityConfig(sc -> {
+                sc.enableTls(true);
+                sc.enableHostnameVerification(verifyHostname);
+                if (certPath != null && !certPath.isBlank()) {
+                    sc.trustCertificate(java.nio.file.Path.of(certPath));
+                }
+            });
+            log.info(StructuredLog.event(
+                    "repository_tls_configured",
+                    "enabled", true,
+                    "trustCertificate", certPath == null ? "<default>" : certPath,
+                    "verifyHostname", verifyHostname
+            ));
+        }
+
+        ClusterEnvironment env = envBuilder.build();
 
         cluster = Cluster.connect(
                 config.getCouchbaseConnectionString(),
@@ -121,6 +143,16 @@ public class CouchbaseRepository implements Repository {
         collection = scope.collection(config.getCouchbaseCollection());
 
         log.info(StructuredLog.event("repository_connected"));
+    }
+
+    /**
+     * TLS to Couchbase is used when the connection string uses the {@code couchbases://} scheme or
+     * {@code CB_TLS_ENABLED=true}. Package-private for testing.
+     */
+    static boolean couchbaseTlsEnabled(String connectionString, String cbTlsEnabledEnv) {
+        boolean secureScheme = connectionString != null
+                && connectionString.trim().toLowerCase().startsWith("couchbases://");
+        return secureScheme || Boolean.parseBoolean(cbTlsEnabledEnv);
     }
 
     /**

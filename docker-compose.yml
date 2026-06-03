@@ -35,6 +35,7 @@ services:
       CB_BUCKET_RAM_MB: 256
     volumes:
       - ./scripts/init-couchbase.sh:/init-couchbase.sh:ro
+      - couchbase_certs:/shared-certs
     entrypoint: ["/bin/sh", "/init-couchbase.sh"]
     restart: "no"
 
@@ -131,6 +132,43 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Backend-TLS shim instance: connects to Couchbase over TLS (couchbases://), trusting the cluster
+  # certificate exported by couchbase-init. Inbound Geode is plaintext here. Validated by
+  # ProtoGemCouchBackendTlsIntegrationTest.
+  protogemcouch-cbtls:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-cbtls
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40408:40405"
+      - "8084:8084"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8084"
+      CB_CONNSTR: "couchbases://couchbase"
+      CB_TLS_ENABLED: "true"
+      CB_TLS_CERT_PATH: "/shared-certs/couchbase-cert.pem"
+      # The cluster's self-signed cert may not carry a SAN matching the "couchbase" service name,
+      # so hostname verification is disabled for this test instance. Production should use a cert
+      # whose SAN matches the Couchbase hostname and leave verification on.
+      CB_TLS_VERIFY_HOSTNAME: "false"
+    volumes:
+      - couchbase_certs:/shared-certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8084/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: protogemcouch-prometheus
@@ -175,3 +213,4 @@ volumes:
   couchbase_data:
   prometheus_data:
   grafana_data:
+  couchbase_certs:

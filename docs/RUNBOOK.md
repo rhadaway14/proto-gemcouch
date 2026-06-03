@@ -58,6 +58,10 @@ Optional:
 - `TLS_CLIENT_AUTH` default `none` (`require` enables mutual TLS / client-certificate auth)
 - `TLS_TRUSTSTORE_PATH` / `TLS_TRUSTSTORE_PASSWORD` / `TLS_TRUSTSTORE_TYPE` (truststore for verifying
   client certs; required when `TLS_CLIENT_AUTH=require`)
+- `CB_TLS_ENABLED` default `false` (TLS to Couchbase; also implied by a `couchbases://` connstr)
+- `CB_TLS_CERT_PATH` (PEM cert to trust for the Couchbase connection)
+- `CB_TLS_VERIFY_HOSTNAME` default `true` (verify the Couchbase host against its cert; disable only
+  for self-signed certs whose SAN does not match the host)
 
 Geode clients connect to a TLS-enabled shim with `ssl-enabled-components=server` and a truststore
 trusting the shim certificate. See `docs/SECURITY.md` and the `protogemcouch-tls` service in

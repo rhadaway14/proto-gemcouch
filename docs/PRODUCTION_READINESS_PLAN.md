@@ -293,6 +293,19 @@ Tasks:
 
 # Phase 6 - Security and Deployment Hardening
 
+## Status
+
+Transport security implemented and validated against a real Geode client and a TLS-served Couchbase:
+
+- Inbound Geode listener TLS (`TLS_ENABLED`), validated by `ProtoGemCouchTlsIntegrationTest`.
+- Mutual TLS / client-certificate auth (`TLS_CLIENT_AUTH=require`), validated by
+  `ProtoGemCouchMutualTlsIntegrationTest` (accept) and `...RejectionIntegrationTest` (reject).
+- Couchbase (backend) TLS (`CB_TLS_ENABLED` / `couchbases://`), validated by
+  `ProtoGemCouchBackendTlsIntegrationTest`.
+
+Remaining: secret-manager integration, image digest pinning / vulnerability-scan enforcement,
+Kubernetes deployment guidance, and health-port hardening.
+
 Tasks:
 
 - Secure secret handling.

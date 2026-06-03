@@ -80,14 +80,21 @@ Do not use a broad admin account in production unless strictly necessary.
 
 ## Transport security
 
-### Current state
-ProtoGemCouch supports standard Couchbase connectivity using the configured connection string.
+### Couchbase (backend) transport
 
-### Recommended next step
-For broader deployment:
-- use secure Couchbase transport where applicable
-- document certificate/trust requirements
-- validate TLS-enabled Couchbase connections
+The shim connects to Couchbase over TLS when the connection string uses `couchbases://` or
+`CB_TLS_ENABLED=true`. It trusts the cluster certificate supplied via `CB_TLS_CERT_PATH` (a PEM
+file). Validated end-to-end by `ProtoGemCouchBackendTlsIntegrationTest` against a TLS-served
+Couchbase.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `CB_TLS_ENABLED` | `false` | Enable TLS to Couchbase (also implied by a `couchbases://` connection string). |
+| `CB_TLS_CERT_PATH` | — | PEM certificate to trust (the Couchbase cluster cert / CA). |
+| `CB_TLS_VERIFY_HOSTNAME` | `true` | Verify the Couchbase hostname against the certificate. Only disable for self-signed certs whose SAN does not match the host (e.g. local test setups). |
+
+For production, use a Couchbase certificate whose SAN matches the connection hostname and leave
+hostname verification enabled.
 
 ### Shim-side transport (inbound TLS)
 
