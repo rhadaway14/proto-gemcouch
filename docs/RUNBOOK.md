@@ -52,6 +52,24 @@ Optional:
 - `HANDLER_MAX_PENDING_TASKS` default `10000` (per-handler-thread queue bound; once full, further
   requests are shed and the connection closed, instead of letting the backlog grow unbounded;
   `0` means unbounded)
+- `TLS_ENABLED` default `false` (terminate TLS on the Geode listener)
+- `TLS_KEYSTORE_PATH` / `TLS_KEYSTORE_PASSWORD` / `TLS_KEYSTORE_TYPE` (server keystore; type default
+  `PKCS12`; path+password required when `TLS_ENABLED=true`)
+- `TLS_CLIENT_AUTH` default `none` (`require` enables mutual TLS / client-certificate auth)
+- `TLS_TRUSTSTORE_PATH` / `TLS_TRUSTSTORE_PASSWORD` / `TLS_TRUSTSTORE_TYPE` (truststore for verifying
+  client certs; required when `TLS_CLIENT_AUTH=require`)
+- `CB_TLS_ENABLED` default `false` (TLS to Couchbase; also implied by a `couchbases://` connstr)
+- `CB_TLS_CERT_PATH` (PEM cert to trust for the Couchbase connection)
+- `CB_TLS_VERIFY_HOSTNAME` default `true` (verify the Couchbase host against its cert; disable only
+  for self-signed certs whose SAN does not match the host)
+- `HEALTH_TLS_ENABLED` default `false` (serve the health/admin endpoints over HTTPS, using the same
+  server keystore as `TLS_KEYSTORE_*`)
+- `HEALTH_BIND_ADDRESS` (interface the health/admin server binds to; unset/blank = all interfaces.
+  Set to e.g. `127.0.0.1` or an internal address to restrict exposure)
+
+Geode clients connect to a TLS-enabled shim with `ssl-enabled-components=server` and a truststore
+trusting the shim certificate. See `docs/SECURITY.md` and the `protogemcouch-tls` service in
+`docker-compose.yml`.
 
 Example:
 

@@ -203,6 +203,15 @@
           <useModulePath>false</useModulePath>
           <argLine>-Dnet.bytebuddy.experimental=true</argLine>
 
+          <!--
+            Fork a fresh JVM per integration test class. The Geode client cache /
+            distributed system is a JVM-wide singleton whose SSL socket layer is initialized
+            once; reusing a JVM across classes lets non-SSL state leak into the TLS test (and
+            vice versa). One JVM per class keeps each class's client configuration isolated.
+          -->
+          <forkCount>1</forkCount>
+          <reuseForks>false</reuseForks>
+
           <!-- Run only JUnit 5 @Tag("integration") tests during failsafe. -->
           <groups>integration</groups>
 

@@ -80,22 +80,60 @@ Do not use a broad admin account in production unless strictly necessary.
 
 ## Transport security
 
-### Current state
-ProtoGemCouch supports standard Couchbase connectivity using the configured connection string.
+### Couchbase (backend) transport
 
-### Recommended next step
-For broader deployment:
-- use secure Couchbase transport where applicable
-- document certificate/trust requirements
-- validate TLS-enabled Couchbase connections
+The shim connects to Couchbase over TLS when the connection string uses `couchbases://` or
+`CB_TLS_ENABLED=true`. It trusts the cluster certificate supplied via `CB_TLS_CERT_PATH` (a PEM
+file). Validated end-to-end by `ProtoGemCouchBackendTlsIntegrationTest` against a TLS-served
+Couchbase.
 
-### Shim-side transport
-The GemFire protocol listener and health server are plain listeners today.
+| Env var | Default | Meaning |
+|---|---|---|
+| `CB_TLS_ENABLED` | `false` | Enable TLS to Couchbase (also implied by a `couchbases://` connection string). |
+| `CB_TLS_CERT_PATH` | — | PEM certificate to trust (the Couchbase cluster cert / CA). |
+| `CB_TLS_VERIFY_HOSTNAME` | `true` | Verify the Couchbase hostname against the certificate. Only disable for self-signed certs whose SAN does not match the host (e.g. local test setups). |
 
-For higher-trust environments, future work should include:
-- TLS termination in front of the shim
-- or native TLS support
-- access controls around the health port
+For production, use a Couchbase certificate whose SAN matches the connection hostname and leave
+hostname verification enabled.
+
+### Shim-side transport (inbound TLS)
+
+The Geode protocol listener supports native TLS. When enabled, the shim terminates TLS on the
+Geode port using a server keystore, validated against a real Geode SSL client
+(`ProtoGemCouchTlsIntegrationTest`). It is **off by default**; enable it for any deployment that
+crosses an untrusted network.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `TLS_ENABLED` | `false` | Enable TLS on the Geode listener. |
+| `TLS_KEYSTORE_PATH` | — | Path to the server keystore (required when enabled). |
+| `TLS_KEYSTORE_PASSWORD` | — | Keystore password. |
+| `TLS_KEYSTORE_TYPE` | `PKCS12` | Keystore type. |
+| `TLS_CLIENT_AUTH` | `none` | `require` enables mutual TLS (client-certificate authentication). |
+| `TLS_TRUSTSTORE_PATH` / `_PASSWORD` / `_TYPE` | — | Truststore for verifying client certs (required when client auth is `require`). |
+
+Geode clients connect with `ssl-enabled-components=server` and a truststore trusting the shim's
+certificate. See `docs/RUNBOOK.md` for the full variable list and `docker-compose.yml`
+(`protogemcouch-tls`) for a working example.
+
+Mutual TLS (`TLS_CLIENT_AUTH=require`) provides transport-level client authentication: only clients
+presenting a certificate trusted by the shim's truststore can connect. This is the recommended
+client-auth model for the shim (it does not implement the Geode application-level security
+handshake).
+
+### Health/admin endpoint
+
+The health/admin server (`/live`, `/ready`, `/metrics`, `/metrics/json`) defaults to plain HTTP on
+all interfaces, which is appropriate for a trusted operator/monitoring network. It can be hardened:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `HEALTH_TLS_ENABLED` | `false` | Serve the admin endpoints over HTTPS, using the same keystore as `TLS_KEYSTORE_*`. |
+| `HEALTH_BIND_ADDRESS` | all interfaces | Bind to a specific interface (e.g. `127.0.0.1` or an internal address) to restrict exposure. |
+
+Enable HTTPS for metrics scraping over untrusted networks, and/or restrict the bind address. Keep
+`HEALTH_PORT` access limited to operators and monitoring systems regardless (see network exposure
+guidance below). The endpoints expose no credentials or sensitive payloads.
 
 ---
 

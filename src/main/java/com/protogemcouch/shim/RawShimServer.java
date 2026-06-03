@@ -35,6 +35,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -107,6 +108,7 @@ public class RawShimServer {
     private static EventExecutorGroup handlerExecutorGroup;
     private static ConnectionLimits connectionLimits;
     private static ConnectionLimiter connectionLimiter;
+    private static SslContext shimSslContext;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
@@ -148,7 +150,22 @@ public class RawShimServer {
                     "policy", errorResponsePolicy.getClass().getSimpleName()
             ));
 
-            healthHttpServer = new HealthHttpServer(config.getHealthPort(), healthState, metrics);
+            TlsConfig tlsConfig = TlsConfig.fromEnv();
+            if (tlsConfig.enabled()) {
+                shimSslContext = tlsConfig.buildServerSslContext();
+            }
+            log.info(StructuredLog.event(
+                    "tls_configured",
+                    "geodeListenerTls", tlsConfig.enabled(),
+                    "clientAuth", tlsConfig.requireClientAuth() ? "require" : "none",
+                    "healthTls", tlsConfig.healthTlsEnabled()
+            ));
+
+            javax.net.ssl.SSLContext healthSslContext =
+                    tlsConfig.healthTlsEnabled() ? tlsConfig.buildJdkSslContext() : null;
+            healthHttpServer = new HealthHttpServer(
+                    config.getHealthPort(), healthState, metrics,
+                    System.getenv("HEALTH_BIND_ADDRESS"), healthSslContext);
             healthHttpServer.start();
 
             repository = createRepository(config);
@@ -189,7 +206,11 @@ public class RawShimServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
-                            // First and permanent: tracks the connection for its whole lifetime
+                            // TLS termination first, so everything downstream sees plaintext.
+                            if (shimSslContext != null) {
+                                ch.pipeline().addLast(shimSslContext.newHandler(ch.alloc()));
+                            }
+                            // Tracks the connection for its whole lifetime
                             // (open/close accounting + max-connections cap).
                             ch.pipeline().addLast(new ConnectionTrackingHandler(
                                     connectionLimiter, CONNECTION_TRACKING_LISTENER));

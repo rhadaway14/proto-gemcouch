@@ -134,4 +134,16 @@ until curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" \
 done
 
 echo "Bucket ${CB_BUCKET} is visible."
+
+# Export the cluster certificate so TLS clients (e.g. the backend-TLS shim) can trust it.
+# No-op unless a /shared-certs volume is mounted.
+if [ -d /shared-certs ]; then
+  echo "Exporting cluster certificate to /shared-certs/couchbase-cert.pem ..."
+  if curl -fs "http://${CB_HOST}:8091/pools/default/certificate" -o /shared-certs/couchbase-cert.pem; then
+    echo "Cluster certificate exported."
+  else
+    echo "Cluster certificate export failed (non-fatal)."
+  fi
+fi
+
 echo "Couchbase initialization complete."
