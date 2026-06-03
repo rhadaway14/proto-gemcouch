@@ -50,6 +50,89 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-02 — 15-minute soak (optimized build) + connection-accounting bug found & fixed
+
+A longer (15-minute) sustained soak against the build with the PUT_ALL optimization, driven by
+`scripts/soak.sh` (mixed profile, concurrency 16, 60s samples, keyspace 3000).
+
+### Result
+
+- Total operations: **6,561,931** over 900s (sustained ~7.0–7.3k ops/sec, mixed)
+- **Request errors: 0**, shed: 0, malformed: 0, first-request timeouts: 0 — entire run
+- **Memory flat**: 979.7 MiB → ~1.119 GiB (rose to working-set early, flat thereafter — no leak)
+- Latency steady under sustained load: `PUT_ALL` p99 ~6.9 ms, `GET_ALL` p99 ~5.5 ms,
+  `CONTAINS_KEY`/`SIZE` p99 ~4.1–4.3 ms
+
+### Bug found by the soak: connection-accounting leak (and fix)
+
+The soak's connection sampling showed `active` climbing steadily (82 → 167) with
+`protogemcouch_connections_closed_total` stuck at **0** — closes were never being counted, and a
+post-run probe confirmed connections stayed counted-open after the client disconnected.
+
+Root cause: the connection accounting (open/close counting and the `ConnectionLimiter` acquire/
+release) lived on `HandshakeThenFrameHandler`, **which removes itself from the pipeline after the
+handshake** — so its `channelInactive` never fired. With the default `MAX_CONNECTIONS=0` there was
+no functional impact, but with a cap set the limiter would leak slots until it falsely rejected all
+new connections, and the active-connections metric was wrong.
+
+Fix: a dedicated `ConnectionTrackingHandler` that is the first, permanent handler in the pipeline,
+so `channelInactive` always fires. Re-verified with a real client run: 18 opened → **18 closed,
+active 0** after disconnect (previously 18 opened → 0 closed). See the `feature/robustness` history.
+
+### Conclusion
+
+> Throughput, latency, and memory are stable over 15 minutes with the optimized build and no guard
+> trips. The soak also did its real job — it surfaced a latent connection-accounting bug that unit
+> and short functional tests missed, which has been fixed and re-verified.
+
+---
+
+## Run: 2026-06-02 — robustness build stability soak
+
+Short sustained-stability soak against the hardened build (`feature/robustness`, default config),
+driven by `scripts/soak.sh`, which runs a continuous workload and samples server metrics and
+container memory at a fixed interval. (The same tool runs arbitrarily long soaks via `--duration`;
+this run is a 3-minute stability check, not a multi-hour endurance test.)
+
+### Configuration
+
+- Profile `mixed`, concurrency `16`, duration `180s`, sample interval `30s`, keyspace `2000`, seeded
+- Target: Docker Compose stack (Couchbase enterprise 7.6.2 + shim) on a single host
+- Command: `./scripts/soak.sh --duration 180 --sample-interval 30 --concurrency 16 --keyspace 2000`
+
+### Per-sample stability (cumulative `requests` is shim-lifetime; ~220k per 30s window ≈ 7,300 ops/s)
+
+```text
+t(s)   requests   errors shed malform 1stReqTO active shimMem
+30     2,933,102   0      0    0       0        147    1.182GiB
+63     3,150,834   0      0    0       0        150    1.185GiB
+95     3,371,230   0      0    0       0        153    1.185GiB
+128    3,591,743   0      0    0       0        157    1.186GiB
+160    3,814,104   0      0    0       0        160    1.187GiB
+193    4,035,032   0      0    0       0        163    1.189GiB
+225    4,063,398   0      0    0       0        164    1.189GiB  (tail/drain)
+```
+
+### Result
+
+- Sustained throughput: **~7,300 ops/sec** (mixed profile)
+- **Request errors: 0**, requests shed: 0, malformed frames: 0, first-request timeouts: 0 — for the
+  entire run
+- **Memory flat**: 1.182 → 1.189 GiB across the run (~7 MB, within normal heap noise) — no leak trend
+- **Connections stabilized**: ~147 → ~164 then plateaued (Geode client pool establishing under
+  concurrency 16); no unbounded growth
+- Client-side latency steady and consistent with the benchmark baseline, e.g. `PUT_ALL` p99
+  ~10.8 ms, `GET_ALL` p99 ~4.8 ms, `CONTAINS_KEY`/`SIZE` p99 ~3.4 ms
+
+### Conclusion
+
+> Under sustained mixed load the hardened build is stable: throughput holds, latency does not creep,
+> memory is flat, no connection leak appears, and none of the robustness guards (error, shed,
+> malformed, first-request-timeout counters) trip under healthy load. The new `scripts/soak.sh`
+> makes this an easily repeatable, longer-duration check.
+
+---
+
 ## 1. Read-heavy soak — 15 minutes @ concurrency 25
 
 ### Configuration

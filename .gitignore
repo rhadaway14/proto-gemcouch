@@ -36,3 +36,7 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# Benchmark run artifacts
+benchmarks/results/*
+!benchmarks/results/.gitkeep

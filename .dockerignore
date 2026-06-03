@@ -11,3 +11,4 @@ coverage/
 .vscode/
 .env
 .env.*
+!target/protogemcouch.jar

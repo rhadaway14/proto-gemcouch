@@ -1,5 +1,6 @@
 package com.protogemcouch.util;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public final class ByteUtils {
@@ -8,26 +9,48 @@ public final class ByteUtils {
     }
 
     public static String bytesToString(byte[] bytes) {
-        return new String(bytes, StandardCharsets.UTF_8)
-                .replace("\u0000", "")
-                .trim();
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        return new String(bytes, StandardCharsets.UTF_8).replace("\u0000", "").trim();
     }
 
     public static int bytesToInt(byte[] bytes) {
-        if (bytes == null || bytes.length < 4) {
+        if (bytes == null || bytes.length == 0) {
             return 0;
         }
-        return ((bytes[0] & 0xFF) << 24)
-                | ((bytes[1] & 0xFF) << 16)
-                | ((bytes[2] & 0xFF) << 8)
-                | (bytes[3] & 0xFF);
+
+        if (bytes.length >= 4) {
+            return ByteBuffer.wrap(bytes).getInt();
+        }
+
+        byte[] padded = new byte[4];
+        System.arraycopy(bytes, 0, padded, 4 - bytes.length, bytes.length);
+        return ByteBuffer.wrap(padded).getInt();
     }
 
-    public static byte[] hex(String s) {
-        int len = s.length();
-        byte[] out = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            out[i / 2] = (byte) Integer.parseInt(s.substring(i, i + 2), 16);
+    public static byte[] intToBytes(int value) {
+        return ByteBuffer.allocate(4).putInt(value).array();
+    }
+
+    public static byte[] hex(String hex) {
+        if (hex == null) {
+            return new byte[0];
+        }
+
+        String normalized = hex.replaceAll("\\s+", "");
+        if ((normalized.length() & 1) != 0) {
+            throw new IllegalArgumentException("Hex string must have even length");
+        }
+
+        byte[] out = new byte[normalized.length() / 2];
+        for (int i = 0; i < normalized.length(); i += 2) {
+            int hi = Character.digit(normalized.charAt(i), 16);
+            int lo = Character.digit(normalized.charAt(i + 1), 16);
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException("Invalid hex character in: " + hex);
+            }
+            out[i / 2] = (byte) ((hi << 4) + lo);
         }
         return out;
     }

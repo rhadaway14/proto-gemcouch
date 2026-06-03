@@ -1,73 +1,93 @@
 package com.protogemcouch.testsupport;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.serialization.StoredValue;
+import com.protogemcouch.util.DocumentKeyUtil;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class FakeRepository implements Repository {
 
-    private final Map<String, String> values = new LinkedHashMap<>();
-    private final Map<String, Integer> sizes = new LinkedHashMap<>();
-    private final Map<String, List<String>> keySets = new LinkedHashMap<>();
+    private final Map<String, StoredValue> documents = new LinkedHashMap<>();
 
-    public FakeRepository withValue(String docId, String value) {
-        values.put(docId, value);
-        return this;
-    }
-
-    public FakeRepository withSize(String region, int size) {
-        sizes.put(region, size);
-        return this;
-    }
-
-    public FakeRepository withKeySet(String region, List<String> keys) {
-        keySets.put(region, keys);
-        return this;
+    @Override
+    public StoredValue get(String docId) {
+        return documents.get(docId);
     }
 
     @Override
-    public String get(String docId) {
-        return values.get(docId);
-    }
+    public Map<String, StoredValue> getAll(String region, List<String> keys) {
+        Map<String, StoredValue> results = new LinkedHashMap<>();
 
-    @Override
-    public Map<String, String> getAll(String region, List<String> keys) {
-        Map<String, String> result = new LinkedHashMap<>();
         for (String key : keys) {
-            result.put(key, values.get(region + "::" + key));
+            String docId = DocumentKeyUtil.docId(region, key);
+            results.put(key, documents.get(docId));
         }
-        return result;
+
+        return results;
     }
 
     @Override
-    public void put(String docId, String value) {
-        values.put(docId, value);
+    public void put(String docId, StoredValue value) {
+        documents.put(docId, value);
     }
 
     @Override
     public void remove(String docId) {
-        values.remove(docId);
+        documents.remove(docId);
     }
 
     @Override
     public boolean containsKey(String docId) {
-        return values.containsKey(docId);
+        return documents.containsKey(docId);
     }
 
     @Override
     public boolean containsValueForKey(String docId) {
-        return values.containsKey(docId) && values.get(docId) != null;
+        StoredValue value = documents.get(docId);
+        return value != null && value.value() != null;
     }
 
     @Override
     public int size(String region) {
-        return sizes.getOrDefault(region, 0);
+        String prefix = region + "::";
+        int count = 0;
+
+        for (String docId : documents.keySet()) {
+            if (docId.startsWith(prefix)) {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     @Override
     public List<String> keySet(String region) {
-        return keySets.getOrDefault(region, List.of());
+        String prefix = region + "::";
+        List<String> keys = new ArrayList<>();
+
+        for (String docId : documents.keySet()) {
+            if (docId.startsWith(prefix)) {
+                keys.add(docId.substring(prefix.length()));
+            }
+        }
+
+        return keys;
+    }
+
+    public void putString(String docId, String value) {
+        put(docId, StoredValue.stringValue(value));
+    }
+
+    public void putInteger(String docId, Integer value) {
+        put(docId, StoredValue.integerValue(value));
+    }
+
+    public Map<String, StoredValue> documents() {
+        return documents;
     }
 }

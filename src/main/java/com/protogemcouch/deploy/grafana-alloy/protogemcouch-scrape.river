@@ -1,0 +1,19 @@
+// Sample Grafana Alloy scrape config for ProtoGemCouch.
+// Replace prometheus.remote_write.default.receiver with your configured
+// remote_write receiver or route.
+
+prometheus.scrape "protogemcouch" {
+  targets = [
+    {
+      __address__ = "127.0.0.1:8081",
+      job = "protogemcouch",
+      app = "protogemcouch",
+      environment = "local",
+    },
+  ]
+
+  metrics_path    = "/metrics"
+  scrape_interval = "15s"
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}

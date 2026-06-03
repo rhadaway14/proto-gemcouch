@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Scrape the ProtoGemCouch shim's Prometheus endpoint.
+  # The shim exposes metrics at /metrics on its health/admin port (HEALTH_PORT, default 8081).
+  # Inside the Compose network the service is reachable by its service name "protogemcouch".
+  - job_name: protogemcouch
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["protogemcouch:8081"]
+        labels:
+          service: protogemcouch
+
+  # Scrape Prometheus' own metrics so the stack is self-observable.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
