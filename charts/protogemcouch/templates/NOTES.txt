@@ -1,0 +1,16 @@
+{{ include "protogemcouch.fullname" . }} deployed.
+
+Replicas: {{ if .Values.autoscaling.enabled }}autoscaled {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }}{{ else }}{{ .Values.replicaCount }}{{ end }}
+Geode listener: service "{{ include "protogemcouch.fullname" . }}" port {{ .Values.shimPort }}
+Health/metrics: port {{ .Values.healthPort }} (/live, /ready, /metrics)
+
+Couchbase credentials:
+{{- if .Values.couchbase.existingSecret }}
+  Using existing Secret "{{ .Values.couchbase.existingSecret }}" (must contain keys cb-username, cb-password).
+{{- else }}
+  Chart-managed Secret "{{ include "protogemcouch.secretName" . }}" (set couchbase.password at install,
+  or switch to couchbase.existingSecret for Vault / external-secrets / sealed-secrets).
+{{- end }}
+  Mounted as files and read via CB_USERNAME_FILE / CB_PASSWORD_FILE (not exposed in the environment).
+
+Point Geode clients at the service on port {{ .Values.shimPort }}.

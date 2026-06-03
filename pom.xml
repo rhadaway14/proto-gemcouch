@@ -138,6 +138,16 @@
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>com.protogemcouch.shim.RawShimServer</mainClass>
+                  <manifestEntries>
+                    <!--
+                      The jar bundles multi-release dependencies (e.g. log4j-api ships a JDK9+
+                      StackWalker implementation under META-INF/versions/9). Without this flag the
+                      JVM ignores those versioned classes and falls back to the removed
+                      sun.reflect.Reflection path, which breaks the Geode client (LogService) on
+                      JDK 9+. Marking the shaded jar multi-release fixes that.
+                    -->
+                    <Multi-Release>true</Multi-Release>
+                  </manifestEntries>
                 </transformer>
               </transformers>
             </configuration>

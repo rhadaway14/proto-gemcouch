@@ -1,0 +1,63 @@
+replicaCount: 2
+
+image:
+  repository: docker.io/rhadaway14/protogemcouch
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Geode listener port and health/admin port.
+shimPort: 40405
+healthPort: 8081
+
+couchbase:
+  connectionString: "couchbase://couchbase"
+  bucket: "test"
+  scope: "_default"
+  collection: "_default"
+  # Credentials are mounted as files (not env vars) and read via CB_USERNAME_FILE/CB_PASSWORD_FILE.
+  # Either:
+  #   (a) provide username/password here and the chart creates a Secret, or
+  #   (b) set existingSecret to a Secret you manage (Vault / external-secrets / sealed-secrets) that
+  #       has keys "cb-username" and "cb-password".
+  username: "Administrator"
+  password: ""
+  existingSecret: ""
+
+# Tunables passed through to the shim (see docs/RUNBOOK.md). Add more via extraEnv.
+shim:
+  errorResponseMode: "exception"
+  handlerThreads: 64
+  maxConnections: 0
+  connectionIdleTimeoutSeconds: 300
+  firstRequestTimeoutSeconds: 10
+
+extraEnv: []   # e.g. [{ name: HANDLER_MAX_PENDING_TASKS, value: "10000" }]
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+service:
+  type: ClusterIP
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Time for in-flight requests to drain on pod termination (rolling updates / scale-down).
+terminationGracePeriodSeconds: 30
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

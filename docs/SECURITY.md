@@ -37,6 +37,22 @@ Recommended secret sources:
 - CI/CD secret stores
 - cloud secret managers
 
+### File-mounted secrets (preferred)
+
+Any config value can be supplied from a file instead of an environment variable by setting
+`<NAME>_FILE` to a path; the value is read (trimmed) from that file. This is the preferred way to
+provide credentials, since env vars can leak via `/proc`, crash dumps, and `docker inspect`:
+
+```text
+CB_USERNAME_FILE=/etc/protogemcouch/secrets/cb-username
+CB_PASSWORD_FILE=/etc/protogemcouch/secrets/cb-password
+```
+
+The Helm chart (`charts/protogemcouch`) uses this: it mounts a Kubernetes Secret (chart-managed, or
+an external one via `couchbase.existingSecret` for Vault / external-secrets / sealed-secrets) as
+files and points `CB_USERNAME_FILE` / `CB_PASSWORD_FILE` at them, so credentials never appear in the
+container's environment.
+
 ---
 
 ## Logging safety
@@ -198,14 +214,33 @@ deployment to reduce the per-connection memory exposure further.
 ## Container hardening
 
 Current hardening includes:
-- multi-stage build
-- JRE-only runtime image
-- non-root application user
+- JRE-only runtime image (no build toolchain or source shipped; the shaded jar is built before the
+  image and copied in)
+- base image **pinned by digest** (`eclipse-temurin:17-jre@sha256:…` in the `Dockerfile`) for
+  reproducible, tamper-evident builds
+- runs as a **fixed non-root UID/GID** (`USER 10001:10001`), compatible with read-only root
+  filesystems and arbitrary-UID admission policies
+- graceful shutdown on `SIGTERM` (the signal Kubernetes/`docker stop` send): the listener stops
+  accepting, in-flight requests drain within the termination grace period, then the Couchbase
+  connection and health server close cleanly
+- **SBOM + build provenance** generated and attached to the published image as OCI attestations by
+  CI (`sbom: true`, `provenance: mode=max` in the Docker publish workflow). Inspect with
+  `docker buildx imagetools inspect docker.io/rhadaway14/protogemcouch:latest --format '{{ json .SBOM }}'`.
+- **Image vulnerability scanning** (Trivy) runs in CI on every build, including pull requests, before
+  the image is ever published. HIGH+CRITICAL findings (OS packages and bundled jar libraries) are
+  uploaded to the GitHub **code-scanning / Security** tab for triage. The build **hard-fails on a
+  fixable CRITICAL in an OS package** — the part remediable by bumping the pinned base-image digest.
+  Jar/library CVEs are deliberately scoped out of the hard gate because they originate in Geode's
+  transitive dependencies (e.g. Shiro `CVE-2022-40664`), which cannot be upgraded without breaking
+  Geode; gating on them would block every release. Operators must triage those via the Security tab.
+- **Keyless image signing** (cosign + GitHub OIDC) signs every published image by digest, with the
+  signature recorded in the Rekor transparency log. No long-lived keys are stored. Verify with
+  `cosign verify docker.io/rhadaway14/protogemcouch:latest --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 Recommended future improvements:
-- pin base image digests
-- run image vulnerability scans
-- sign images if needed
+- bump the pinned base-image digest on a cadence to clear OS-package findings
+- pin a stricter cosign certificate-identity in `cosign verify` policies once the repo path is fixed
+- adopt a vulnerability-exception file (`.trivyignore`) with documented expiry for accepted jar CVEs
 
 ---
 
@@ -213,7 +248,7 @@ Recommended future improvements:
 
 GitHub Actions now provides automated scanning coverage through:
 - build and test workflow
-- Docker image build workflow
+- Docker image build workflow (Trivy image vulnerability scanning + keyless cosign signing)
 - dependency graph submission
 - CodeQL analysis
 
@@ -221,6 +256,9 @@ GitHub Actions now provides automated scanning coverage through:
 - Maven build runs automatically in CI
 - dependency graph submission is automated
 - CodeQL static analysis is automated
+- Trivy scans the container image on every build (PRs included); HIGH+CRITICAL findings go to the
+  Security tab and a fixable CRITICAL OS-package CVE hard-fails the build
+- published images are signed with keyless cosign (GitHub OIDC + Rekor)
 - scans run on push and pull request for mainline branches
 - dependency/code scanning can also run on schedule
 
@@ -242,7 +280,8 @@ Before non-lab deployment:
 - [ ] health port exposure restricted
 - [ ] Couchbase credentials are least-privilege
 - [ ] shim port exposure restricted
-- [ ] deployment image built from known source state
+- [x] deployment image built from known source state (base pinned by digest; SBOM + provenance attested)
+- [x] container runs as non-root
 - [x] dependency/code scanning configured in CI
 - [ ] CI security findings reviewed before release
 

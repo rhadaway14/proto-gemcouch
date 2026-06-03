@@ -31,8 +31,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   writers (or multiple shim replicas). **Fixed** with compare-and-swap + bounded retries
   (insert-when-absent / replace-with-CAS, re-read on conflict). Validated by
   `ProtoGemCouchKeysetConcurrencyIntegrationTest` (120 concurrent puts → exact `size`/`keySet`).
-- [ ] **Multi-replica validation** — prove correctness with N shims behind a load balancer against
-  shared Couchbase (the keyset fix above makes this safe; still to be exercised end-to-end).
+- [x] **Multi-replica validation** — `ProtoGemCouchMultiReplicaIntegrationTest` runs two shim
+  replicas (`protogemcouch-replica`) sharing one Couchbase, drives concurrent puts across both via a
+  multi-server Geode pool, and asserts `size`/`keySet` reflect every key (cross-process CAS) while
+  confirming both replicas served traffic. The shim is otherwise stateless, so it scales
+  horizontally behind a load balancer.
 - [ ] **Durability/consistency options** — configurable Couchbase durability; partial-failure
   behavior for `putAll`.
 - [ ] **TTL / expiration & eviction** — map Geode entry expiry to Couchbase TTL.
@@ -40,17 +43,32 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2b. Deployment hardening
 
-- [ ] **Kubernetes** — Helm chart / manifests, liveness+readiness probes, resource requests/limits,
-  HPA, PodDisruptionBudget, rolling-update / zero-downtime config.
-- [ ] **Graceful shutdown** validated under load (drain in-flight, LB deregistration, signal
-  handling).
-- [ ] **Image hardening** — pin base-image digests, confirm non-root, minimize image, SBOM.
+- [x] **Kubernetes** — Helm chart (`charts/protogemcouch`): multi-replica Deployment, Service,
+  ConfigMap, Secret (or `existingSecret`), startup/liveness/readiness probes, resource
+  requests/limits, HPA, PodDisruptionBudget, `terminationGracePeriodSeconds`, config-checksum
+  rollout. Validated with `helm lint`/`helm template` **and a full in-cluster e2e** on the test
+  cluster: image pulled from Docker Hub, 2-replica Helm deploy with file-mounted secrets, in-cluster
+  Couchbase, and a real in-cluster Geode client round-trip (**42,606 ops, 0 errors**). The e2e
+  surfaced and fixed a multi-release-jar packaging bug (the Geode client crashed from the fat jar on
+  JDK 9+ until the shaded manifest was marked `Multi-Release: true`).
+- [x] **Graceful shutdown** — a `SIGTERM` shutdown hook (the signal Kubernetes/`docker stop` send)
+  runs an idempotent drain: stop accepting, drain in-flight request handlers and event loops within
+  a bounded grace period, then close Couchbase and the health server. Pairs with
+  `terminationGracePeriodSeconds`. Exercised by `docker compose stop` in the integration flow.
+- [x] **Image hardening** — base image pinned by digest, runs as a fixed non-root UID
+  (`USER 10001:10001`), JRE-only runtime, and CI attaches an SBOM + build provenance (SLSA) to the
+  published image. CI also runs Trivy vulnerability scanning on every build (HIGH+CRITICAL uploaded
+  to the Security tab; hard gate on fixable CRITICAL OS-package CVEs — jar CVEs from Geode's
+  transitive deps are triaged, not gated) and signs every published image with keyless cosign
+  (GitHub OIDC + Rekor). Remaining: periodic base-digest bumps and a documented `.trivyignore`.
 - [ ] **Resource sizing guidance** tied to capacity tests.
 
 ### 2c. Security (remaining)
 
-- [ ] **Secret management** — K8s Secrets / Vault / cloud secret managers; stop relying on
-  plaintext env vars for `CB_PASSWORD`.
+- [x] **Secret management** — credentials read from file mounts via `CB_USERNAME_FILE` /
+  `CB_PASSWORD_FILE` (Kubernetes Secret volumes / Docker secrets) instead of env vars; the Helm
+  chart mounts a chart-managed or external (`existingSecret`) Secret as files, so secrets stay out
+  of the process environment. Vault / external-secrets integrate via `existingSecret`.
 - [ ] **Vulnerability-scan enforcement** — make CodeQL/dependency findings gating; triage SLA.
 - [ ] **TLS policy** — pin TLS 1.2/1.3 and cipher suites; certificate rotation story.
 - [ ] **Audit logging** — distinct stream for auth failures / rejected connections.
