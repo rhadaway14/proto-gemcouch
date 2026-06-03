@@ -43,8 +43,11 @@ public final class MessageTypes {
     /**
      * Geode server-side exception response. The client deserializes part 0 into a Throwable and
      * raises a ServerOperationException, rather than seeing an abrupt connection close.
+     *
+     * Value matches org.apache.geode.internal.cache.tier.MessageType.EXCEPTION (2). Note: 22 is
+     * UNREGISTER_INTEREST, not EXCEPTION.
      */
-    public static final int EXCEPTION = 22;
+    public static final int EXCEPTION = 2;
 
     // Contains modes
     public static final int CONTAINS_MODE_KEY = 0;

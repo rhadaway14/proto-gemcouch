@@ -51,8 +51,9 @@ class ErrorResponsePolicyTest {
     }
 
     @Test
-    void factoryDefaultsToCloseConnectionPolicy() {
-        // ERROR_RESPONSE_MODE is unset in the test environment; default must be the safe close policy.
-        assertInstanceOf(CloseConnectionErrorPolicy.class, RawShimServer.createErrorResponsePolicy());
+    void factoryDefaultsToExceptionFramePolicy() {
+        // ERROR_RESPONSE_MODE is unset in the test environment; the validated graceful policy is the
+        // default. (ERROR_RESPONSE_MODE=close opts out and is covered by the end-to-end suite.)
+        assertInstanceOf(ExceptionFrameErrorPolicy.class, RawShimServer.createErrorResponsePolicy());
     }
 }

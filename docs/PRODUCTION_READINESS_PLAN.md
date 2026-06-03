@@ -255,10 +255,13 @@ Done:
   Couchbase outage surfaces as a recorded operation error (not a silent empty read) and recovers.
   A CI workflow (`.github/workflows/integration.yml`) runs `mvn verify` on main and pull requests,
   so the compatibility and failure suites are enforced before merge.
+- Graceful errors validated and made default: the EXCEPTION frame is validated against a live Geode
+  client (the client raises a ServerOperationException and keeps the connection open), so
+  `ERROR_RESPONSE_MODE` now defaults to `exception` (set `close` to opt out). This also corrected
+  the EXCEPTION message-type constant (2, not 22).
 
 Remaining:
 
-- Validate the EXCEPTION frame against a live Geode client, then make `exception` the default.
 - Optional: full slowloris mitigation (first-request deadline) and bounded handler-queue
   backpressure / load shedding under sustained backend slowness.
 

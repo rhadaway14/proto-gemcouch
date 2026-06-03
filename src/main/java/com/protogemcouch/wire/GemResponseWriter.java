@@ -539,9 +539,9 @@ public final class GemResponseWriter {
      * client's classpath) with its stack trace cleared, so the client can always deserialize it and
      * no server-internal class names or stack frames leak across the wire.
      *
-     * <p>NOTE: the exact byte shape is validated against a live Geode client in the integration
-     * suite (robustness Phase 6). Until then this builder is exercised structurally and is reachable
-     * only via the opt-in error-response policy.
+     * <p>The byte shape (EXCEPTION message type 2, two parts) is validated against a live Geode
+     * client in ProtoGemCouchExceptionResponseIntegrationTest, which confirms the client raises a
+     * ServerOperationException carrying this message.
      */
     public static byte[] buildExceptionResponse(int txId, String message) {
         String safeMessage = (message == null || message.isBlank())

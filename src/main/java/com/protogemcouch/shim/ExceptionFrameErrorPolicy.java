@@ -13,10 +13,10 @@ import org.slf4j.LoggerFactory;
  * so the client receives a structured server error and can continue using the connection (the
  * request frame was fully decoded, so the stream is still frame-aligned).
  *
- * <p>This is opt-in (via configuration) and not yet the default, because the EXCEPTION wire shape
- * must be validated against a live Geode client (robustness Phase 6). If building or writing the
- * error frame fails for any reason, this policy falls back to closing the connection so the failure
- * path can never itself fail open.
+ * <p>This is the default policy. The EXCEPTION wire shape is validated against a live Geode client
+ * in ProtoGemCouchExceptionResponseIntegrationTest. If building or writing the error frame fails for
+ * any reason, this policy falls back to closing the connection so the failure path can never itself
+ * fail open. Set {@code ERROR_RESPONSE_MODE=close} to drop the connection on failure instead.
  */
 public final class ExceptionFrameErrorPolicy implements ErrorResponsePolicy {
 

@@ -34,9 +34,10 @@ Optional:
 - `HEALTH_PORT` default `8081`
 - `MAX_FRAME_BYTES` default `52428800` (inbound frame size cap; see `docs/SECURITY.md`)
 - `MAX_FRAME_PARTS` default `100000` (inbound frame part-count cap)
-- `ERROR_RESPONSE_MODE` default `close` (`close` = drop the connection on operation failure;
-  `exception` = reply with a Geode EXCEPTION frame and keep the connection open). `exception`
-  mode is pending live-client validation and should stay `close` until then.
+- `ERROR_RESPONSE_MODE` default `exception` (`exception` = reply with a Geode EXCEPTION frame and
+  keep the connection open, so the client raises a ServerOperationException; `close` = drop the
+  connection on operation failure). The `exception` behavior is validated against a live Geode
+  client in `ProtoGemCouchExceptionResponseIntegrationTest`.
 - `HANDLER_THREADS` default `64` (size of the executor pool that runs request handlers off the
   Netty event loop; raise it if many connections may block on a slow backend at once)
 - `CB_KV_TIMEOUT_MS` default `5000` (per-operation Couchbase KV timeout)

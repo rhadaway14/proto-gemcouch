@@ -245,15 +245,16 @@ public class RawShimServer {
 
     /**
      * Select the error-response policy from the {@code ERROR_RESPONSE_MODE} environment variable.
-     * Defaults to closing the connection. {@code exception} opts in to sending a Geode EXCEPTION
-     * frame (kept off by default until validated against a live client; see robustness Phase 6).
+     * Defaults to replying with a Geode EXCEPTION frame and keeping the connection open (validated
+     * against a live Geode client; see ProtoGemCouchExceptionResponseIntegrationTest). Set
+     * {@code ERROR_RESPONSE_MODE=close} to opt out and drop the connection on failure instead.
      */
     static ErrorResponsePolicy createErrorResponsePolicy() {
         String mode = System.getenv("ERROR_RESPONSE_MODE");
-        if (mode != null && mode.trim().equalsIgnoreCase("exception")) {
-            return new ExceptionFrameErrorPolicy();
+        if (mode != null && mode.trim().equalsIgnoreCase("close")) {
+            return new CloseConnectionErrorPolicy();
         }
-        return new CloseConnectionErrorPolicy();
+        return new ExceptionFrameErrorPolicy();
     }
 
     /**
