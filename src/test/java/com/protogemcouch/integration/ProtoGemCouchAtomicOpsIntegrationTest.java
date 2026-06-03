@@ -119,8 +119,21 @@ class ProtoGemCouchAtomicOpsIntegrationTest {
         assertTrue(region.replace(key, "third", "v2"), "compare-replace true on match");
     }
 
-    @Disabled("Follow-up: remove(k,v) needs the entry-not-found DESTROY reply and a shared value "
-            + "decoder for the DESTROY expected-value part. The PUT-side atomic ops (above) are done.")
+    @Test
+    void removeKeyValueStorageIsCorrect() {
+        String key = "crm-" + UUID.randomUUID();
+        region.put(key, "v1");
+
+        region.remove(key, "wrong");
+        assertTrue(region.containsKeyOnServer(key), "remove(k,v) must not remove on a value mismatch");
+
+        region.remove(key, "v1");
+        assertFalse(region.containsKeyOnServer(key), "remove(k,v) removes on an exact value match");
+    }
+
+    @Disabled("Follow-up: remove(k,v)'s boolean return value needs the DESTROY entry-not-found reply "
+            + "format (still to be reverse-engineered). The storage behavior is correct and validated "
+            + "by removeKeyValueStorageIsCorrect.")
     @Test
     void removeKeyValueReturnValue() {
         String key = "crm-" + UUID.randomUUID();

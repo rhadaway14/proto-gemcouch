@@ -116,12 +116,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   flags, with the expected-old-value part shifting the key/value indices). The shim now routes to the
   correct atomic op so storage is correct — `putIfAbsent` no longer overwrites, `replace` does not
   create, compare-replace writes only on a match — proven by `ProtoGemCouchAtomicOpsIntegrationTest`.
-  The PUT-side ops are now **fully Geode-accurate, including return values**: `putIfAbsent` and
+  The PUT-side ops are **fully Geode-accurate, including return values**: `putIfAbsent` and
   `replace(k,v)` return the prior value and `replace(k,old,new)` returns the boolean, via the
-  old-value PUT reply (part[1] flags bit `0x01` + the value/boolean object in part[2]) — validated by
-  `ProtoGemCouchAtomicOpsIntegrationTest.putSideReturnValues`. **Remaining follow-up:** `remove(k,v)`
-  (DESTROY) — needs the entry-not-found reply (`part[2]` int) and a shared value decoder for the
-  DESTROY expected-value part; captured in the disabled `removeKeyValueReturnValue` test.
+  old-value PUT reply (part[1] flags bit `0x01` + the value/boolean object in part[2]). `remove(k,v)`
+  is decoded (DESTROY op `0x2e` + expected-value part) and **storage-correct** (CAS `removeIfValue`;
+  a value mismatch leaves the entry in place). All four ops are validated end-to-end by
+  `ProtoGemCouchAtomicOpsIntegrationTest` (7 tests). **Remaining follow-up:** only `remove(k,v)`'s
+  boolean *return value* needs the DESTROY entry-not-found reply byte format (still to be
+  reverse-engineered); captured in the disabled `removeKeyValueReturnValue` test.
 - [ ] `invalidate` / `getEntry` / `clear`.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single

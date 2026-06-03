@@ -170,7 +170,9 @@ public class PutHandler implements OperationHandler {
                 | ((payload[2] & 0xff) << 8) | (payload[3] & 0xff);
     }
 
-    private StoredValue decodePutValue(byte[] valuePayload, int txId) {
+    // Package-private + static so RemoveHandler can reuse it to decode the DESTROY expected-value
+    // part for remove(k,v). Uses no instance state.
+    static StoredValue decodePutValue(byte[] valuePayload, int txId) {
         String geodeStringValue = ValueEncoding.decodeGeodeStringValue(valuePayload);
 
         if (geodeStringValue != null) {
