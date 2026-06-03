@@ -37,6 +37,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.EventExecutorGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -120,10 +121,15 @@ public class RawShimServer {
             startMetricsReporter();
 
             HandlerExecutorConfig handlerExecutorConfig = HandlerExecutorConfig.fromEnv();
-            handlerExecutorGroup = new DefaultEventExecutorGroup(handlerExecutorConfig.threads());
+            handlerExecutorGroup = new DefaultEventExecutorGroup(
+                    handlerExecutorConfig.threads(),
+                    new DefaultThreadFactory("protogemcouch-handler"),
+                    handlerExecutorConfig.maxPendingTasks(),
+                    new SheddingRejectedExecutionHandler(RawShimServer::onRequestShed));
             log.info(StructuredLog.event(
                     "handler_executor_configured",
-                    "threads", handlerExecutorConfig.threads()
+                    "threads", handlerExecutorConfig.threads(),
+                    "maxPendingTasks", handlerExecutorConfig.maxPendingTasks()
             ));
 
             connectionLimits = ConnectionLimits.fromEnv();
@@ -131,7 +137,8 @@ public class RawShimServer {
             log.info(StructuredLog.event(
                     "connection_limits_configured",
                     "idleTimeoutSeconds", connectionLimits.idleTimeoutSeconds(),
-                    "maxConnections", connectionLimits.maxConnections()
+                    "maxConnections", connectionLimits.maxConnections(),
+                    "firstRequestTimeoutSeconds", connectionLimits.firstRequestTimeoutSeconds()
             ));
 
             boss = new NioEventLoopGroup(1);
@@ -148,6 +155,11 @@ public class RawShimServer {
                                 ch.pipeline().addLast(new IdleStateHandler(
                                         0, 0, connectionLimits.idleTimeoutSeconds(), TimeUnit.SECONDS));
                                 ch.pipeline().addLast(new IdleConnectionHandler(RawShimServer::onIdleConnection));
+                            }
+                            if (connectionLimits.firstRequestDeadlineEnabled()) {
+                                ch.pipeline().addLast(new FirstRequestDeadlineHandler(
+                                        connectionLimits.firstRequestTimeoutSeconds() * 1000L,
+                                        RawShimServer::onFirstRequestTimeout));
                             }
                             ch.pipeline().addLast(new HandshakeThenFrameHandler());
                         }
@@ -273,6 +285,32 @@ public class RawShimServer {
     }
 
     /**
+     * Invoked by {@link FirstRequestDeadlineHandler} when a connection is closed for not completing
+     * its first request within the deadline (a slowloris-style guard).
+     */
+    static void onFirstRequestTimeout(java.net.SocketAddress remote) {
+        if (metrics != null) {
+            metrics.recordFirstRequestTimeout();
+        }
+        log.warn(StructuredLog.event(
+                "connection_first_request_timeout",
+                "remote", remote,
+                "firstRequestTimeoutSeconds", connectionLimits == null ? -1 : connectionLimits.firstRequestTimeoutSeconds()
+        ));
+    }
+
+    /**
+     * Invoked by {@link SheddingRejectedExecutionHandler} when a request is shed because the handler
+     * queue is full (load shedding under sustained overload).
+     */
+    static void onRequestShed() {
+        if (metrics != null) {
+            metrics.recordRequestShed();
+        }
+        log.warn(StructuredLog.event("request_shed", "reason", "handler_queue_full"));
+    }
+
+    /**
      * Invoked by {@link GemFrameDecoder} when an inbound frame is rejected as malformed or oversized.
      * Records the event in metrics and logs it; the decoder closes the offending connection.
      */
@@ -377,10 +415,20 @@ public class RawShimServer {
 
     static class GemRequestHandler extends SimpleChannelInboundHandler<GemFrame> {
 
+        private boolean firstRequestSignaled = false;
+
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, GemFrame frame) throws Exception {
             int opcode = frame.getMessageType();
             String operation = OperationNames.nameOf(opcode);
+
+            // Signal (once) that this connection completed a real request, cancelling the
+            // first-request deadline. Fired from the pipeline head so the deadline handler (near the
+            // head, upstream of the decoder) receives it; Netty marshals it onto the event loop.
+            if (!firstRequestSignaled) {
+                firstRequestSignaled = true;
+                ctx.channel().pipeline().fireUserEventTriggered(FirstRequestCompletedEvent.INSTANCE);
+            }
 
             metrics.recordRequestStart(opcode);
             long requestBytes = estimateRequestBytes(frame);

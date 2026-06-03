@@ -107,13 +107,18 @@ To limit resource exhaustion from dead, slow, or excessive client connections:
 |---|---|---|
 | `CONNECTION_IDLE_TIMEOUT_SECONDS` | 300 | Connections idle (no read/write) this long are closed and reaped. `0` disables. |
 | `MAX_CONNECTIONS` | 0 (unlimited) | New connections beyond this concurrent count are rejected and closed. |
+| `FIRST_REQUEST_TIMEOUT_SECONDS` | 10 | A connection must complete its handshake and first request within this long or it is closed. Not reset by trickled bytes, so it bounds slowloris-style connections. `0` disables. |
+| `HANDLER_MAX_PENDING_TASKS` | 10000 | Per-handler-thread queue bound; once full, requests are shed (connection closed) instead of growing the backlog unbounded. `0` = unbounded. |
 
-Rejections and idle reaps are observable via `protogemcouch_connections_rejected_total` and
-`protogemcouch_idle_connections_closed_total`. Set `MAX_CONNECTIONS` to a value matched to the
-shim's resources, and keep an idle timeout enabled on untrusted networks.
+These guards are observable via `protogemcouch_connections_rejected_total`,
+`protogemcouch_idle_connections_closed_total`, `protogemcouch_connections_first_request_timeout_total`,
+and `protogemcouch_requests_shed_total`. Set `MAX_CONNECTIONS` to a value matched to the shim's
+resources, and keep the idle and first-request timeouts enabled on untrusted networks.
 
-Note: idle reaping bounds inactive connections but is not by itself full slowloris protection
-(a client trickling bytes resets the idle timer); a first-request deadline is planned.
+The idle timeout reaps inactive connections; the first-request deadline additionally closes
+slowloris-style connections that stay technically active by trickling bytes without ever completing
+a request (which would otherwise keep resetting the idle timer). Together they bound both idle and
+slow-but-never-complete connections.
 
 ---
 

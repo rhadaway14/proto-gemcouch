@@ -297,6 +297,29 @@ class MetricsRegistryTest {
     }
 
     @Test
+    void slowlorisAndLoadSheddingCountersShouldAppearInAllRenderings() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        registry.recordFirstRequestTimeout();
+        registry.recordFirstRequestTimeout();
+        registry.recordRequestShed();
+
+        String json = registry.snapshotJson();
+        assertTrue(json.contains("\"firstRequestTimeout\":2"));
+        assertTrue(json.contains("\"requestsShed\":1"));
+
+        String prometheus = registry.snapshotPrometheus();
+        assertTrue(prometheus.contains("# TYPE protogemcouch_connections_first_request_timeout_total counter"));
+        assertTrue(prometheus.contains("protogemcouch_connections_first_request_timeout_total 2"));
+        assertTrue(prometheus.contains("# TYPE protogemcouch_requests_shed_total counter"));
+        assertTrue(prometheus.contains("protogemcouch_requests_shed_total 1"));
+
+        List<String> lines = registry.snapshotLines();
+        assertTrue(lines.get(0).contains("first_request_timeouts=2"));
+        assertTrue(lines.get(0).contains("requests_shed=1"));
+    }
+
+    @Test
     void snapshotPrometheusShouldIncludeLatencyHistogram() {
         MetricsRegistry registry = new MetricsRegistry();
 

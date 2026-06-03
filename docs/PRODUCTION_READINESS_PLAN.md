@@ -260,10 +260,15 @@ Done:
   `ERROR_RESPONSE_MODE` now defaults to `exception` (set `close` to opt out). This also corrected
   the EXCEPTION message-type constant (2, not 22).
 
-Remaining:
+- Slowloris guard and handler-queue backpressure: a first-request deadline
+  (`FIRST_REQUEST_TIMEOUT_SECONDS`, default 10) closes connections that never complete a request
+  even while trickling bytes, and the handler executor uses a bounded queue
+  (`HANDLER_MAX_PENDING_TASKS`, default 10000) that sheds requests under sustained overload rather
+  than growing an unbounded backlog. Both are observable
+  (`protogemcouch_connections_first_request_timeout_total`, `protogemcouch_requests_shed_total`).
 
-- Optional: full slowloris mitigation (first-request deadline) and bounded handler-queue
-  backpressure / load shedding under sustained backend slowness.
+Phase 4 robustness is complete. Remaining production-readiness work is in other phases (notably
+performance/soak qualification, Phase 7).
 
 Tasks:
 

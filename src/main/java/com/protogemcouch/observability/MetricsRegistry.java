@@ -15,6 +15,8 @@ public class MetricsRegistry {
     private final LongAdder connectionsClosed = new LongAdder();
     private final LongAdder connectionsRejected = new LongAdder();
     private final LongAdder idleConnectionsClosed = new LongAdder();
+    private final LongAdder firstRequestTimeouts = new LongAdder();
+    private final LongAdder requestsShed = new LongAdder();
     private final LongAdder handshakeRequests = new LongAdder();
     private final LongAdder unknownOpcodes = new LongAdder();
     private final LongAdder requestErrors = new LongAdder();
@@ -61,6 +63,14 @@ public class MetricsRegistry {
 
     public void recordIdleConnectionClosed() {
         idleConnectionsClosed.increment();
+    }
+
+    public void recordFirstRequestTimeout() {
+        firstRequestTimeouts.increment();
+    }
+
+    public void recordRequestShed() {
+        requestsShed.increment();
     }
 
     public void recordHandshakeRequest() {
@@ -142,6 +152,8 @@ public class MetricsRegistry {
                 "connections_closed", connectionsClosed.sum(),
                 "connections_rejected", connectionsRejected.sum(),
                 "idle_connections_closed", idleConnectionsClosed.sum(),
+                "first_request_timeouts", firstRequestTimeouts.sum(),
+                "requests_shed", requestsShed.sum(),
                 "handshake_requests", handshakeRequests.sum(),
                 "unknown_opcodes", unknownOpcodes.sum(),
                 "request_errors", requestErrors.sum(),
@@ -201,14 +213,16 @@ public class MetricsRegistry {
         out.append("\"opened\":").append(connectionsOpened.sum()).append(',');
         out.append("\"closed\":").append(connectionsClosed.sum()).append(',');
         out.append("\"rejected\":").append(connectionsRejected.sum()).append(',');
-        out.append("\"idleClosed\":").append(idleConnectionsClosed.sum());
+        out.append("\"idleClosed\":").append(idleConnectionsClosed.sum()).append(',');
+        out.append("\"firstRequestTimeout\":").append(firstRequestTimeouts.sum());
         out.append("},");
 
         out.append("\"requests\":{");
         out.append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',');
         out.append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',');
         out.append("\"requestErrors\":").append(requestErrors.sum()).append(',');
-        out.append("\"malformedFrames\":").append(malformedFrames.sum());
+        out.append("\"malformedFrames\":").append(malformedFrames.sum()).append(',');
+        out.append("\"requestsShed\":").append(requestsShed.sum());
         out.append("},");
 
         out.append("\"operations\":[");
@@ -287,6 +301,14 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_idle_connections_closed_total", "Total client connections closed for being idle past the timeout.");
         appendMetricType(out, "protogemcouch_idle_connections_closed_total", "counter");
         appendMetric(out, "protogemcouch_idle_connections_closed_total", idleConnectionsClosed.sum());
+
+        appendMetricHelp(out, "protogemcouch_connections_first_request_timeout_total", "Total client connections closed for not completing a first request within the deadline.");
+        appendMetricType(out, "protogemcouch_connections_first_request_timeout_total", "counter");
+        appendMetric(out, "protogemcouch_connections_first_request_timeout_total", firstRequestTimeouts.sum());
+
+        appendMetricHelp(out, "protogemcouch_requests_shed_total", "Total requests shed because the handler queue was full (load shedding).");
+        appendMetricType(out, "protogemcouch_requests_shed_total", "counter");
+        appendMetric(out, "protogemcouch_requests_shed_total", requestsShed.sum());
 
         appendMetricHelp(out, "protogemcouch_handshake_requests_total", "Total Geode handshake requests received.");
         appendMetricType(out, "protogemcouch_handshake_requests_total", "counter");

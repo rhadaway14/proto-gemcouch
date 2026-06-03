@@ -46,6 +46,12 @@ Optional:
   for this long; `0` disables idle reaping)
 - `MAX_CONNECTIONS` default `0` (max concurrent client connections; new connections beyond this
   are rejected and closed; `0` means unlimited)
+- `FIRST_REQUEST_TIMEOUT_SECONDS` default `10` (a connection must complete its handshake and first
+  request within this long or it is closed; unlike the idle timeout this is not reset by trickled
+  bytes, so it bounds slowloris-style connections; `0` disables it)
+- `HANDLER_MAX_PENDING_TASKS` default `10000` (per-handler-thread queue bound; once full, further
+  requests are shed and the connection closed, instead of letting the backlog grow unbounded;
+  `0` means unbounded)
 
 Example:
 

@@ -146,6 +146,8 @@ protogemcouch_connections_opened_total
 protogemcouch_connections_closed_total
 protogemcouch_connections_rejected_total
 protogemcouch_idle_connections_closed_total
+protogemcouch_connections_first_request_timeout_total
+protogemcouch_requests_shed_total
 ```
 
 Useful for:
@@ -156,7 +158,14 @@ unexpected disconnects
 load profile changes
 connections rejected at the max-connections cap (capacity pressure)
 connections reaped for being idle (dead peers / leaked connections)
+connections closed for not completing a first request (slowloris-style behaviour)
+requests shed because the handler queue was full (sustained overload / backend slowness)
 ```
+
+A nonzero `protogemcouch_requests_shed_total` rate means the handler queue is saturating — the
+backend is too slow or the shim is under-provisioned for the load; investigate backend latency and
+consider raising `HANDLER_THREADS`. A nonzero `protogemcouch_connections_first_request_timeout_total`
+rate suggests clients (or probes/abuse) opening connections without completing a request.
 
 ### Request metrics
 
