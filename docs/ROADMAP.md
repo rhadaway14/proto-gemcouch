@@ -109,7 +109,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3a. Operations not yet supported
 
-- [ ] Atomic ops: `putIfAbsent`, `replace`, `replace(old,new)`, `remove(key,value)` (CAS-backed).
+- [x] Atomic ops: `putIfAbsent`, `replace`, `replace(old,new)`, `remove(key,value)` (CAS-backed) —
+  **complete and fully validated against a real Geode client.** Repository CAS layer
+  (`putIfAbsent`/`replace`/`replace(old,new)`/`removeIfValue` with Couchbase insert-if-absent /
+  CAS-guarded replace+remove + bounded retries); PUT operation decode (op ids 0x2c/0x2d + flags, with
+  the expected-old-value part shifting key/value indices); DESTROY `remove(k,v)` decode (op 0x2e +
+  expected-value part). **Storage is correct** (putIfAbsent doesn't overwrite, replace doesn't
+  create, compare-ops act only on a match) and **return values are Geode-accurate**:
+  `putIfAbsent`/`replace(k,v)` return the prior value via the old-value PUT reply (part[1] flags bit
+  `0x01` + value object in part[2]); `replace(k,old,new)` returns the boolean (serialized Boolean
+  object); `remove(k,v)` returns the boolean via the DESTROY entry-not-found reply (flag written to
+  both the single-hop-on and single-hop-off part slots → client raises EntryNotFoundException →
+  `false`). Proven end-to-end by `ProtoGemCouchAtomicOpsIntegrationTest` (7 tests) + repository
+  contract unit tests.
 - [ ] `invalidate` / `getEntry` / `clear`.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single

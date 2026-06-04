@@ -34,6 +34,69 @@ public interface Repository {
 
     void remove(String docId);
 
+    /**
+     * Atomic insert-if-absent (backs Geode {@code Region.putIfAbsent}). Stores {@code value} only if
+     * the key is currently absent. Returns the existing value when the key was already present (so
+     * nothing was stored), or {@code null} when the key was absent and {@code value} was stored.
+     *
+     * <p>The default implementation is a non-atomic get-then-put, correct for single-threaded use;
+     * {@code CouchbaseRepository} overrides it with a true atomic insert so concurrent writers
+     * (and multiple shim replicas) cannot both observe "absent".
+     */
+    default StoredValue putIfAbsent(String docId, StoredValue value) {
+        StoredValue existing = get(docId);
+        if (existing == null && value != null) {
+            put(docId, value);
+        }
+        return existing;
+    }
+
+    /**
+     * Atomic replace-if-present (backs Geode {@code Region.replace(key, value)}). Replaces the value
+     * only if the key is currently present. Returns the previous value when it existed and was
+     * replaced, or {@code null} when the key was absent (nothing stored).
+     *
+     * <p>{@code CouchbaseRepository} overrides this with a compare-and-swap retry loop.
+     */
+    default StoredValue replace(String docId, StoredValue value) {
+        StoredValue existing = get(docId);
+        if (existing != null && value != null) {
+            put(docId, value);
+        }
+        return existing;
+    }
+
+    /**
+     * Atomic compare-and-replace (backs Geode {@code Region.replace(key, oldValue, newValue)}).
+     * Replaces only if the current value equals {@code expected}. Returns {@code true} iff the
+     * replace happened.
+     *
+     * <p>{@code CouchbaseRepository} overrides this with a compare-and-swap retry loop.
+     */
+    default boolean replace(String docId, StoredValue expected, StoredValue newValue) {
+        StoredValue existing = get(docId);
+        if (existing != null && existing.equals(expected) && newValue != null) {
+            put(docId, newValue);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Atomic compare-and-remove (backs Geode {@code Region.remove(key, value)}). Removes only if the
+     * current value equals {@code expected}. Returns {@code true} iff the remove happened.
+     *
+     * <p>{@code CouchbaseRepository} overrides this with a CAS-guarded remove.
+     */
+    default boolean removeIfValue(String docId, StoredValue expected) {
+        StoredValue existing = get(docId);
+        if (existing != null && existing.equals(expected)) {
+            remove(docId);
+            return true;
+        }
+        return false;
+    }
+
     boolean containsKey(String docId);
 
     boolean containsValueForKey(String docId);

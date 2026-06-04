@@ -517,6 +517,26 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * PUT reply that carries an old value, for {@code putIfAbsent}/{@code replace} which return the
+     * prior value to the client. The Geode client reads part[1] as a flags int: bit {@code 0x01}
+     * means "old value present" (read as the object in part[2]). We keep the existing {@code 0x04}
+     * bit and add {@code 0x01}, append the old value as an object part, then the version tag — so
+     * the version tag lands at the next index the client expects (after the old value).
+     */
+    public static byte[] buildPutResponseWithOldValue(int txId, StoredValue oldValue) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(
+                        new Part(PUT_REPLY_PART1, (byte) 0),
+                        new Part(new byte[] {0x00, 0x00, 0x00, 0x05}, (byte) 0),
+                        new Part(encodeStoredValueForGetAll(oldValue), (byte) 1),
+                        new Part(PUT_REPLY_PART3, (byte) 1)
+                )
+        );
+    }
+
     public static byte[] buildRemoveResponse(int txId) {
         return buildMessage(
                 MessageTypes.REPLY,
@@ -526,6 +546,29 @@ public final class GemResponseWriter {
                         new Part(REMOVE_REPLY_PART2, (byte) 1),
                         new Part(REMOVE_REPLY_PART3, (byte) 0),
                         new Part(REMOVE_REPLY_PART4, (byte) 0)
+                )
+        );
+    }
+
+    /**
+     * DESTROY reply for {@code remove(key, value)} carrying the {@code entryNotFound} flag. The Geode
+     * client reads part[0] flags (bit 0x01 = version tag at part[1], bit 0x02 = entryNotFound), then
+     * the {@code entryNotFound} int — at part[2] when partitioned single-hop is off, or part[3] when
+     * it is on (the single-hop metadata read consumes the intervening index). We write the flag into
+     * both slots so it is read correctly either way; a leading 0x00 byte makes the single-hop
+     * metadata read at part[2] a harmless no-op. When set, the client raises EntryNotFoundException,
+     * which {@code Region.remove(k,v)} maps to {@code false}.
+     */
+    public static byte[] buildRemoveResponseWithEntryNotFound(int txId, boolean entryNotFound) {
+        byte[] flag = {0x00, 0x00, 0x00, (byte) (entryNotFound ? 0x01 : 0x00)};
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(
+                        new Part(REMOVE_REPLY_PART1, (byte) 0),
+                        new Part(REMOVE_REPLY_PART2, (byte) 1),
+                        new Part(flag, (byte) 0),
+                        new Part(flag, (byte) 0)
                 )
         );
     }

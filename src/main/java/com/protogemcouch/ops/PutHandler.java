@@ -27,6 +27,14 @@ public class PutHandler implements OperationHandler {
 
     private static final Logger log = LoggerFactory.getLogger(PutHandler.class);
 
+    // Geode Operation ids carried in PUT message part[1] (captured from a real Geode 1.15 client
+    // against this shim). part[2] is a 4-byte flags int; bit 0x02 means an expected-old-value part
+    // is inserted at index 4 (shifting the value to index 6).
+    private static final int OP_UPDATE = 0x0c;          // plain put
+    private static final int OP_PUT_IF_ABSENT = 0x2c;   // Region.putIfAbsent(k,v)
+    private static final int OP_REPLACE = 0x2d;         // Region.replace(k,v) and replace(k,old,new)
+    private static final int FLAG_HAS_EXPECTED_OLD_VALUE = 0x02;
+
     private final Repository repository;
 
     public PutHandler(Repository repository) {
@@ -51,50 +59,120 @@ public class PutHandler implements OperationHandler {
             ));
         }
 
-        if (frame.getParts().size() > 0) {
+        int parts = frame.getParts().size();
+        int operation = parts > 1 ? firstByte(frame.getParts().get(1).getPayload()) : OP_UPDATE;
+        int flags = parts > 2 ? readInt(frame.getParts().get(2).getPayload()) : 0;
+        boolean hasExpectedOldValue = (flags & FLAG_HAS_EXPECTED_OLD_VALUE) != 0;
+        // When an expected-old-value part is present (replace(k,old,new)) it is inserted at index 3,
+        // shifting the key to 4, the isDelta marker to 5, and the value to 6. Otherwise: key@3,
+        // isDelta@4, value@5. (Captured from a real Geode 1.15 client.)
+        int keyIndex = hasExpectedOldValue ? 4 : 3;
+        int valueIndex = hasExpectedOldValue ? 6 : 5;
+
+        if (parts > 0) {
             region = ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
         }
-
-        if (frame.getParts().size() > 3) {
-            key = ByteUtils.bytesToString(frame.getParts().get(3).getPayload());
+        if (parts > keyIndex) {
+            key = ByteUtils.bytesToString(frame.getParts().get(keyIndex).getPayload());
         }
-
-        if (frame.getParts().size() > 5) {
-            byte[] valuePayload = frame.getParts().get(5).getPayload();
-            value = decodePutValue(valuePayload, frame.getTransactionId());
+        if (parts > valueIndex) {
+            value = decodePutValue(frame.getParts().get(valueIndex).getPayload(), frame.getTransactionId());
         }
+        StoredValue expectedOldValue = hasExpectedOldValue && parts > 3
+                ? decodePutValue(frame.getParts().get(3).getPayload(), frame.getTransactionId())
+                : null;
 
-        if (region != null && !region.isBlank()
-                && key != null && !key.isBlank()
-                && value != null) {
-            String docId = DocumentKeyUtil.docId(region, key);
-
-            repository.put(docId, value);
-
-            log.info(StructuredLog.event(
-                    "handler_put_ok",
-                    "region", region,
-                    "key", key,
-                    "docId", docId,
-                    "valueType", value.type(),
-                    "txId", frame.getTransactionId()
-            ));
-        } else {
+        if (region == null || region.isBlank() || key == null || key.isBlank() || value == null) {
             log.warn(StructuredLog.event(
                     "handler_put_parse_failed",
                     "region", region,
                     "key", key,
+                    "operation", Integer.toHexString(operation),
                     "has_value", value != null,
                     "txId", frame.getTransactionId()
             ));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildPutResponse(frame.getTransactionId())));
+            return;
         }
 
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(
-                GemResponseWriter.buildPutResponse(frame.getTransactionId())
+        String docId = DocumentKeyUtil.docId(region, key);
+
+        // Route to the matching atomic repository operation. The storage side is now correct:
+        // putIfAbsent does not overwrite, replace does not create, and the compare-ops only act on a
+        // match. NOTE: the reply still uses the plain put reply, so the value the client *returns*
+        // from putIfAbsent/replace/replace(old,new) is not yet the Geode-accurate old-value/boolean;
+        // building that PUT reply is the remaining follow-up.
+        int txId = frame.getTransactionId();
+        byte[] response;
+        switch (operation) {
+            case OP_PUT_IF_ABSENT -> {
+                StoredValue previous = repository.putIfAbsent(docId, value);
+                response = oldValueReply(txId, previous);
+                logRouted("put_if_absent", region, key, docId, value, txId,
+                        previous == null ? "inserted" : "present");
+            }
+            case OP_REPLACE -> {
+                if (hasExpectedOldValue) {
+                    boolean replaced = repository.replace(docId, expectedOldValue, value);
+                    // Geode's replace(k,old,new) returns a boolean: the client casts the reply's
+                    // old-value object straight to Boolean, so we return a serialized Boolean object.
+                    response = GemResponseWriter.buildPutResponseWithOldValue(
+                            txId, StoredValue.booleanValue(replaced));
+                    logRouted("replace_compare", region, key, docId, value, txId, String.valueOf(replaced));
+                } else {
+                    StoredValue previous = repository.replace(docId, value);
+                    response = oldValueReply(txId, previous);
+                    logRouted("replace", region, key, docId, value, txId,
+                            previous == null ? "absent" : "replaced");
+                }
+            }
+            default -> {
+                repository.put(docId, value);
+                response = GemResponseWriter.buildPutResponse(txId);
+                logRouted("put", region, key, docId, value, txId, "ok");
+            }
+        }
+
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /** PUT reply that returns the prior value, or the plain (no-old-value) reply when it was null. */
+    private static byte[] oldValueReply(int txId, StoredValue previous) {
+        return previous == null
+                ? GemResponseWriter.buildPutResponse(txId)
+                : GemResponseWriter.buildPutResponseWithOldValue(txId, previous);
+    }
+
+    private static void logRouted(String op, String region, String key, String docId,
+                                  StoredValue value, int txId, String outcome) {
+        log.info(StructuredLog.event(
+                "handler_put_ok",
+                "operation", op,
+                "region", region,
+                "key", key,
+                "docId", docId,
+                "valueType", value.type(),
+                "outcome", outcome,
+                "txId", txId
         ));
     }
 
-    private StoredValue decodePutValue(byte[] valuePayload, int txId) {
+    private static int firstByte(byte[] payload) {
+        return payload != null && payload.length > 0 ? (payload[0] & 0xff) : -1;
+    }
+
+    private static int readInt(byte[] payload) {
+        if (payload == null || payload.length < 4) {
+            return 0;
+        }
+        return ((payload[0] & 0xff) << 24) | ((payload[1] & 0xff) << 16)
+                | ((payload[2] & 0xff) << 8) | (payload[3] & 0xff);
+    }
+
+    // Package-private + static so RemoveHandler can reuse it to decode the DESTROY expected-value
+    // part for remove(k,v). Uses no instance state.
+    static StoredValue decodePutValue(byte[] valuePayload, int txId) {
         String geodeStringValue = ValueEncoding.decodeGeodeStringValue(valuePayload);
 
         if (geodeStringValue != null) {

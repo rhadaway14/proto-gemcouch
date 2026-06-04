@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -15,6 +16,10 @@ public class RemoveHandler implements OperationHandler {
 
     private static final Logger log = LoggerFactory.getLogger(RemoveHandler.class);
 
+    // Geode Operation id for Region.remove(key, value) carried in DESTROY part[3]. Such a request
+    // also carries the expected value in part[2]; a plain remove(key) has neither.
+    private static final int OP_REMOVE_IF_VALUE = 0x2e;
+
     private final Repository repository;
 
     public RemoveHandler(Repository repository) {
@@ -23,25 +28,38 @@ public class RemoveHandler implements OperationHandler {
 
     @Override
     public void handle(ChannelHandlerContext ctx, GemFrame frame) {
-        String region = frame.getParts().size() > 0
-                ? ByteUtils.bytesToString(frame.getParts().get(0).getPayload())
-                : "";
-        String key = frame.getParts().size() > 1
-                ? ByteUtils.bytesToString(frame.getParts().get(1).getPayload())
-                : "";
-
+        int parts = frame.getParts().size();
+        String region = parts > 0 ? ByteUtils.bytesToString(frame.getParts().get(0).getPayload()) : "";
+        String key = parts > 1 ? ByteUtils.bytesToString(frame.getParts().get(1).getPayload()) : "";
         String docId = DocumentKeyUtil.docId(region, key);
+        int txId = frame.getTransactionId();
+
+        // remove(key, value): DESTROY carries the expected value in part[2] and op 0x2e in part[3].
+        boolean isCompareRemove = parts > 3
+                && firstByte(frame.getParts().get(3).getPayload()) == OP_REMOVE_IF_VALUE
+                && frame.getParts().get(2).getPayload() != null
+                && frame.getParts().get(2).getPayload().length > 0;
+
+        if (isCompareRemove) {
+            StoredValue expected = PutHandler.decodePutValue(frame.getParts().get(2).getPayload(), txId);
+            boolean removed = expected != null && repository.removeIfValue(docId, expected);
+            // entryNotFound = !removed: on a value mismatch (or miss) the client raises
+            // EntryNotFoundException, which Region.remove(k,v) maps to a false return.
+            log.info(StructuredLog.event(
+                    "handler_remove_if_value",
+                    "region", region, "key", key, "docId", docId, "removed", removed, "txId", txId));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildRemoveResponseWithEntryNotFound(txId, !removed)));
+            return;
+        }
 
         log.info(StructuredLog.event(
-                "handler_remove",
-                "region", region,
-                "key", key,
-                "docId", docId,
-                "txId", frame.getTransactionId()
-        ));
-
+                "handler_remove", "region", region, "key", key, "docId", docId, "txId", txId));
         repository.remove(docId);
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
+    }
 
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(frame.getTransactionId())));
+    private static int firstByte(byte[] payload) {
+        return payload != null && payload.length > 0 ? (payload[0] & 0xff) : -1;
     }
 }
