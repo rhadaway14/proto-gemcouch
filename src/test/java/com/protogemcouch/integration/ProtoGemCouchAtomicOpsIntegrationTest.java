@@ -6,7 +6,6 @@ import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -25,15 +24,12 @@ import static org.junit.jupiter.api.Assertions.fail;
  * End-to-end validation of the CAS-backed atomic operations against a real Geode client and the
  * live shim + Couchbase.
  *
- * <p>The active tests assert the <strong>storage</strong> contract, which the operation-decode +
- * repository CAS routing now satisfy: {@code putIfAbsent} does not overwrite, {@code replace} does
- * not create, and the compare-and-replace only writes on an exact match. Storage state is observed
- * via server-side reads, so it reflects what is actually persisted in Couchbase.
- *
- * <p>{@link #fullGeodeReturnSemantics()} is disabled: the value the client <em>returns</em> from
- * {@code putIfAbsent}/{@code replace(old,new)} and {@code remove(k,v)} requires building Geode's
- * old-value / boolean PUT reply and entry-not-found DESTROY reply (and a shared value decoder for
- * the DESTROY expected-value part). That is the documented follow-up.
+ * <p>Covers both the <strong>storage</strong> contract ({@code putIfAbsent} does not overwrite,
+ * {@code replace} does not create, compare-and-replace/remove act only on an exact match — observed
+ * via server-side reads of what is persisted in Couchbase) and the <strong>return values</strong>
+ * Geode clients rely on: {@code putIfAbsent}/{@code replace(k,v)} return the prior value,
+ * {@code replace(k,old,new)} and {@code remove(k,v)} return the boolean outcome. The return values
+ * exercise the PUT old-value/boolean reply and the DESTROY entry-not-found reply.
  */
 @Tag("integration")
 class ProtoGemCouchAtomicOpsIntegrationTest {
@@ -131,9 +127,6 @@ class ProtoGemCouchAtomicOpsIntegrationTest {
         assertFalse(region.containsKeyOnServer(key), "remove(k,v) removes on an exact value match");
     }
 
-    @Disabled("Follow-up: remove(k,v)'s boolean return value needs the DESTROY entry-not-found reply "
-            + "format (still to be reverse-engineered). The storage behavior is correct and validated "
-            + "by removeKeyValueStorageIsCorrect.")
     @Test
     void removeKeyValueReturnValue() {
         String key = "crm-" + UUID.randomUUID();

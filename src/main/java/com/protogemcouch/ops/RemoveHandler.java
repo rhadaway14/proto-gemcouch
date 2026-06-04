@@ -43,13 +43,13 @@ public class RemoveHandler implements OperationHandler {
         if (isCompareRemove) {
             StoredValue expected = PutHandler.decodePutValue(frame.getParts().get(2).getPayload(), txId);
             boolean removed = expected != null && repository.removeIfValue(docId, expected);
-            // Storage is correct: a mismatch leaves the entry in place (CAS-guarded removeIfValue).
-            // The client's boolean return value still needs the DESTROY entry-not-found reply format
-            // (documented follow-up), so we send the standard remove reply for now.
+            // entryNotFound = !removed: on a value mismatch (or miss) the client raises
+            // EntryNotFoundException, which Region.remove(k,v) maps to a false return.
             log.info(StructuredLog.event(
                     "handler_remove_if_value",
                     "region", region, "key", key, "docId", docId, "removed", removed, "txId", txId));
-            ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildRemoveResponseWithEntryNotFound(txId, !removed)));
             return;
         }
 
