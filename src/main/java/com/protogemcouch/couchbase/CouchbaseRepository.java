@@ -363,6 +363,45 @@ public class CouchbaseRepository implements Repository {
     }
 
     /**
+     * Invalidate an entry: store a value-less marker so the key stays present (kept in the keyset and
+     * visible to {@code containsKey}) but {@code get}/{@code containsValueForKey} report no value. The
+     * {@code {"type":"invalidated"}} marker decodes to a null {@link StoredValue}.
+     */
+    @Override
+    public void invalidate(String docId) {
+        try {
+            collection.upsert(docId, JsonObject.create().put(FIELD_TYPE, "invalidated"));
+            updateKeySetMetadataForDocId(docId, true);
+            log.info(StructuredLog.event("repository_invalidate_ok", "docId", docId));
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_invalidate_error", "docId", docId, "error", e.getMessage()), e);
+            throw new RepositoryException("invalidate failed for docId=" + docId, e);
+        }
+    }
+
+    /** Remove every entry's value in a region and clear the region's keyset metadata in one shot. */
+    @Override
+    public void clear(String region) {
+        List<String> keys = keySet(region);
+        for (String key : keys) {
+            String docId = DocumentKeyUtil.docId(region, key);
+            try {
+                collection.remove(docId);
+            } catch (DocumentNotFoundException ignored) {
+                // already gone
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "repository_clear_error", "region", region, "docId", docId,
+                        "error", e.getMessage()), e);
+                throw new RepositoryException("clear failed for region=" + region, e);
+            }
+        }
+        mutateKeySetMetadata(region, TreeSet::clear, "clear:" + keys.size());
+        log.info(StructuredLog.event("repository_clear_ok", "region", region, "removed", keys.size()));
+    }
+
+    /**
      * Atomic insert-if-absent using Couchbase {@code insert} (fails if the document already exists).
      * Returns {@code null} when the value was inserted, or the existing value when the key was
      * already present (nothing stored). This is genuinely atomic across concurrent writers and shim

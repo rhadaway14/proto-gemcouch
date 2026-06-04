@@ -122,7 +122,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   both the single-hop-on and single-hop-off part slots → client raises EntryNotFoundException →
   `false`). Proven end-to-end by `ProtoGemCouchAtomicOpsIntegrationTest` (7 tests) + repository
   contract unit tests.
-- [ ] `invalidate` / `getEntry` / `clear`.
+- [~] `invalidate` / `getEntry` / `clear`. **`invalidate` and `clear` done & validated** against a
+  real Geode client (`ProtoGemCouchRegionOpsIntegrationTest`): `invalidate` (op 83) keeps the key but
+  drops the value (value-less marker, key retained in the keyset); `clear` (op 36) removes every entry
+  and clears the region's keyset metadata. **`getEntry` (op 89) is a follow-up** — the client casts
+  the reply to a Geode `EntrySnapshot`, so it needs `EntrySnapshot` serialization rather than a raw
+  value reply (captured in the disabled `getEntryReturnsValueOrNull` test).
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single
   feature gap.

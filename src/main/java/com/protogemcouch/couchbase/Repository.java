@@ -97,6 +97,27 @@ public interface Repository {
         return false;
     }
 
+    /**
+     * Invalidate an entry (backs Geode {@code Region.invalidate}): keep the key present but drop its
+     * value, so {@code containsKey} stays true while {@code get} returns null and
+     * {@code containsValueForKey} is false. {@code CouchbaseRepository} overrides this to store a
+     * value-less marker and retain the key in the keyset; the default falls back to a remove.
+     */
+    default void invalidate(String docId) {
+        remove(docId);
+    }
+
+    /**
+     * Remove every entry in a region (backs Geode {@code Region.clear}). The default iterates the
+     * keyset and removes each entry; {@code CouchbaseRepository} overrides it to also clear the
+     * region's keyset metadata in one shot.
+     */
+    default void clear(String region) {
+        for (String key : keySet(region)) {
+            remove(DocumentKeyUtil.docId(region, key));
+        }
+    }
+
     boolean containsKey(String docId);
 
     boolean containsValueForKey(String docId);

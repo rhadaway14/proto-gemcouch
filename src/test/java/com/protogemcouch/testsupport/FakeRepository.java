@@ -41,6 +41,13 @@ public class FakeRepository implements Repository {
     }
 
     @Override
+    public void invalidate(String docId) {
+        // Keep the key present with a null value: containsKey stays true, get/containsValueForKey are
+        // null/false, and keySet/size still count it.
+        documents.put(docId, null);
+    }
+
+    @Override
     public boolean containsKey(String docId) {
         return documents.containsKey(docId);
     }
