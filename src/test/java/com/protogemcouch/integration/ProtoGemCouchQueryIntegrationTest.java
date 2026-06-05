@@ -199,6 +199,26 @@ class ProtoGemCouchQueryIntegrationTest {
                 "an unsupported query surfaces a server error rather than wrong results");
     }
 
+    @Test
+    void parameterizedQueryBindsValues() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "closed", "amount", 50)));
+        region.put("c", new HashMap<>(Map.of("status", "active", "amount", 10)));
+
+        // String + Integer bind parameters ($1, $2) across AND.
+        SelectResults<?> filtered = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " e WHERE e.status = $1 AND e.amount > $2")
+                .execute("active", 50);
+        assertEquals(1, filtered.size(), "only active with amount > 50");
+
+        // A single string bind parameter, with projection.
+        SelectResults<?> amounts = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e WHERE e.status = $1")
+                .execute("active");
+        assertEquals(2, amounts.size());
+        assertTrue(new HashSet<>(amounts).containsAll(Set.of(100, 10)), "bound projection values: " + amounts);
+    }
+
     private static void waitForReady(String url, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {

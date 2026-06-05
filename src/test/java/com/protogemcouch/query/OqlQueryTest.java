@@ -141,4 +141,42 @@ class OqlQueryTest {
         assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE status = 'active'").matches(StoredValue.stringValue("active")),
                 "field predicate does not match a non-map (scalar) value");
     }
+
+    @Test
+    void bindParametersRendersTypedLiteralsAndYieldsAWorkingPredicate() {
+        String bound = OqlQuery.bindParameters(
+                "SELECT * FROM /o r WHERE r.amount > $1 AND r.status = $2",
+                List.of(15, "active"));
+        assertEquals("SELECT * FROM /o r WHERE r.amount > 15 AND r.status = 'active'", bound);
+
+        OqlQuery q = OqlQuery.parse(bound);
+        assertTrue(q.matches(map("amount", 20, "status", "active")));
+        assertFalse(q.matches(map("amount", 10, "status", "active")), "fails the amount bound");
+        assertFalse(q.matches(map("amount", 20, "status", "closed")), "fails the status bound");
+    }
+
+    @Test
+    void bindParametersHandlesBooleanNullAndMultiDigitIndexes() {
+        List<Object> params = new ArrayList<>();
+        params.add(true);   // $1
+        params.add(null);   // $2
+        for (int i = 3; i <= 10; i++) {
+            params.add(i * 100); // $3..$10
+        }
+        String bound = OqlQuery.bindParameters("a = $1 AND b = $2 AND c = $10", params);
+        assertEquals("a = true AND b = null AND c = 1000", bound,
+                "$10 is substituted as a whole, not as $1 followed by 0");
+    }
+
+    @Test
+    void bindParametersWithNoPlaceholdersOrNoParamsIsUnchanged() {
+        assertEquals("SELECT * FROM /o", OqlQuery.bindParameters("SELECT * FROM /o", List.of(1, 2)));
+        assertEquals("SELECT * FROM /o", OqlQuery.bindParameters("SELECT * FROM /o", List.of()));
+    }
+
+    @Test
+    void bindParametersRejectsOutOfRangeReference() {
+        assertThrows(OqlQuery.UnsupportedQueryException.class,
+                () -> OqlQuery.bindParameters("SELECT * FROM /o WHERE x = $2", List.of(1)));
+    }
 }

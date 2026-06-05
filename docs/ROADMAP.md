@@ -171,9 +171,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   **PDX field access** too: WHERE/projection/ORDER BY resolve fields of stored PDX instances — the
   shim keeps each `PdxType` by id and uses Geode's own `PdxReaderImpl` to read instance fields by
   name (validated by `PdxFieldAccessorTest` on captured bytes + a real-client PDX query test).
-  **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs
-  the domain classes — not feasible server-side; PDX is the queryable path), parameterized queries
-  (opcode 80), result paging.
+  **Parameterized queries** (`query.execute($1, $2, …)`, opcode 80) are supported: the shim decodes
+  the bind values and `OqlQuery.bindParameters` substitutes `$N` as OQL literals before parsing
+  (validated by `parameterizedQueryBindsValues`). **Remaining:** ORDER BY on struct projections,
+  joins, POJO (Java-serialized) field access (needs the domain classes — not feasible server-side;
+  PDX is the queryable path), result paging.
 - [x] **Transactions (bounded first cut)** — client `begin`/`commit`/`rollback`. Transactional ops
   carry the tx id in the message header; the shim buffers writes per `(connection, txId)` in a
   `TransactionRegistry`, serves reads-your-writes from the buffer, applies the buffer to storage on

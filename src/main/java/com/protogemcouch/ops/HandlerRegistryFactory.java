@@ -24,7 +24,9 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
-        registry.register(MessageTypes.QUERY, new QueryHandler(repository, pdxTypeRegistry));
+        QueryHandler queryHandler = new QueryHandler(repository, pdxTypeRegistry);
+        registry.register(MessageTypes.QUERY, queryHandler);
+        registry.register(MessageTypes.QUERY_WITH_PARAMETERS, queryHandler);
         registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository, transactions));
         registry.register(MessageTypes.KEY_SET, new KeySetOnServerHandler(repository, transactions));
         registry.register(MessageTypes.PUT_ALL, new PutAllHandler(repository));

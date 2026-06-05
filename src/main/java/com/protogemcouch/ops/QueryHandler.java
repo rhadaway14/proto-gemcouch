@@ -6,7 +6,9 @@ import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemFrame;
+import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
+import com.protogemcouch.wire.MessageTypes;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import org.slf4j.Logger;
@@ -49,6 +51,13 @@ public class QueryHandler implements OperationHandler {
 
         OqlQuery query;
         try {
+            // Parameterized query (opcode 80): bind $1..$N from the trailing parts before parsing.
+            if (frame.getMessageType() == MessageTypes.QUERY_WITH_PARAMETERS) {
+                List<Object> params = decodeBindParameters(frame, txId);
+                log.info(StructuredLog.event(
+                        "handler_query_parameters", "query", oql, "param_count", params.size(), "txId", txId));
+                oql = OqlQuery.bindParameters(oql, params);
+            }
             query = OqlQuery.parse(oql);
         } catch (OqlQuery.UnsupportedQueryException e) {
             log.info(StructuredLog.event(
@@ -96,5 +105,44 @@ public class QueryHandler implements OperationHandler {
         log.info(StructuredLog.event(
                 "handler_query_ok", "query", oql, "region", region, "rows", rowCount, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /**
+     * Decode the bind parameters of a QUERY_WITH_PARAMETERS request: part[1] is the int parameter
+     * count and part[2..] are the serialized values, decoded with the standard value decoder and
+     * mapped to plain Java objects for {@link OqlQuery#bindParameters}.
+     */
+    private List<Object> decodeBindParameters(GemFrame frame, int txId) {
+        List<GemPart> parts = frame.getParts();
+        int count = parts.size() > 1 ? ByteUtils.bytesToInt(parts.get(1).getPayload()) : 0;
+        List<Object> params = new ArrayList<>(Math.max(0, count));
+        for (int i = 0; i < count; i++) {
+            int index = 2 + i;
+            if (index >= parts.size()) {
+                break;
+            }
+            params.add(paramObject(PutHandler.decodePutValue(parts.get(index).getPayload(), txId)));
+        }
+        return params;
+    }
+
+    /** Map a decoded bind value to a plain Java object for OQL literal rendering. */
+    private static Object paramObject(StoredValue value) {
+        if (value == null) {
+            return null;
+        }
+        switch (value.type()) {
+            case INTEGER: return value.asInteger();
+            case LONG: return value.asLong();
+            case SHORT: return value.asShort();
+            case BYTE: return value.asByte();
+            case DOUBLE: return value.asDouble();
+            case FLOAT: return value.asFloat();
+            case BOOLEAN: return value.asBoolean();
+            case CHARACTER: return String.valueOf(value.asCharacter());
+            case DATE: return value.asDate();
+            case STRING: return value.value();
+            default: return value.value();
+        }
     }
 }
