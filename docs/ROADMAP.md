@@ -147,8 +147,27 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
     leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
     `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
-- [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single
-  feature gap.
+- [~] **Queries (OQL)** — `SELECT * FROM /region` **done & validated** against a real Geode client.
+  Reverse-engineered the chunked query response by capturing real Geode-server bytes
+  (`GeodeQueryCapture` tool): a `ChunkedMessage` (12-byte header + per-chunk framing) with a fixed
+  `CollectionType` part and a result-list part. Implemented `GemResponseWriter.buildQueryResponse`
+  (+ chunked framing, empty-result and error forms), an `OqlQuery` parser, and a `QueryHandler`
+  (opcode 34) that gathers the region's values. **`WHERE` filtering now supported** too:
+  `SELECT * FROM /region [alias] WHERE <field> <op> <literal> [AND ...]` (ops `= <> != < <= > >=`;
+  string/number/boolean/null literals) combined with **`AND`/`OR`** (AND binds tighter), evaluated
+  in-shim against map-typed values' top-level fields. **Projections** too — single-field
+  (`SELECT e.status …`) and **multi-field struct** (`SELECT e.status, e.amount …` → Geode `Struct`
+  rows, via a generated `StructType` + nested `Object[]` chunked response, byte-matched to the real
+  server). **`ORDER BY`** too (`ORDER BY field [ASC|DESC]`, multi-key) — sorted in-shim and returned
+  with Geode's order-preserving `Ordered` CollectionType + Object[] result (for SELECT */single-field).
+  Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR / single+multi
+  projection / ORDER BY asc+desc / unsupported) + `OqlQuery` parser/predicate/sort unit tests.
+  **PDX field access** too: WHERE/projection/ORDER BY resolve fields of stored PDX instances — the
+  shim keeps each `PdxType` by id and uses Geode's own `PdxReaderImpl` to read instance fields by
+  name (validated by `PdxFieldAccessorTest` on captured bytes + a real-client PDX query test).
+  **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs
+  the domain classes — not feasible server-side; PDX is the queryable path), parameterized queries
+  (opcode 80), result paging.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

@@ -10,6 +10,8 @@ public final class MessageTypes {
     public static final int PING = 5;
     public static final int PUT = 7;
     public static final int REMOVE = 9;
+    public static final int QUERY = 34;
+    public static final int QUERY_DATA_ERROR = 35;
     public static final int CLEAR_REGION = 36;
     public static final int CONTROL = 18;
     public static final int CONTAINS_KEY = 38;
