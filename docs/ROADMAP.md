@@ -147,12 +147,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
     leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
     `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
-- [~] **Queries (OQL)** — query execution. Largest single feature gap. First-cut scope is
-  `SELECT * FROM /region`. **Done:** request protocol reverse-engineered (opcode 34, one string
-  part), `OqlQuery` parser (+ unit tests), and a design doc (`docs/OQL.md`). **Remaining (the core):**
-  the chunked query-response writer — Geode returns a `ChunkedMessage` (12-byte header + per-chunk
-  framing) carrying an internal `CollectionType` + the result elements, to be captured byte-exact
-  from a real Geode server, then a `QueryHandler` that gathers the region's values and writes it.
+- [~] **Queries (OQL)** — `SELECT * FROM /region` **done & validated** against a real Geode client.
+  Reverse-engineered the chunked query response by capturing real Geode-server bytes
+  (`GeodeQueryCapture` tool): a `ChunkedMessage` (12-byte header + per-chunk framing) with a fixed
+  `CollectionType` part and a result-list part. Implemented `GemResponseWriter.buildQueryResponse`
+  (+ chunked framing, empty-result and error forms), an `OqlQuery` parser, and a `QueryHandler`
+  (opcode 34) that gathers the region's values. Validated by `ProtoGemCouchQueryIntegrationTest`
+  (all-rows / empty / unsupported-query-error). **Remaining:** `WHERE`/projections/`ORDER BY`/joins,
+  parameterized queries (opcode 80), and result paging for large regions.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

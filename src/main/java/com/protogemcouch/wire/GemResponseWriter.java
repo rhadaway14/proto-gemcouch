@@ -1,6 +1,7 @@
 package com.protogemcouch.wire;
 
 import com.protogemcouch.serialization.StoredValue;
+import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.serialization.ValueEncoding;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -601,6 +602,90 @@ public final class GemResponseWriter {
                         new Part(ValueEncoding.encodeGeodeStringValue(safeMessage), (byte) 1)
                 )
         );
+    }
+
+    // --- OQL query (chunked) response ---------------------------------------------------------
+    // Byte templates captured from a real Geode 1.15 server's SELECT * response (see GeodeQueryCapture
+    // / docs/OQL.md). The CollectionType part is fixed for SELECT * (ResultsCollectionType<Object>).
+    private static final byte[] QUERY_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b5700426f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e"
+                    + "43756d756c61746976654e6f6e44697374696e6374526573756c747301c32b5700106a6176612e6c616e672e4f626a656374");
+    // ObjectPartList header that precedes the element count + elements (non-empty result).
+    private static final byte[] QUERY_RESULT_LIST_HEADER = ByteUtils.hex("011900000000");
+    // The empty-result form the server sends when there are no rows.
+    private static final byte[] QUERY_EMPTY_RESULT = ByteUtils.hex("34002b5700106a6176612e6c616e672e4f626a656374");
+
+    /**
+     * Build the chunked response for {@code SELECT * FROM /region}. Two parts in one (last) chunk:
+     * part[0] is the fixed {@code CollectionType}; part[1] is the result list — an ObjectPartList
+     * header, the element count, then each value as {@code 0x00} + its serialized object (the empty
+     * case uses the server's empty-result form). Matches the captured real-server bytes.
+     */
+    public static byte[] buildQueryResponse(int txId, List<StoredValue> values) {
+        byte[] resultList;
+        if (values == null || values.isEmpty()) {
+            resultList = QUERY_EMPTY_RESULT;
+        } else {
+            ByteBuf body = Unpooled.buffer();
+            try {
+                body.writeBytes(QUERY_RESULT_LIST_HEADER);
+                writeGeodeArrayLength(body, values.size());
+                for (StoredValue value : values) {
+                    body.writeByte(0x00);
+                    body.writeBytes(encodeStoredValueForGetAll(value));
+                }
+                resultList = toByteArrayAndRelease(body);
+            } catch (RuntimeException e) {
+                body.release();
+                throw e;
+            }
+        }
+        return buildChunkedResponse(txId, List.of(
+                new Part(QUERY_COLLECTION_TYPE, (byte) 1),
+                new Part(resultList, (byte) 1)));
+    }
+
+    /**
+     * Build a chunked query error response: a single part whose object deserializes to a Throwable,
+     * which the client raises as a {@code ServerOperationException} (used for unsupported queries).
+     */
+    public static byte[] buildQueryErrorResponse(int txId, String message) {
+        String safeMessage = (message == null || message.isBlank()) ? "query failed" : message;
+        byte[] serializedException = javaSerializeClientSafeException(safeMessage);
+        return buildChunkedResponse(txId, List.of(
+                new Part(geodeSerializedJavaObject(serializedException), (byte) 1)));
+    }
+
+    /**
+     * Chunked-message framing: a 12-byte header (messageType=RESPONSE, numberOfParts, transactionId)
+     * followed by one last chunk (chunkLength int, lastChunk flag byte, then the parts).
+     */
+    private static byte[] buildChunkedResponse(int txId, List<Part> parts) {
+        ByteBuf chunk = Unpooled.buffer();
+        byte[] chunkPayload;
+        try {
+            for (Part part : parts) {
+                writePart(chunk, part.payload(), part.typeCode());
+            }
+            chunkPayload = toByteArrayAndRelease(chunk);
+        } catch (RuntimeException e) {
+            chunk.release();
+            throw e;
+        }
+
+        ByteBuf message = Unpooled.buffer();
+        try {
+            message.writeInt(MessageTypes.RESPONSE);  // chunked query response message type
+            message.writeInt(parts.size());           // number of parts in the chunk
+            message.writeInt(txId);
+            message.writeInt(chunkPayload.length);     // chunk length
+            message.writeByte((byte) 0x01);            // last (and only) chunk
+            message.writeBytes(chunkPayload);
+            return toByteArrayAndRelease(message);
+        } catch (RuntimeException e) {
+            message.release();
+            throw e;
+        }
     }
 
     private static byte[] javaSerializeClientSafeException(String message) {

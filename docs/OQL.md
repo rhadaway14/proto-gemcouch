@@ -1,8 +1,19 @@
 # OQL query support — design notes
 
-Status: **in progress.** First-cut scope is `SELECT * FROM /region` (return all values in a region).
-The request side and the query parser are done; the chunked query-response writer is the remaining
-core piece.
+Status: **first cut done.** `SELECT * FROM /region` works end-to-end against a real Geode client
+(`ProtoGemCouchQueryIntegrationTest`). The chunked query-response format below was captured from a
+real Geode 1.15 server with `GeodeQueryCapture` and is implemented in
+`GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34).
+
+Captured `SELECT *` response (2 rows v1,v2), annotated:
+```
+HEADER(12): 00000001(msgType=RESPONSE) 00000002(numParts=2) ffffffff(txId)
+CHUNK:      0000007b(chunkLen) 01(lastChunk)
+  PART A:   0000005e(len=94) 01(isObject)  CollectionType: ResultsCollectionType<Object> (fixed)
+  PART B:   00000013(len=19) 01(isObject)  result list:
+            01 19 00000000   02(count)   00 5700027631(v1)   00 5700027632(v2)
+```
+Empty result uses a different part B (`34 00 2b…java.lang.Object`); both forms are emitted.
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
