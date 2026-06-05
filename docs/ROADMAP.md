@@ -38,12 +38,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   horizontally behind a load balancer.
 - [ ] **Durability/consistency options** — configurable Couchbase durability; partial-failure
   behavior for `putAll`.
-- [~] **TTL / expiration & eviction** — entry TTL **done**: `CB_TTL_SECONDS` applies a Couchbase
-  document expiry to value writes (put/putAll/putIfAbsent/replace/invalidate), emulating a
-  region-wide Geode entry-time-to-live; validated by `ProtoGemCouchTtlIntegrationTest`. `get`/
-  `containsKey` are correct post-expiry; `size`/`keySet` (keyset metadata) are not auto-pruned yet
-  (documented). Remaining: per-region TTL config, idle-timeout (vs time-to-live) semantics, keyset
-  pruning/eviction.
+- [x] **TTL / expiration & eviction** — entry TTL via Couchbase document expiry on value writes
+  (put/putAll/putIfAbsent/replace/invalidate), with: a default (`CB_TTL_SECONDS`), **per-region
+  overrides** (`CB_TTL_REGIONS`), **idle-timeout** vs time-to-live semantics (`CB_TTL_MODE=idle`
+  refreshes expiry on reads via get-and-touch), and **keyset eviction** (`size`/`keySet` verify
+  existence and prune expired keys from the keyset metadata, keeping them correct post-expiry). All
+  validated end-to-end (`ProtoGemCouchTtlIntegrationTest`, `ProtoGemCouchTtlIdleIntegrationTest`)
+  plus `TtlConfig` unit tests.
 - [ ] **Large-value limits** — enforce a max value size and define oversized-value behavior.
 
 ### 2b. Deployment hardening

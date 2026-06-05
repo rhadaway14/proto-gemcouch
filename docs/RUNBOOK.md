@@ -42,11 +42,14 @@ Optional:
   Netty event loop; raise it if many connections may block on a slow backend at once)
 - `CB_KV_TIMEOUT_MS` default `5000` (per-operation Couchbase KV timeout)
 - `CB_CONNECT_TIMEOUT_MS` default `10000` (Couchbase connect timeout)
-- `CB_TTL_SECONDS` default `0` (entry time-to-live: when `> 0`, value writes get a Couchbase
-  document expiry of this many seconds, emulating a region-wide Geode entry-time-to-live; `0`
-  disables expiry. Note: `get`/`containsKey` are correct after expiry, but `size`/`keySet` are
-  backed by per-region keyset metadata that is not auto-pruned on expiry, so they may transiently
-  over-count expired keys.)
+- `CB_TTL_SECONDS` default `0` (default entry time-to-live in seconds: when `> 0`, value writes get a
+  Couchbase document expiry, emulating a Geode entry-time-to-live; `0` disables expiry)
+- `CB_TTL_REGIONS` default empty (per-region TTL overrides, e.g. `sessions:1800,cacheA:60`; an exact
+  region-name match wins over `CB_TTL_SECONDS`)
+- `CB_TTL_MODE` default `ttl` (`ttl` = expiry counts from the last write, i.e. entry-time-to-live;
+  `idle` = reads also refresh the expiry via get-and-touch, i.e. entry-idle-time)
+  - When a region has a TTL, `size`/`keySet` verify which keys still exist and evict expired ones
+    from the keyset metadata, so they stay correct (at the cost of an existence check per key).
 - `CONNECTION_IDLE_TIMEOUT_SECONDS` default `300` (close a connection with no read/write activity
   for this long; `0` disables idle reaping)
 - `MAX_CONNECTIONS` default `0` (max concurrent client connections; new connections beyond this

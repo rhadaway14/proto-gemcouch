@@ -15,23 +15,21 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Validates entry TTL / expiration against the dedicated TTL shim instance (CB_TTL_SECONDS=3),
- * which applies a Couchbase document expiry to value writes. A value is readable immediately after
- * the put and gone after the TTL elapses (Couchbase expires it lazily on access).
+ * Validates idle-mode TTL (entry-idle-time) against the idle shim (CB_TTL_MODE=idle, CB_TTL_SECONDS=4):
+ * reads refresh the expiry (get-and-touch), so an entry accessed faster than the TTL stays alive past
+ * the TTL, then expires once access stops.
  */
 @Tag("integration")
-class ProtoGemCouchTtlIntegrationTest {
+class ProtoGemCouchTtlIdleIntegrationTest {
 
     private static final String HOST = envOrDefault("IT_SHIM_HOST", "127.0.0.1");
-    private static final int SHIM_PORT = intEnv("IT_TTL_SHIM_PORT", 40410);
-    private static final int HEALTH_PORT = intEnv("IT_TTL_HEALTH_PORT", 8086);
-    private static final int TTL_SECONDS = intEnv("IT_TTL_SECONDS", 3);
+    private static final int SHIM_PORT = intEnv("IT_TTL_IDLE_SHIM_PORT", 40411);
+    private static final int HEALTH_PORT = intEnv("IT_TTL_IDLE_HEALTH_PORT", 8087);
+    private static final int TTL_SECONDS = intEnv("IT_TTL_IDLE_SECONDS", 4);
 
     private ClientCache cache;
     private Region<String, Object> region;
@@ -45,7 +43,7 @@ class ProtoGemCouchTtlIntegrationTest {
                 .addPoolServer(HOST, SHIM_PORT)
                 .create();
         region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
-                .create("ttl" + UUID.randomUUID().toString().replace("-", ""));
+                .create("ttlIdle" + UUID.randomUUID().toString().replace("-", ""));
     }
 
     @AfterEach
@@ -56,46 +54,22 @@ class ProtoGemCouchTtlIntegrationTest {
     }
 
     @Test
-    void valueExpiresAfterTtl() throws InterruptedException {
-        String key = "ttl-" + UUID.randomUUID();
+    void readsRefreshExpiryThenEntryExpiresWhenIdle() throws InterruptedException {
+        String key = "idle-" + UUID.randomUUID();
         region.put(key, "v");
 
-        assertEquals("v", region.get(key), "value is readable immediately after the put");
+        long step = (TTL_SECONDS - 1L) * 1000L; // access faster than the TTL to keep it alive
+        region.get(key);
+        Thread.sleep(step);
+        region.get(key);
+        Thread.sleep(step);
 
-        // Wait past the TTL with margin; Couchbase expires the document lazily on access.
+        // Total elapsed now exceeds the TTL, but each read refreshed the expiry, so it survives.
+        assertEquals("v", region.get(key), "idle reads keep the entry alive past the TTL");
+
+        // Stop accessing; after the TTL with margin it expires.
         Thread.sleep((TTL_SECONDS + 3L) * 1000L);
-
-        assertNull(region.get(key), "value is gone after the TTL elapses");
-        assertFalse(region.containsKeyOnServer(key), "key no longer present after expiry");
-    }
-
-    @Test
-    void keysetEvictedAfterExpiry() throws InterruptedException {
-        region.put("e1", "1");
-        region.put("e2", "2");
-        region.put("e3", "3");
-        assertEquals(3, region.sizeOnServer());
-
-        Thread.sleep((TTL_SECONDS + 3L) * 1000L);
-
-        // keySet/size verify existence and prune expired keys from the keyset metadata.
-        assertEquals(0, region.sizeOnServer(), "size reflects eviction of expired keys");
-        assertTrue(region.keySetOnServer().isEmpty(), "keySet is pruned of expired keys");
-    }
-
-    @Test
-    void perRegionOverrideKeepsEntriesLonger() throws InterruptedException {
-        // The "ttlLong" region is configured (CB_TTL_REGIONS) to 30s, overriding the 3s default.
-        Region<String, Object> longRegion = cache.<String, Object>createClientRegionFactory(
-                ClientRegionShortcut.PROXY).create("ttlLong");
-        String key = "k-" + UUID.randomUUID();
-        longRegion.put(key, "v");
-
-        // Wait past the default TTL (3s) but well under the per-region override (30s).
-        Thread.sleep((TTL_SECONDS + 3L) * 1000L);
-
-        assertEquals("v", longRegion.get(key),
-                "per-region override keeps the entry past the default TTL");
+        assertNull(region.get(key), "entry expires once reads stop");
     }
 
     private static void waitForReady(String url, Duration timeout) {
