@@ -147,8 +147,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
     leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
     `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
-- [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single
-  feature gap.
+- [~] **Queries (OQL)** — query execution. Largest single feature gap. First-cut scope is
+  `SELECT * FROM /region`. **Done:** request protocol reverse-engineered (opcode 34, one string
+  part), `OqlQuery` parser (+ unit tests), and a design doc (`docs/OQL.md`). **Remaining (the core):**
+  the chunked query-response writer — Geode returns a `ChunkedMessage` (12-byte header + per-chunk
+  framing) carrying an internal `CollectionType` + the result elements, to be captured byte-exact
+  from a real Geode server, then a `QueryHandler` that gathers the region's values and writes it.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client
