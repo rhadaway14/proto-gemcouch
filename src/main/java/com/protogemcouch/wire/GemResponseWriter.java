@@ -655,6 +655,30 @@ public final class GemResponseWriter {
     // The empty-result form the server sends when there are no rows.
     private static final byte[] QUERY_EMPTY_RESULT = ByteUtils.hex("34002b5700106a6176612e6c616e672e4f626a656374");
 
+    /*
+     * Result paging: how many rows go in each chunk of a SELECT * / single-field query response. A
+     * large result set is streamed as multiple chunks (each repeating part[0]=CollectionType and
+     * carrying part[1]=that batch's result list), with the lastChunk flag set only on the final chunk
+     * — exactly as the real Geode server batches query results. Smaller results emit a single chunk
+     * (byte-identical to before). Overridable via PGC_QUERY_PAGE_SIZE for testing.
+     */
+    private static final int QUERY_PAGE_SIZE = queryPageSize();
+
+    private static int queryPageSize() {
+        String raw = System.getenv("PGC_QUERY_PAGE_SIZE");
+        if (raw != null && !raw.isBlank()) {
+            try {
+                int v = Integer.parseInt(raw.trim());
+                if (v > 0) {
+                    return v;
+                }
+            } catch (NumberFormatException ignored) {
+                // fall through to default
+            }
+        }
+        return 100;
+    }
+
     /**
      * Build the chunked response for {@code SELECT * FROM /region}. Two parts in one (last) chunk:
      * part[0] is the fixed {@code CollectionType}; part[1] is the result list — an ObjectPartList
@@ -662,27 +686,40 @@ public final class GemResponseWriter {
      * case uses the server's empty-result form). Matches the captured real-server bytes.
      */
     public static byte[] buildQueryResponse(int txId, List<StoredValue> values) {
-        byte[] resultList;
+        List<List<Part>> chunks = new ArrayList<>();
         if (values == null || values.isEmpty()) {
-            resultList = QUERY_EMPTY_RESULT;
+            chunks.add(List.of(
+                    new Part(QUERY_COLLECTION_TYPE, (byte) 1),
+                    new Part(QUERY_EMPTY_RESULT, (byte) 1)));
         } else {
-            ByteBuf body = Unpooled.buffer();
-            try {
-                body.writeBytes(QUERY_RESULT_LIST_HEADER);
-                writeGeodeArrayLength(body, values.size());
-                for (StoredValue value : values) {
-                    body.writeByte(0x00);
-                    body.writeBytes(encodeStoredValueForGetAll(value));
-                }
-                resultList = toByteArrayAndRelease(body);
-            } catch (RuntimeException e) {
-                body.release();
-                throw e;
+            // Split into row batches; each chunk repeats the CollectionType and carries its batch's
+            // result list. The client (QueryOp) reads [part0=CollectionType, part1=results] per chunk
+            // and accumulates the results across chunks until the lastChunk flag.
+            for (int start = 0; start < values.size(); start += QUERY_PAGE_SIZE) {
+                List<StoredValue> batch = values.subList(start, Math.min(start + QUERY_PAGE_SIZE, values.size()));
+                chunks.add(List.of(
+                        new Part(QUERY_COLLECTION_TYPE, (byte) 1),
+                        new Part(buildQueryResultList(batch), (byte) 1)));
             }
         }
-        return buildChunkedResponse(txId, List.of(
-                new Part(QUERY_COLLECTION_TYPE, (byte) 1),
-                new Part(resultList, (byte) 1)));
+        return buildMultiChunkResponse(txId, 2, chunks);
+    }
+
+    /** Build one chunk's ObjectPartList result list: the fixed header, the batch count, then each value. */
+    private static byte[] buildQueryResultList(List<StoredValue> values) {
+        ByteBuf body = Unpooled.buffer();
+        try {
+            body.writeBytes(QUERY_RESULT_LIST_HEADER);
+            writeGeodeArrayLength(body, values.size());
+            for (StoredValue value : values) {
+                body.writeByte(0x00);
+                body.writeBytes(encodeStoredValueForGetAll(value));
+            }
+            return toByteArrayAndRelease(body);
+        } catch (RuntimeException e) {
+            body.release();
+            throw e;
+        }
     }
 
     // Struct (multi-field) projection templates, also captured from the real Geode server.
@@ -795,6 +832,42 @@ public final class GemResponseWriter {
      * Chunked-message framing: a 12-byte header (messageType=RESPONSE, numberOfParts, transactionId)
      * followed by one last chunk (chunkLength int, lastChunk flag byte, then the parts).
      */
+    /**
+     * Chunked-message framing for a multi-chunk (paged) response: the 12-byte header
+     * (messageType=RESPONSE, numberOfParts, transactionId) then each chunk as
+     * {@code chunkLength(int), lastChunk-flag(byte), parts}. The {@code lastChunk} flag is set only on
+     * the final chunk. Every chunk must carry {@code numberOfParts} parts (the client re-reads that
+     * many parts per chunk). A single-chunk list is byte-identical to {@link #buildChunkedResponse}.
+     */
+    private static byte[] buildMultiChunkResponse(int txId, int numberOfParts, List<List<Part>> chunks) {
+        ByteBuf message = Unpooled.buffer();
+        try {
+            message.writeInt(MessageTypes.RESPONSE);
+            message.writeInt(numberOfParts);
+            message.writeInt(txId);
+            for (int c = 0; c < chunks.size(); c++) {
+                ByteBuf chunk = Unpooled.buffer();
+                byte[] chunkPayload;
+                try {
+                    for (Part part : chunks.get(c)) {
+                        writePart(chunk, part.payload(), part.typeCode());
+                    }
+                    chunkPayload = toByteArrayAndRelease(chunk);
+                } catch (RuntimeException e) {
+                    chunk.release();
+                    throw e;
+                }
+                message.writeInt(chunkPayload.length);
+                message.writeByte((byte) (c == chunks.size() - 1 ? 0x01 : 0x00));
+                message.writeBytes(chunkPayload);
+            }
+            return toByteArrayAndRelease(message);
+        } catch (RuntimeException e) {
+            message.release();
+            throw e;
+        }
+    }
+
     private static byte[] buildChunkedResponse(int txId, List<Part> parts) {
         ByteBuf chunk = Unpooled.buffer();
         byte[] chunkPayload;
