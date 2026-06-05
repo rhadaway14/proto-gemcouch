@@ -158,10 +158,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   in-shim against map-typed values' top-level fields. **Projections** too — single-field
   (`SELECT e.status …`) and **multi-field struct** (`SELECT e.status, e.amount …` → Geode `Struct`
   rows, via a generated `StructType` + nested `Object[]` chunked response, byte-matched to the real
-  server). Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR /
-  single+multi projection / unsupported) + `OqlQuery` parser & predicate unit tests. **Remaining:**
-  `ORDER BY`/joins, field access on PDX/serialized POJO values, parameterized queries (opcode 80),
-  result paging.
+  server). **`ORDER BY`** too (`ORDER BY field [ASC|DESC]`, multi-key) — sorted in-shim and returned
+  with Geode's order-preserving `Ordered` CollectionType + Object[] result (for SELECT */single-field).
+  Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR / single+multi
+  projection / ORDER BY asc+desc / unsupported) + `OqlQuery` parser/predicate/sort unit tests.
+  **Remaining:** ORDER BY on struct projections, joins, field access on PDX/serialized POJO values,
+  parameterized queries (opcode 80), result paging.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

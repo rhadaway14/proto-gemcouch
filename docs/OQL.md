@@ -16,7 +16,12 @@ rows. The response uses a `StructType` CollectionType (ResultsCollectionType →
 `field$i` columns, each an `ObjectType`) and a nested `Object[]` (DSCODE `0x34`) result: an outer
 array of structs, each an `Object[]` of its field values. `GemResponseWriter.buildQueryStructResponse`
 generates both for any field count; the bytes were diffed byte-for-byte against the real Geode
-server (`GeodeQueryCapture`, M=2 and M=3 captures). (ORDER BY, joins, PDX/POJO field access remain TODO.)
+server (`GeodeQueryCapture`, M=2 and M=3 captures).
+
+**ORDER BY** (`ORDER BY field [ASC|DESC]`, multi-key) sorts the matched values in-shim. The
+non-distinct CollectionType does not preserve client-side order, so ordered SELECT */single-field
+responses use Geode's **`...internal.Ordered`** CollectionType + an Object[] (`0x34`) result (also
+captured + byte-matched). (ORDER BY on struct projections, joins, PDX/POJO field access remain TODO.)
 
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```

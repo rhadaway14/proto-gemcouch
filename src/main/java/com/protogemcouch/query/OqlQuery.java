@@ -25,8 +25,10 @@ public final class OqlQuery {
 
     private static final Pattern QUERY = Pattern.compile(
             "(?is)^\\s*SELECT\\s+(.+?)\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
-                    + "(?:\\s+(?!WHERE\\b)[A-Za-z_][A-Za-z0-9_]*)?"   // optional alias
-                    + "(?:\\s+WHERE\\s+(.+?))?\\s*;?\\s*$");
+                    + "(?:\\s+(?!WHERE\\b)(?!ORDER\\b)[A-Za-z_][A-Za-z0-9_]*)?"  // optional alias
+                    + "(?:\\s+WHERE\\s+(.+?))?"
+                    + "(?:\\s+ORDER\\s+BY\\s+(.+?))?"
+                    + "\\s*;?\\s*$");
 
     private static final Pattern CONDITION = Pattern.compile(
             "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
@@ -34,11 +36,14 @@ public final class OqlQuery {
     private final String regionPath;
     private final List<String> projectionFields;   // empty = SELECT *
     private final List<List<Condition>> orGroups;  // OR of AND-groups; empty = match all
+    private final List<OrderKey> orderBy;          // empty = no ordering
 
-    private OqlQuery(String regionPath, List<String> projectionFields, List<List<Condition>> orGroups) {
+    private OqlQuery(String regionPath, List<String> projectionFields,
+                    List<List<Condition>> orGroups, List<OrderKey> orderBy) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
         this.orGroups = orGroups;
+        this.orderBy = orderBy;
     }
 
     public String regionPath() {
@@ -48,6 +53,11 @@ public final class OqlQuery {
     /** Number of projected fields: 0 for {@code SELECT *}, 1 for a single field, N for a struct. */
     public int projectionFieldCount() {
         return projectionFields.size();
+    }
+
+    /** Whether the query has an ORDER BY (so the response must preserve row order). */
+    public boolean hasOrderBy() {
+        return !orderBy.isEmpty();
     }
 
     /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
@@ -98,7 +108,93 @@ public final class OqlQuery {
                     "only 'SELECT (* | field, ...) FROM /region [WHERE ...]' is supported: " + text);
         }
         return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1)),
-                parseWhere(matcher.group(3)));
+                parseWhere(matcher.group(3)), parseOrderBy(matcher.group(4)));
+    }
+
+    /** Sort matched values in place by the ORDER BY keys (no-op when there is no ORDER BY). */
+    public void sort(List<StoredValue> values) {
+        if (orderBy.isEmpty()) {
+            return;
+        }
+        values.sort((a, b) -> {
+            for (OrderKey key : orderBy) {
+                int c = compareField(a, b, key.field);
+                if (c != 0) {
+                    return key.ascending ? c : -c;
+                }
+            }
+            return 0;
+        });
+    }
+
+    private static List<OrderKey> parseOrderBy(String orderBy) {
+        List<OrderKey> keys = new ArrayList<>();
+        if (orderBy == null || orderBy.isBlank()) {
+            return keys;
+        }
+        for (String part : orderBy.split(",")) {
+            String[] tokens = part.trim().split("\\s+");
+            String field = lastSegment(tokens[0]);
+            if (!field.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
+                throw new UnsupportedQueryException("unsupported ORDER BY field: " + part.trim());
+            }
+            boolean ascending = true;
+            if (tokens.length == 2) {
+                if (tokens[1].equalsIgnoreCase("DESC")) {
+                    ascending = false;
+                } else if (!tokens[1].equalsIgnoreCase("ASC")) {
+                    throw new UnsupportedQueryException("unsupported ORDER BY direction: " + tokens[1]);
+                }
+            } else if (tokens.length > 2) {
+                throw new UnsupportedQueryException("unsupported ORDER BY clause: " + part.trim());
+            }
+            keys.add(new OrderKey(field, ascending));
+        }
+        return keys;
+    }
+
+    /** Compare a field across two values: numeric when both parse as numbers, else string; nulls last. */
+    private static int compareField(StoredValue a, StoredValue b, String field) {
+        Object av = resolveField(a, field);
+        Object bv = resolveField(b, field);
+        boolean aMissing = av == ABSENT || av == null;
+        boolean bMissing = bv == ABSENT || bv == null;
+        if (aMissing && bMissing) {
+            return 0;
+        }
+        if (aMissing) {
+            return 1;
+        }
+        if (bMissing) {
+            return -1;
+        }
+        Double an = numericOrNull(av);
+        Double bn = numericOrNull(bv);
+        if (an != null && bn != null) {
+            return Double.compare(an, bn);
+        }
+        return String.valueOf(av).compareTo(String.valueOf(bv));
+    }
+
+    private static Double numericOrNull(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static final class OrderKey {
+        private final String field;
+        private final boolean ascending;
+
+        OrderKey(String field, boolean ascending) {
+            this.field = field;
+            this.ascending = ascending;
+        }
     }
 
     private static List<String> parseProjection(String selectList) {

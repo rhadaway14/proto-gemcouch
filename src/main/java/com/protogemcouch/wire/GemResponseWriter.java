@@ -659,6 +659,37 @@ public final class GemResponseWriter {
     private static final byte[] QUERY_OBJECT_ARRAY_COMPONENT = ByteUtils.hex("2b5700106a6176612e6c616e672e4f626a656374");
     private static final byte OBJECT_ARRAY_CODE = 0x34;
 
+    // CollectionType for ORDER BY results: ResultsCollectionType wrapping the "Ordered" class (which
+    // tells the client to preserve row order), element type java.lang.Object. Captured from the server.
+    private static final byte[] QUERY_ORDERED_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b57002d6f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e4f7264657265"
+                    + "6401c32b5700106a6176612e6c616e672e4f626a656374");
+
+    /**
+     * Build the chunked response for an ORDER BY (single-field / SELECT *) query. Uses the "Ordered"
+     * CollectionType and an Object[] ({@code 0x34}) result so the client preserves the row order we
+     * sorted into. Matches the captured real-server bytes.
+     */
+    public static byte[] buildOrderedQueryResponse(int txId, List<StoredValue> values) {
+        ByteBuf resultPart = Unpooled.buffer();
+        byte[] ordered;
+        try {
+            resultPart.writeByte(OBJECT_ARRAY_CODE);
+            writeGeodeArrayLength(resultPart, values.size());
+            resultPart.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+            for (StoredValue value : values) {
+                resultPart.writeBytes(encodeStoredValueForGetAll(value));
+            }
+            ordered = toByteArrayAndRelease(resultPart);
+        } catch (RuntimeException e) {
+            resultPart.release();
+            throw e;
+        }
+        return buildChunkedResponse(txId, List.of(
+                new Part(QUERY_ORDERED_COLLECTION_TYPE, (byte) 1),
+                new Part(ordered, (byte) 1)));
+    }
+
     /**
      * Build the chunked response for a multi-field (struct) projection: part[0] is a StructType for
      * {@code fieldCount} {@code field$i} columns; part[1] is an outer Object[] of structs, each an

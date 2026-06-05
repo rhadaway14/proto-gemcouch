@@ -3,8 +3,10 @@ package com.protogemcouch.query;
 import com.protogemcouch.serialization.StoredValue;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -68,6 +70,28 @@ class OqlQueryTest {
         assertEquals(2, q.projectionFieldCount());
         assertEquals(List.of(StoredValue.stringValue("active"), StoredValue.integerValue(100)),
                 q.projectRow(map("status", "active", "amount", 100)));
+    }
+
+    @Test
+    void orderByNumericAscAndDesc() {
+        List<StoredValue> asc = new ArrayList<>(List.of(map("amount", 30), map("amount", 10), map("amount", 20)));
+        OqlQuery.parse("SELECT * FROM /o ORDER BY amount").sort(asc);
+        assertEquals(List.of(10, 20, 30), field(asc, "amount"));
+
+        List<StoredValue> desc = new ArrayList<>(List.of(map("amount", 30), map("amount", 10), map("amount", 20)));
+        OqlQuery.parse("SELECT * FROM /o e ORDER BY e.amount DESC").sort(desc);
+        assertEquals(List.of(30, 20, 10), field(desc, "amount"));
+    }
+
+    @Test
+    void orderByStringField() {
+        List<StoredValue> data = new ArrayList<>(List.of(map("s", "beta"), map("s", "alpha"), map("s", "gamma")));
+        OqlQuery.parse("SELECT * FROM /o ORDER BY s").sort(data);
+        assertEquals(List.of("alpha", "beta", "gamma"), field(data, "s"));
+    }
+
+    private static List<Object> field(List<StoredValue> values, String name) {
+        return values.stream().map(v -> v.asStringObjectHashMap().get(name)).collect(Collectors.toList());
     }
 
     @Test

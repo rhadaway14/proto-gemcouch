@@ -53,29 +53,35 @@ public class QueryHandler implements OperationHandler {
         List<String> keys = repository.keySet(region);
         Map<String, StoredValue> all = repository.getAll(region, keys);
 
-        int fieldCount = query.projectionFieldCount();
-        byte[] response;
-        int rowCount;
-        if (fieldCount > 1) {
-            // Multi-field (struct) projection: each matching row is a list of field values.
-            List<List<StoredValue>> rows = new ArrayList<>();
-            for (StoredValue value : all.values()) {
-                if (value != null && query.matches(value)) {
-                    rows.add(query.projectRow(value));
-                }
+        // Filter, then ORDER BY (on the source values), then project.
+        List<StoredValue> matched = new ArrayList<>();
+        for (StoredValue value : all.values()) {
+            if (value != null && query.matches(value)) {
+                matched.add(value);
             }
-            rowCount = rows.size();
+        }
+        query.sort(matched);
+
+        int fieldCount = query.projectionFieldCount();
+        int rowCount = matched.size();
+        byte[] response;
+        if (fieldCount > 1) {
+            // Multi-field (struct) projection: each row is a list of field values.
+            List<List<StoredValue>> rows = new ArrayList<>(matched.size());
+            for (StoredValue value : matched) {
+                rows.add(query.projectRow(value));
+            }
             response = GemResponseWriter.buildQueryStructResponse(txId, fieldCount, rows);
         } else {
-            // SELECT * or single-field projection: a flat list of values.
-            List<StoredValue> values = new ArrayList<>();
-            for (StoredValue value : all.values()) {
-                if (value != null && query.matches(value)) {
-                    values.add(query.projectRow(value).get(0));
-                }
+            // SELECT * or single-field projection: a flat list of values. ORDER BY uses the
+            // order-preserving "Ordered" response; otherwise the standard result list.
+            List<StoredValue> values = new ArrayList<>(matched.size());
+            for (StoredValue value : matched) {
+                values.add(query.projectRow(value).get(0));
             }
-            rowCount = values.size();
-            response = GemResponseWriter.buildQueryResponse(txId, values);
+            response = query.hasOrderBy()
+                    ? GemResponseWriter.buildOrderedQueryResponse(txId, values)
+                    : GemResponseWriter.buildQueryResponse(txId, values);
         }
 
         log.info(StructuredLog.event(

@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -144,6 +146,21 @@ class ProtoGemCouchQueryIntegrationTest {
                 .newQuery("SELECT e.status, e.amount FROM /" + regionName + " e WHERE amount > 60").execute();
         assertEquals(1, filtered.size(), "struct projection honors WHERE");
         assertEquals("active", ((Struct) filtered.iterator().next()).getFieldValues()[0]);
+    }
+
+    @Test
+    void orderByReturnsSortedResults() throws Exception {
+        region.put("a", new HashMap<>(Map.of("amount", 30)));
+        region.put("b", new HashMap<>(Map.of("amount", 10)));
+        region.put("c", new HashMap<>(Map.of("amount", 20)));
+
+        SelectResults<?> asc = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e ORDER BY amount").execute();
+        assertEquals(List.of(10, 20, 30), new ArrayList<>(asc), "ascending order preserved");
+
+        SelectResults<?> desc = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e ORDER BY amount DESC").execute();
+        assertEquals(List.of(30, 20, 10), new ArrayList<>(desc), "descending order preserved");
     }
 
     @Test
