@@ -74,6 +74,13 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
   the same shim instance; CLIENT_MARKER + EventID framing byte-matched to capture; register-interest
   ack (InterestResultPolicy.NONE/KEYS). Validate with a real client: register interest, mutate from a
   second client, assert a `CacheListener` fires. Document the single-instance limitation.
+  - **P1a — DONE.** Connection-mode dispatch in `RawShimServer` (100 op / 107 control / 101 feed);
+    `FEED_HANDSHAKE_REPLY` (105 + body) retains the feed channel in `SubscriptionRegistry`;
+    `RegisterInterestHandler` records region interest and replies with the captured NONE ack. Gate
+    `ProtoGemCouchSubscriptionIntegrationTest.subscriptionClientConnectsAndRegistersInterest` (real
+    subscription client connects + registers interest, no error).
+  - **P1b — next.** Hook the mutation path (PUT/REMOVE) to push CLIENT_MARKER + LOCAL_CREATE/UPDATE/
+    DESTROY (with EventID) down interested feeds; gate = a real client's `CacheListener` fires.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

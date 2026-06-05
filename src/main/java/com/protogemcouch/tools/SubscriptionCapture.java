@@ -72,8 +72,14 @@ public final class SubscriptionCapture {
         Region<String, Object> r = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
                 .create(region);
 
-        System.out.println("=== registerInterest(ALL_KEYS, KEYS_VALUES) ===");
-        r.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS_VALUES);
+        String policyName = env("POLICY", "KEYS_VALUES");
+        InterestResultPolicy policy = switch (policyName.toUpperCase()) {
+            case "NONE" -> InterestResultPolicy.NONE;
+            case "KEYS" -> InterestResultPolicy.KEYS;
+            default -> InterestResultPolicy.KEYS_VALUES;
+        };
+        System.out.println("=== registerInterest(ALL_KEYS, " + policyName + ") ===");
+        r.registerInterest("ALL_KEYS", policy);
         // Non-durable clients receive events automatically after registerInterest (no readyForEvents).
 
         System.out.println("=== waiting " + waitSeconds + "s for pushed events; trigger a mutation now "

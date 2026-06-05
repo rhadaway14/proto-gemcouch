@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.wire.MessageTypes;
 
@@ -10,6 +11,10 @@ public final class HandlerRegistryFactory {
     }
 
     public static OpcodeRegistry create(Repository repository) {
+        return create(repository, new SubscriptionRegistry());
+    }
+
+    public static OpcodeRegistry create(Repository repository, SubscriptionRegistry subscriptions) {
         OpcodeRegistry registry = new OpcodeRegistry();
 
         PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry();
@@ -35,6 +40,10 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository, transactions));
         registry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));
         registry.register(MessageTypes.PING, new SimpleAckHandler("PING FRAME"));
+
+        RegisterInterestHandler registerInterest = new RegisterInterestHandler(subscriptions);
+        registry.register(MessageTypes.REGISTER_INTEREST, registerInterest);
+        registry.register(MessageTypes.REGISTER_INTEREST_LIST, registerInterest);
 
         /*
          * PDX registry discovery showed Geode PdxInstanceFactory.create()

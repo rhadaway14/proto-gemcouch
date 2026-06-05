@@ -67,6 +67,21 @@ public final class GemResponseWriter {
     private static final int TX_COMMIT_UNIQ_ID_OFFSET = 6;
 
     /*
+     * The reply to REGISTER_INTEREST with InterestResultPolicy.NONE: a chunked message carrying an
+     * empty result list (no initial image). Captured verbatim from a real Geode 1.15 server — it has
+     * no region/key/txId-specific content, so it is replayed as-is. KEYS / KEYS_VALUES GII replies are
+     * a later phase (see docs/SUBSCRIPTIONS.md).
+     */
+    private static final byte[] REGISTER_INTEREST_NONE_REPLY = ByteUtils.hex(
+            "0000002000000001ffffffff000000070100000002014100000000060000000600000001ffffffff000000000100"
+          + "00000000060000000600000001ffffffff00000000010000000000060000000600000001ffffffff00000000010000");
+
+    /** REGISTER_INTEREST reply (NONE policy): an empty-result chunked message the client accepts. */
+    public static byte[] buildRegisterInterestReply() {
+        return REGISTER_INTEREST_NONE_REPLY.clone();
+    }
+
+    /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
      *
      *   new byte[] {}                         -> 2e 00

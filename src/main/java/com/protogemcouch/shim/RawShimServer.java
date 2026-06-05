@@ -61,6 +61,18 @@ public class RawShimServer {
                     "ac0b5bff75bfb2849de120d17e6700000001"
     );
 
+    // Communication-mode bytes of the first byte of a client connection (org.apache.geode...
+    // CommunicationMode): 100 = normal ops (handled like today), 101 = the server->client
+    // subscription feed connection, 107 = the subscription-control (register-interest) connection.
+    private static final int MODE_CLIENT_TO_SERVER = 100;
+    private static final int MODE_PRIMARY_SERVER_TO_CLIENT = 101;
+    private static final int MODE_CLIENT_TO_SERVER_FOR_QUEUE = 107;
+
+    // Reply on a subscription feed (mode 101): 0x69 = 105 (SuccessfulServerToClient) + a 14-byte
+    // server-queue-status body, then the server pushes events down this channel. Captured from a real
+    // Geode 1.15 server (see docs/SUBSCRIPTIONS.md / tools/SubscriptionCapture).
+    private static final byte[] FEED_HANDSHAKE_REPLY = ByteUtils.hex("69000000000000000000000000ea60");
+
     private static final AttributeKey<Integer> CURRENT_OPCODE =
             AttributeKey.valueOf("protogemcouch.currentOpcode");
 
@@ -111,6 +123,7 @@ public class RawShimServer {
     private static SslContext shimSslContext;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
+    private static com.protogemcouch.subscription.SubscriptionRegistry subscriptions;
     private static UnknownOpcodeHandler unknownOpcodeHandler;
     private static MetricsRegistry metrics;
     private static ScheduledExecutorService metricsReporter;
@@ -184,7 +197,8 @@ public class RawShimServer {
             repository = createRepository(config);
             healthState.markRepositoryConnected();
 
-            opcodeRegistry = createOpcodeRegistry(repository);
+            subscriptions = new com.protogemcouch.subscription.SubscriptionRegistry();
+            opcodeRegistry = HandlerRegistryFactory.create(repository, subscriptions);
             unknownOpcodeHandler = new UnknownOpcodeHandler();
 
             startMetricsReporter();
@@ -471,13 +485,35 @@ public class RawShimServer {
                 byte[] inbound = ByteBufUtil.getBytes(buf);
                 buf.release();
 
+                int mode = inbound.length > 0 ? (inbound[0] & 0xff) : MODE_CLIENT_TO_SERVER;
                 metrics.recordHandshakeRequest();
                 log.info(StructuredLog.event(
                         "handshake_request",
                         "remote", ctx.channel().remoteAddress(),
+                        "mode", mode,
                         "hex", ByteBufUtil.hexDump(inbound)
                 ));
 
+                // Subscription feed connection (mode 101): reply with the SuccessfulServerToClient
+                // handshake, retain the channel as an event feed, and keep it open for server->client
+                // push. It does not run the request/response op pipeline; inbound bytes (acks) are
+                // drained by this handler's pass-through. Cancel the first-request deadline since a
+                // feed never sends a normal request.
+                if (mode == MODE_PRIMARY_SERVER_TO_CLIENT) {
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(FEED_HANDSHAKE_REPLY));
+                    handshakeDone = true;
+                    subscriptions.addFeed(ctx.channel());
+                    ctx.channel().pipeline().fireUserEventTriggered(FirstRequestCompletedEvent.INSTANCE);
+                    log.info(StructuredLog.event(
+                            "subscription_feed_established",
+                            "remote", ctx.channel().remoteAddress(),
+                            "feeds", subscriptions.feedCount()));
+                    return;
+                }
+
+                // Op connection (mode 100) and subscription-control connection (mode 107) share the
+                // same server handshake reply and request/response pipeline; the control connection
+                // simply also carries REGISTER_INTEREST requests.
                 ctx.writeAndFlush(Unpooled.wrappedBuffer(HANDSHAKE_REPLY));
                 handshakeDone = true;
 
