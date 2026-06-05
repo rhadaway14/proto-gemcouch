@@ -122,7 +122,24 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   both the single-hop-on and single-hop-off part slots → client raises EntryNotFoundException →
   `false`). Proven end-to-end by `ProtoGemCouchAtomicOpsIntegrationTest` (7 tests) + repository
   contract unit tests.
-- [ ] `invalidate` / `getEntry` / `clear`.
+- [~] `invalidate` / `getEntry` / `clear`. **`invalidate` and `clear` done & validated** against a
+  real Geode client (`ProtoGemCouchRegionOpsIntegrationTest`): `invalidate` (op 83) keeps the key but
+  drops the value (value-less marker, key retained in the keyset); `clear` (op 36) removes every entry
+  and clears the region's keyset metadata. **`getEntry` (op 89) is a follow-up** — the client casts
+  the reply object to Geode's *internal* `EntrySnapshot` (a `DataSerializableFixedID`), so unlike the
+  documented protocol replies it requires reproducing Geode's internal object wire form. Recipe
+  reverse-engineered so far (for when it's picked up):
+    - reply part[0] = `DataSerializer.writeObject(EntrySnapshot)` = DSFID framing
+      (`DSCODE.DS_FIXED_ID_BYTE=1` or `DS_FIXED_ID_SHORT=2` + the `EntrySnapshot` fixed id — **still to
+      confirm**) followed by `toData`;
+    - `EntrySnapshot.toData` = `writeBoolean(flag)` then `NonLocalRegionEntry.toData` inline:
+      `writeObject(key)`, `writeObject(value)`, `writeLong(lastModified)`, `writeBoolean(isRemoved)`,
+      `writeObject(versionTag)`;
+    - building blocks exist: `ValueEncoding.encodeGeodeStringValue` is `writeObject(String)`; a null
+      versionTag is `DSCODE.NULL=41`.
+    Remaining unknowns (need a docker validation pass): the `EntrySnapshot` fixed-id value, the
+    leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
+    `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
 - [ ] Region lifecycle over the wire (create/destroy region, attributes).
 - [ ] **Queries (OQL)** — query execution (translate to N1QL or evaluate in-shim). Largest single
   feature gap.
