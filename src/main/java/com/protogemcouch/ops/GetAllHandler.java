@@ -5,7 +5,10 @@ import com.protogemcouch.couchbase.RepositoryException;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.StoredValue;
+import com.protogemcouch.tx.TxState;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemPart;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -27,9 +30,16 @@ public class GetAllHandler implements OperationHandler {
     private static final Logger log = LoggerFactory.getLogger(GetAllHandler.class);
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public GetAllHandler(Repository repository) {
+    public GetAllHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public GetAllHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -127,6 +137,19 @@ public class GetAllHandler implements OperationHandler {
                  * integer values to come back to the Geode client as String.
                  */
                 results = repository.getAll(region, keys);
+
+                // Read-your-writes: overlay this transaction's buffered writes/removes for the
+                // requested keys on top of committed storage.
+                int txId = frame.getTransactionId();
+                TxState state = txId >= 0 ? transactions.peek(ctx.channel().id().asLongText(), txId) : null;
+                if (state != null) {
+                    for (String key : keys) {
+                        TxState.Op op = state.lookup(DocumentKeyUtil.docId(region, key));
+                        if (op != null) {
+                            results.put(key, op.kind() == TxState.Kind.REMOVE ? null : op.value());
+                        }
+                    }
+                }
             }
 
             log.info(StructuredLog.event(

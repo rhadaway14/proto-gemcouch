@@ -8,6 +8,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransactionStateTest {
 
@@ -53,6 +54,33 @@ class TransactionStateTest {
         assertNull(b.lookup("r/k"));
         assertEquals("fromA", registry.peekOp("chan-A", 5, "r/k").value().value());
         assertNull(registry.peekOp("chan-B", 5, "r/k"));
+    }
+
+    @Test
+    void regionOverlayReportsNetPutsAndRemovesForTheRegionPrefixOnly() {
+        TxState state = new TxState(1);
+        state.put("r1::a", StoredValue.stringValue("a"));
+        state.put("r1::b", StoredValue.stringValue("b"));
+        state.remove("r1::a");                              // a ends up removed
+        state.put("r1::c", StoredValue.stringValue("c"));
+        state.remove("r1::gone");                           // remove of an untouched key
+        state.put("other::x", StoredValue.stringValue("x")); // different region, must be excluded
+
+        TxState.RegionOverlay overlay = state.regionOverlay("r1::");
+        assertEquals(2, overlay.puts().size());
+        assertEquals("b", overlay.puts().get("b").value());
+        assertEquals("c", overlay.puts().get("c").value());
+        assertTrue(overlay.removed().contains("a"));
+        assertTrue(overlay.removed().contains("gone"));
+        // The other-region key never appears.
+        assertNull(overlay.puts().get("x"));
+    }
+
+    @Test
+    void regionOverlayIsEmptyWhenNoOpsTouchTheRegion() {
+        TxState state = new TxState(1);
+        state.put("other::x", StoredValue.stringValue("x"));
+        assertTrue(state.regionOverlay("r1::").isEmpty());
     }
 
     @Test

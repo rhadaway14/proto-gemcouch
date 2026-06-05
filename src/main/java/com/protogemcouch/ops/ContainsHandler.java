@@ -3,6 +3,8 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.StoredValue;
+import com.protogemcouch.tx.TxState;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -18,9 +20,16 @@ public class ContainsHandler implements OperationHandler {
     private static final Logger log = LoggerFactory.getLogger(ContainsHandler.class);
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public ContainsHandler(Repository repository) {
+    public ContainsHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public ContainsHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -43,6 +52,23 @@ public class ContainsHandler implements OperationHandler {
         boolean repositoryGetFallbackResult = false;
         String fallbackValueType = "null";
         boolean result;
+
+        // Read-your-writes: a key this transaction has written/removed is answered from the buffer.
+        TxState.Op buffered = frame.getTransactionId() >= 0
+                ? transactions.peekOp(ctx.channel().id().asLongText(), frame.getTransactionId(), docId)
+                : null;
+        if (buffered != null && mode != MessageTypes.CONTAINS_MODE_VALUE) {
+            // A buffered remove means absent; a buffered put means present (and value-for-key true,
+            // since buffered puts always carry a value).
+            result = buffered.kind() == TxState.Kind.PUT;
+            log.info(StructuredLog.event(
+                    "handler_contains_tx_read_your_writes",
+                    "docId", docId, "mode", mode, "result", result,
+                    "buffered", buffered.kind().name(), "txId", frame.getTransactionId()));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildContainsResponse(frame.getTransactionId(), result)));
+            return;
+        }
 
         if (mode == MessageTypes.CONTAINS_MODE_KEY) {
             repositoryContainsResult = repository.containsKey(docId);

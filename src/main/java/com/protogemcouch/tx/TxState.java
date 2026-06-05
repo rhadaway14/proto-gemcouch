@@ -60,4 +60,36 @@ public final class TxState {
     public synchronized int size() {
         return ops.size();
     }
+
+    /**
+     * Region-scoped overlay derived from the buffered ops whose docId starts with {@code prefix}
+     * (use {@code DocumentKeyUtil.regionPrefix(region)}): the net buffered puts (key &rarr; value)
+     * and the set of buffered-removed keys. Lets {@code size}/{@code keySet} apply this transaction's
+     * own writes on top of committed state.
+     */
+    public synchronized RegionOverlay regionOverlay(String prefix) {
+        Map<String, StoredValue> puts = new LinkedHashMap<>();
+        java.util.Set<String> removed = new java.util.LinkedHashSet<>();
+        for (Op op : ops.values()) {
+            if (!op.docId().startsWith(prefix)) {
+                continue;
+            }
+            String key = op.docId().substring(prefix.length());
+            if (op.kind() == Kind.REMOVE) {
+                puts.remove(key);
+                removed.add(key);
+            } else {
+                puts.put(key, op.value());
+                removed.remove(key);
+            }
+        }
+        return new RegionOverlay(puts, removed);
+    }
+
+    /** Net buffered puts (key &rarr; value) and removed keys for one region. */
+    public record RegionOverlay(Map<String, StoredValue> puts, java.util.Set<String> removed) {
+        public boolean isEmpty() {
+            return puts.isEmpty() && removed.isEmpty();
+        }
+    }
 }
