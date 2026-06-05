@@ -24,8 +24,12 @@ The shim supports Geode client transactions (`CacheTransactionManager.begin()` /
 - `TxState` records ordered PUT/REMOVE ops keyed by document id (last write per key wins, first-seen
   order preserved for a deterministic apply order).
 - `PutHandler` / `RemoveHandler` buffer the op when `txId >= 0` and reply with the normal
-  put/remove reply. `GetHandler` consults the buffer first (**read-your-writes**: a buffered PUT is
-  returned, a buffered REMOVE reads as absent) and otherwise falls through to committed storage.
+  put/remove reply. The read handlers consult the buffer first (**read-your-writes**) and otherwise
+  fall through to committed storage: `GetHandler` and `ContainsHandler` answer per-key from the
+  buffer (a buffered PUT is present/returned, a buffered REMOVE reads as absent), while
+  `GetAllHandler` overlays the buffer on the fetched values and `SizeOnServerHandler` /
+  `KeySetOnServerHandler` overlay the buffer's net adds/removes on the committed key set
+  (`TxState.regionOverlay`).
 - `CommitHandler` applies the buffered ops to the repository in order, then returns a **zero-region
   `TXCommitMessage`**. With no region content changes there is nothing for a proxy-region client to
   apply locally, so a fixed, valid skeleton (carrying the shim's stable committing-member identity)
@@ -48,7 +52,8 @@ regenerating (e.g. a Geode version bump), run `TxCommitProbe`, copy the `0-regio
 
 - `begin` / `commit` / `rollback` over a single connection.
 - Transactional `put` and `remove` (buffered, applied on commit, discarded on rollback).
-- Read-your-writes for `get` within a transaction.
+- **Read-your-writes** within a transaction across `get`, `containsKey`, `getAll`, `size`, and
+  `keySet` — all see the transaction's own buffered writes/removes overlaid on committed state.
 
 ## Known limitations (documented gaps)
 
@@ -58,7 +63,5 @@ regenerating (e.g. a Geode version bump), run `TxCommitProbe`, copy the `0-regio
 - **In-transaction compare ops** (`putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`,
   `remove(k,v)`) buffer as a plain put/remove; their compare semantics are not evaluated within the
   transaction.
-- **Other reads inside a transaction** (`containsKey`, `getAll`, `size`, `keySet`) read committed
-  state — they do not yet see the transaction's own buffered writes.
 - **JTA `TX_SYNCHRONIZATION` (opcode 90)** and transaction failover are not handled.
 - The committing-member identity in the commit reply is a fixed shim identity, not the client's.

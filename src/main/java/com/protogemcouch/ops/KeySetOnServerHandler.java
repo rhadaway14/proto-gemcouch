@@ -3,7 +3,10 @@ package com.protogemcouch.ops;
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.couchbase.RepositoryException;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.tx.TxState;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.util.ByteUtils;
+import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
 import com.protogemcouch.wire.GemResponseWriter;
 import io.netty.buffer.Unpooled;
@@ -12,16 +15,26 @@ import io.netty.channel.ChannelHandlerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class KeySetOnServerHandler implements OperationHandler {
 
     private static final Logger log = LoggerFactory.getLogger(KeySetOnServerHandler.class);
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public KeySetOnServerHandler(Repository repository) {
+    public KeySetOnServerHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public KeySetOnServerHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -31,7 +44,21 @@ public class KeySetOnServerHandler implements OperationHandler {
                 : "";
 
         try {
-            List<String> keys = repository.keySet(region);
+            List<String> committed = repository.keySet(region);
+
+            // Read-your-writes: overlay this transaction's buffered adds/removes on the committed keys.
+            int txId = frame.getTransactionId();
+            TxState state = txId >= 0 ? transactions.peek(ctx.channel().id().asLongText(), txId) : null;
+            TxState.RegionOverlay overlay = state == null ? null : state.regionOverlay(DocumentKeyUtil.regionPrefix(region));
+            final List<String> keys;
+            if (overlay != null && !overlay.isEmpty()) {
+                Set<String> merged = new LinkedHashSet<>(committed);
+                merged.addAll(overlay.puts().keySet());
+                merged.removeAll(overlay.removed());
+                keys = new ArrayList<>(merged);
+            } else {
+                keys = committed;
+            }
 
             log.info(StructuredLog.event(
                     "handler_key_set",

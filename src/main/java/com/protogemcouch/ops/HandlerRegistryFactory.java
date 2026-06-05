@@ -25,12 +25,12 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
         registry.register(MessageTypes.QUERY, new QueryHandler(repository, pdxTypeRegistry));
-        registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository));
-        registry.register(MessageTypes.KEY_SET, new KeySetOnServerHandler(repository));
+        registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository, transactions));
+        registry.register(MessageTypes.KEY_SET, new KeySetOnServerHandler(repository, transactions));
         registry.register(MessageTypes.PUT_ALL, new PutAllHandler(repository));
         registry.register(MessageTypes.GET_CLIENT_PARTITION_ATTRIBUTES, new GetClientPartitionAttributesHandler());
-        registry.register(MessageTypes.SIZE, new SizeOnServerHandler(repository));
-        registry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository));
+        registry.register(MessageTypes.SIZE, new SizeOnServerHandler(repository, transactions));
+        registry.register(MessageTypes.GET_ALL_70, new GetAllHandler(repository, transactions));
         registry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));
         registry.register(MessageTypes.PING, new SimpleAckHandler("PING FRAME"));
 

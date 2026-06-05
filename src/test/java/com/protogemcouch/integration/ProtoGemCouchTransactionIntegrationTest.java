@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -87,6 +88,54 @@ class ProtoGemCouchTransactionIntegrationTest {
         assertEquals("seen", region.get("ryow"), "read-your-writes inside the transaction");
         txMgr.commit();
         assertEquals("seen", region.get("ryow"));
+    }
+
+    @Test
+    void containsKeyReflectsBufferedWritesInsideTransaction() {
+        region.put("base", "b"); // committed outside the transaction
+
+        txMgr.begin();
+        region.put("fresh", "n");
+        region.remove("base");
+        assertEquals(Boolean.TRUE, region.containsKeyOnServer("fresh"),
+                "a buffered put is visible to containsKey inside the transaction");
+        assertEquals(Boolean.FALSE, region.containsKeyOnServer("base"),
+                "a buffered remove hides a committed key inside the transaction");
+        txMgr.commit();
+    }
+
+    @Test
+    void sizeAndKeySetReflectBufferedWritesInsideTransaction() {
+        region.put("k1", "1");
+        region.put("k2", "2"); // committed: 2 keys
+
+        txMgr.begin();
+        region.put("k3", "3"); // +1
+        region.remove("k1");   // -1  -> net still 2 inside the tx
+        assertEquals(2, region.sizeOnServer(), "size reflects buffered add and remove");
+        java.util.Set<String> keys = region.keySetOnServer();
+        assertTrue(keys.contains("k2") && keys.contains("k3") && !keys.contains("k1"),
+                "keySet overlays buffered writes: " + keys);
+        txMgr.commit();
+
+        assertEquals(2, region.sizeOnServer());
+    }
+
+    @Test
+    void getAllOverlaysBufferedWritesInsideTransaction() {
+        region.put("g1", "1");
+        region.put("g2", "2"); // committed
+
+        txMgr.begin();
+        region.put("g2", "two"); // overwrite
+        region.put("g3", "3");   // new
+        region.remove("g1");     // removed
+        java.util.Map<String, Object> all =
+                region.getAll(java.util.List.of("g1", "g2", "g3"));
+        assertNull(all.get("g1"), "buffered remove reads as absent");
+        assertEquals("two", all.get("g2"), "buffered overwrite is seen");
+        assertEquals("3", all.get("g3"), "buffered new key is seen");
+        txMgr.commit();
     }
 
     @Test
