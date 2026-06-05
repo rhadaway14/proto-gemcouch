@@ -177,9 +177,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   single-field result streams as multiple chunks (each repeating part0=CollectionType + part1=batch,
   lastChunk only on the final chunk), matching the real server; the shim batches by row count
   (`QUERY_PAGE_SIZE`, default 100), validated by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`.
-  **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs the
-  domain classes — not feasible server-side; PDX is the queryable path); paging for ORDER BY/struct
-  responses (currently single-chunk — correct for any size, just not byte-batched).
+  **ORDER BY on struct projections** is supported (the StructType is wrapped in the `Ordered`
+  CollectionType so the client preserves row order; validated by
+  `structProjectionWithOrderByPreservesRowOrder`). **Remaining:** joins, POJO (Java-serialized) field
+  access (needs the domain classes — not feasible server-side; PDX is the queryable path); paging for
+  ORDER BY/struct responses (currently single-chunk — correct for any size, just not byte-batched).
 - [x] **Transactions (bounded first cut)** — client `begin`/`commit`/`rollback`. Transactional ops
   carry the tx id in the message header; the shim buffers writes per `(connection, txId)` in a
   `TransactionRegistry`, serves reads-your-writes from the buffer, applies the buffer to storage on
