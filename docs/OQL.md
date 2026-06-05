@@ -64,9 +64,11 @@ accumulates the rows across chunks into one `SelectResults`. The shim batches by
 or below the page size emit a single chunk byte-identical to before. The server's own batching is by
 byte size (~800B/chunk, captured at 50/150/250 rows via `GeodeQueryCapture` — 1/2/3 chunks); the
 shim's row-count batching is wire-compatible since the client only depends on the per-chunk
-`[CollectionType, batch]` layout and the `lastChunk` flag. Locked by `QueryResponsePagingTest` and
-validated end-to-end by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`. (ORDER BY and struct
-projections remain single-chunk — functionally correct for any size, just not byte-batched.)
+`[CollectionType, batch]` layout and the `lastChunk` flag. The **ORDER BY (`Object[]`) and struct
+responses page the same way** (each chunk repeats its CollectionType/StructType + that batch's
+`Object[]`; captured at 150 rows → 2 chunks each). Locked by `QueryResponsePagingTest` (SELECT */
+ordered/struct) and validated end-to-end by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`
+and `largeOrderedAndStructResultsArePagedAndAssembledInOrder`.
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
