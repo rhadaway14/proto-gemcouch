@@ -174,7 +174,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs
   the domain classes — not feasible server-side; PDX is the queryable path), parameterized queries
   (opcode 80), result paging.
-- [ ] **Transactions** — client begin/commit/rollback.
+- [x] **Transactions (bounded first cut)** — client `begin`/`commit`/`rollback`. Transactional ops
+  carry the tx id in the message header; the shim buffers writes per `(connection, txId)` in a
+  `TransactionRegistry`, serves reads-your-writes from the buffer, applies the buffer to storage on
+  COMMIT (returning a zero-region `TXCommitMessage`, captured + round-trip-validated via
+  `TxCommitProbe`), and discards it on ROLLBACK. Validated against a real Geode 1.15 client by
+  `ProtoGemCouchTransactionIntegrationTest` (commit persists, rollback discards, read-your-writes,
+  buffered remove on commit). See `docs/TRANSACTIONS.md`. **Remaining:** commit is best-effort
+  sequential (not cross-key atomic — Couchbase multi-doc ACID would close this); transactional
+  putIfAbsent/replace/remove(k,v) buffer as plain put/remove (no in-tx compare semantics);
+  `containsKey`/`getAll`/`size`/`keySet` inside a tx read committed state (no read-your-writes);
+  JTA `TX_SYNCHRONIZATION` (opcode 90) and tx failover are not handled.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners).

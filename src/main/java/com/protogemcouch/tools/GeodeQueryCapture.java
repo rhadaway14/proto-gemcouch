@@ -85,6 +85,46 @@ public final class GeodeQueryCapture {
         if (!existing.isEmpty()) {
             r.removeAll(existing);
         }
+        if ("1".equals(env("SEED_TX", "0"))) {
+            org.apache.geode.cache.CacheTransactionManager txMgr = cache.getCacheTransactionManager();
+            int txOps = Integer.parseInt(env("SEED_COUNT", "2"));
+            txMgr.begin();
+            for (int n = 1; n <= txOps; n++) {
+                r.put("tx" + n, "v" + n);
+            }
+            if ("1".equals(env("ROLLBACK", "0"))) {
+                System.out.println("=== rolling back tx (" + txOps + " ops) ===");
+                txMgr.rollback();
+                System.out.println("=== tx rolled back ===");
+            } else {
+                System.out.println("=== committing tx (" + txOps + " ops) ===");
+                txMgr.commit();
+                System.out.println("=== tx committed ===");
+            }
+            Thread.sleep(500);
+            synchronized (clientToServer) {
+                int i = 0;
+                for (ByteArrayOutputStream s : clientToServer) {
+                    byte[] all = s.toByteArray();
+                    System.out.println("=== CONN " + (i++) + " CLIENT->SERVER " + all.length + " bytes ===");
+                    System.out.println(hex(all));
+                }
+            }
+            synchronized (serverToClient) {
+                int i = 0;
+                for (ByteArrayOutputStream s : serverToClient) {
+                    byte[] all = s.toByteArray();
+                    System.out.println("=== CONN " + (i++) + " SERVER->CLIENT " + all.length + " bytes ===");
+                    System.out.println(hex(all));
+                }
+            }
+            cache.close();
+            if (proxy != null) {
+                proxy.close();
+            }
+            System.exit(0);
+        }
+
         int seed = Integer.parseInt(env("SEED_COUNT", "2"));
         boolean maps = "1".equals(env("SEED_MAPS", "0"));
         boolean pdx = "1".equals(env("SEED_PDX", "0"));

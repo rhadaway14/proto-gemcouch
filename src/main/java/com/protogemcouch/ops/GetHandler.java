@@ -2,6 +2,8 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.tx.TxState;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -17,9 +19,16 @@ public class GetHandler implements OperationHandler {
     private static final Logger log = LoggerFactory.getLogger(GetHandler.class);
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public GetHandler(Repository repository) {
+    public GetHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public GetHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -41,7 +50,21 @@ public class GetHandler implements OperationHandler {
                 "txId", frame.getTransactionId()
         ));
 
-        StoredValue value = repository.get(docId);
+        // Read-your-writes: inside a transaction, a key this tx has written/removed is served from the
+        // buffer (a buffered remove reads as absent); otherwise fall through to committed storage.
+        StoredValue value;
+        TxState.Op buffered = frame.getTransactionId() >= 0
+                ? transactions.peekOp(ctx.channel().id().asLongText(), frame.getTransactionId(), docId)
+                : null;
+        if (buffered != null) {
+            value = buffered.kind() == TxState.Kind.REMOVE ? null : buffered.value();
+            log.info(StructuredLog.event(
+                    "handler_get_tx_read_your_writes",
+                    "docId", docId, "txId", frame.getTransactionId(),
+                    "buffered", buffered.kind().name()));
+        } else {
+            value = repository.get(docId);
+        }
 
         byte[] response;
 

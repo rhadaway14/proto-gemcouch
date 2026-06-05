@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueDecoding;
@@ -36,9 +37,16 @@ public class PutHandler implements OperationHandler {
     private static final int FLAG_HAS_EXPECTED_OLD_VALUE = 0x02;
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public PutHandler(Repository repository) {
+    public PutHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public PutHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -97,6 +105,20 @@ public class PutHandler implements OperationHandler {
         }
 
         String docId = DocumentKeyUtil.docId(region, key);
+
+        // Transactional put: buffer the write in the transaction's state instead of applying it now;
+        // it is applied to storage on COMMIT (and discarded on ROLLBACK). All put variants buffer as
+        // a plain write — transactional putIfAbsent/replace compare-semantics are a documented gap.
+        if (frame.getTransactionId() >= 0) {
+            int txId = frame.getTransactionId();
+            transactions.getOrCreate(ctx.channel().id().asLongText(), txId).put(docId, value);
+            log.info(StructuredLog.event(
+                    "handler_put_tx_buffered",
+                    "region", region, "key", key, "docId", docId,
+                    "valueType", value.type(), "txId", txId));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutResponse(txId)));
+            return;
+        }
 
         // Route to the matching atomic repository operation. The storage side is now correct:
         // putIfAbsent does not overwrite, replace does not create, and the compare-ops only act on a

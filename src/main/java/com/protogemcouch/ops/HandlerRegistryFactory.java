@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.wire.MessageTypes;
 
 public final class HandlerRegistryFactory {
@@ -13,10 +14,13 @@ public final class HandlerRegistryFactory {
 
         PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry();
         PdxEnumRegistry pdxEnumRegistry = new PdxEnumRegistry();
+        TransactionRegistry transactions = new TransactionRegistry();
 
-        registry.register(MessageTypes.GET, new GetHandler(repository));
-        registry.register(MessageTypes.PUT, new PutHandler(repository));
-        registry.register(MessageTypes.REMOVE, new RemoveHandler(repository));
+        registry.register(MessageTypes.GET, new GetHandler(repository, transactions));
+        registry.register(MessageTypes.PUT, new PutHandler(repository, transactions));
+        registry.register(MessageTypes.REMOVE, new RemoveHandler(repository, transactions));
+        registry.register(MessageTypes.COMMIT, new CommitHandler(repository, transactions));
+        registry.register(MessageTypes.ROLLBACK, new RollbackHandler(transactions));
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
