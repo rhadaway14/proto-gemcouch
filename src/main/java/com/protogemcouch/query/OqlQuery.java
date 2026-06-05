@@ -32,17 +32,22 @@ public final class OqlQuery {
             "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
 
     private final String regionPath;
-    private final String projectionField;          // null = SELECT *
+    private final List<String> projectionFields;   // empty = SELECT *
     private final List<List<Condition>> orGroups;  // OR of AND-groups; empty = match all
 
-    private OqlQuery(String regionPath, String projectionField, List<List<Condition>> orGroups) {
+    private OqlQuery(String regionPath, List<String> projectionFields, List<List<Condition>> orGroups) {
         this.regionPath = regionPath;
-        this.projectionField = projectionField;
+        this.projectionFields = projectionFields;
         this.orGroups = orGroups;
     }
 
     public String regionPath() {
         return regionPath;
+    }
+
+    /** Number of projected fields: 0 for {@code SELECT *}, 1 for a single field, N for a struct. */
+    public int projectionFieldCount() {
+        return projectionFields.size();
     }
 
     /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
@@ -65,13 +70,21 @@ public final class OqlQuery {
         return false;
     }
 
-    /** Project a matched value into the result row: the whole value, or the single projected field. */
-    public StoredValue project(StoredValue value) {
-        if (projectionField == null) {
-            return value;
+    /**
+     * Project a matched value into its result row: {@code [value]} for {@code SELECT *}, a single
+     * wrapped field for a single-field projection, or the M wrapped fields of a struct projection.
+     */
+    public List<StoredValue> projectRow(StoredValue value) {
+        List<StoredValue> row = new ArrayList<>();
+        if (projectionFields.isEmpty()) {
+            row.add(value);
+            return row;
         }
-        Object field = resolveField(value, projectionField);
-        return wrap(field == ABSENT ? null : field);
+        for (String field : projectionFields) {
+            Object resolved = resolveField(value, field);
+            row.add(wrap(resolved == ABSENT ? null : resolved));
+        }
+        return row;
     }
 
     public static OqlQuery parse(String oql) {
@@ -82,27 +95,29 @@ public final class OqlQuery {
         Matcher matcher = QUERY.matcher(text);
         if (!matcher.matches()) {
             throw new UnsupportedQueryException(
-                    "only 'SELECT (* | field) FROM /region [WHERE ...]' is supported: " + text);
+                    "only 'SELECT (* | field, ...) FROM /region [WHERE ...]' is supported: " + text);
         }
         return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1)),
                 parseWhere(matcher.group(3)));
     }
 
-    private static String parseProjection(String selectList) {
+    private static List<String> parseProjection(String selectList) {
+        List<String> fields = new ArrayList<>();
         String list = selectList.trim();
         if (list.equals("*")) {
-            return null;
+            return fields; // SELECT *
         }
-        if (list.contains(",")) {
-            throw new UnsupportedQueryException("multi-field (struct) projections are not supported: " + list);
-        }
-        if (list.equalsIgnoreCase("DISTINCT") || list.toUpperCase().startsWith("DISTINCT ")) {
+        if (list.toUpperCase().startsWith("DISTINCT")) {
             throw new UnsupportedQueryException("DISTINCT is not supported: " + list);
         }
-        if (!list.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
-            throw new UnsupportedQueryException("unsupported projection: " + list);
+        for (String raw : list.split(",")) {
+            String field = raw.trim();
+            if (!field.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
+                throw new UnsupportedQueryException("unsupported projection field: " + field);
+            }
+            fields.add(lastSegment(field));
         }
-        return lastSegment(list);
+        return fields;
     }
 
     private static List<List<Condition>> parseWhere(String where) {

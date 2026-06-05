@@ -5,6 +5,7 @@ import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 import org.apache.geode.cache.query.SelectResults;
+import org.apache.geode.cache.query.Struct;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -125,12 +126,33 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void multiFieldStructProjection() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "closed", "amount", 50)));
+
+        SelectResults<?> all = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.status, e.amount FROM /" + regionName + " e").execute();
+        assertEquals(2, all.size());
+        Set<String> pairs = new HashSet<>();
+        for (Object o : all) {
+            Object[] fields = ((Struct) o).getFieldValues();
+            pairs.add(fields[0] + ":" + fields[1]);
+        }
+        assertTrue(pairs.containsAll(Set.of("active:100", "closed:50")), "structs carry both fields: " + pairs);
+
+        SelectResults<?> filtered = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.status, e.amount FROM /" + regionName + " e WHERE amount > 60").execute();
+        assertEquals(1, filtered.size(), "struct projection honors WHERE");
+        assertEquals("active", ((Struct) filtered.iterator().next()).getFieldValues()[0]);
+    }
+
+    @Test
     void unsupportedQueryRaisesAnError() {
         region.put("k1", "v1");
-        // A multi-field (struct) projection is outside the supported subset and must surface a server
-        // error rather than silently mishandling.
+        // DISTINCT is outside the supported subset and must surface a server error rather than
+        // silently mishandling.
         assertThrows(Exception.class, () -> cache.getQueryService()
-                .newQuery("SELECT e.id, e.amount FROM /" + regionName + " e").execute(),
+                .newQuery("SELECT DISTINCT * FROM /" + regionName).execute(),
                 "an unsupported query surfaces a server error rather than wrong results");
     }
 

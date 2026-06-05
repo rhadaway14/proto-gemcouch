@@ -52,15 +52,34 @@ public class QueryHandler implements OperationHandler {
         String region = query.regionPath();
         List<String> keys = repository.keySet(region);
         Map<String, StoredValue> all = repository.getAll(region, keys);
-        List<StoredValue> values = new ArrayList<>(all.size());
-        for (StoredValue value : all.values()) {
-            if (value != null && query.matches(value)) {
-                values.add(query.project(value));
+
+        int fieldCount = query.projectionFieldCount();
+        byte[] response;
+        int rowCount;
+        if (fieldCount > 1) {
+            // Multi-field (struct) projection: each matching row is a list of field values.
+            List<List<StoredValue>> rows = new ArrayList<>();
+            for (StoredValue value : all.values()) {
+                if (value != null && query.matches(value)) {
+                    rows.add(query.projectRow(value));
+                }
             }
+            rowCount = rows.size();
+            response = GemResponseWriter.buildQueryStructResponse(txId, fieldCount, rows);
+        } else {
+            // SELECT * or single-field projection: a flat list of values.
+            List<StoredValue> values = new ArrayList<>();
+            for (StoredValue value : all.values()) {
+                if (value != null && query.matches(value)) {
+                    values.add(query.projectRow(value).get(0));
+                }
+            }
+            rowCount = values.size();
+            response = GemResponseWriter.buildQueryResponse(txId, values);
         }
 
         log.info(StructuredLog.event(
-                "handler_query_ok", "query", oql, "region", region, "rows", values.size(), "txId", txId));
-        ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildQueryResponse(txId, values)));
+                "handler_query_ok", "query", oql, "region", region, "rows", rowCount, "txId", txId));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
     }
 }

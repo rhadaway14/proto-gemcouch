@@ -645,6 +645,70 @@ public final class GemResponseWriter {
                 new Part(resultList, (byte) 1)));
     }
 
+    // Struct (multi-field) projection templates, also captured from the real Geode server.
+    // The CollectionType is a StructType: ResultsCollectionType wrapping Struct with N field$i names
+    // and N ObjectType field types. Results are a nested Object[] (0x34): an outer array of structs,
+    // each struct an Object[] of its field values.
+    private static final byte[] QUERY_STRUCT_COLLECTION_PREFIX = ByteUtils.hex(
+            "01c52b5700426f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e"
+                    + "43756d756c61746976654e6f6e44697374696e6374526573756c747301c42b5700236f72672e6170616368"
+                    + "652e67656f64652e63616368652e71756572792e537472756374");
+    private static final byte[] QUERY_OBJECT_TYPE_CLASS = ByteUtils.hex(
+            "2b57002d6f72672e6170616368652e67656f64652e63616368652e71756572792e74797065732e4f626a65637454797065");
+    private static final byte[] QUERY_OBJECT_TYPE_ELEMENT = ByteUtils.hex("01c32b5700106a6176612e6c616e672e4f626a656374");
+    private static final byte[] QUERY_OBJECT_ARRAY_COMPONENT = ByteUtils.hex("2b5700106a6176612e6c616e672e4f626a656374");
+    private static final byte OBJECT_ARRAY_CODE = 0x34;
+
+    /**
+     * Build the chunked response for a multi-field (struct) projection: part[0] is a StructType for
+     * {@code fieldCount} {@code field$i} columns; part[1] is an outer Object[] of structs, each an
+     * Object[] of the row's field values. Matches the captured real-server bytes.
+     */
+    public static byte[] buildQueryStructResponse(int txId, int fieldCount, List<List<StoredValue>> rows) {
+        ByteBuf typePart = Unpooled.buffer();
+        byte[] structType;
+        try {
+            typePart.writeBytes(QUERY_STRUCT_COLLECTION_PREFIX);
+            writeGeodeArrayLength(typePart, fieldCount);
+            for (int i = 0; i < fieldCount; i++) {
+                typePart.writeBytes(ValueEncoding.encodeGeodeStringValue("field$" + i));
+            }
+            writeGeodeArrayLength(typePart, fieldCount);
+            typePart.writeBytes(QUERY_OBJECT_TYPE_CLASS);
+            for (int i = 0; i < fieldCount; i++) {
+                typePart.writeBytes(QUERY_OBJECT_TYPE_ELEMENT);
+            }
+            structType = toByteArrayAndRelease(typePart);
+        } catch (RuntimeException e) {
+            typePart.release();
+            throw e;
+        }
+
+        ByteBuf resultPart = Unpooled.buffer();
+        byte[] structRows;
+        try {
+            resultPart.writeByte(OBJECT_ARRAY_CODE);          // outer Object[] of structs
+            writeGeodeArrayLength(resultPart, rows.size());
+            resultPart.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+            for (List<StoredValue> row : rows) {
+                resultPart.writeByte(OBJECT_ARRAY_CODE);      // each struct is an Object[] of fields
+                writeGeodeArrayLength(resultPart, row.size());
+                resultPart.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+                for (StoredValue field : row) {
+                    resultPart.writeBytes(encodeStoredValueForGetAll(field));
+                }
+            }
+            structRows = toByteArrayAndRelease(resultPart);
+        } catch (RuntimeException e) {
+            resultPart.release();
+            throw e;
+        }
+
+        return buildChunkedResponse(txId, List.of(
+                new Part(structType, (byte) 1),
+                new Part(structRows, (byte) 1)));
+    }
+
     /**
      * Build a chunked query error response: a single part whose object deserializes to a Throwable,
      * which the client raises as a {@code ServerOperationException} (used for unsupported queries).

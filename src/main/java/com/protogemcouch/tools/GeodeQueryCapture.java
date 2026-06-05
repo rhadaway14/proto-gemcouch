@@ -83,8 +83,16 @@ public final class GeodeQueryCapture {
             r.removeAll(existing);
         }
         int seed = Integer.parseInt(env("SEED_COUNT", "2"));
+        boolean maps = "1".equals(env("SEED_MAPS", "0"));
         for (int n = 1; n <= seed; n++) {
-            r.put("k" + n, "v" + n);
+            if (maps) {
+                java.util.HashMap<String, Object> m = new java.util.HashMap<>();
+                m.put("status", n % 2 == 0 ? "active" : "closed");
+                m.put("amount", n * 10);
+                r.put("k" + n, m);
+            } else {
+                r.put("k" + n, "v" + n);
+            }
         }
 
         // Snapshot how many server->client bytes each connection has seen, so we can dump only the

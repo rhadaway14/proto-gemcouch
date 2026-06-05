@@ -155,10 +155,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   (opcode 34) that gathers the region's values. **`WHERE` filtering now supported** too:
   `SELECT * FROM /region [alias] WHERE <field> <op> <literal> [AND ...]` (ops `= <> != < <= > >=`;
   string/number/boolean/null literals) combined with **`AND`/`OR`** (AND binds tighter), evaluated
-  in-shim against map-typed values' top-level fields. **Single-field projections** too
-  (`SELECT e.status FROM /region e` returns that field's value per row). Validated by
-  `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR / projection / unsupported)
-  + `OqlQuery` parser & predicate unit tests. **Remaining:** multi-field/struct projections,
+  in-shim against map-typed values' top-level fields. **Projections** too — single-field
+  (`SELECT e.status …`) and **multi-field struct** (`SELECT e.status, e.amount …` → Geode `Struct`
+  rows, via a generated `StructType` + nested `Object[]` chunked response, byte-matched to the real
+  server). Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR /
+  single+multi projection / unsupported) + `OqlQuery` parser & predicate unit tests. **Remaining:**
   `ORDER BY`/joins, field access on PDX/serialized POJO values, parameterized queries (opcode 80),
   result paging.
 - [ ] **Transactions** — client begin/commit/rollback.

@@ -9,7 +9,14 @@ of map-typed values; the response is filtered (and projected) accordingly. The c
 query-response format below was captured from a real Geode 1.15 server with `GeodeQueryCapture` and
 is implemented in `GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34); the OQL text
 is parsed by `OqlQuery`. Single-field projections reuse the same response shape with the projected
-field values. (Multi-field/struct projections, ORDER BY, joins, PDX/POJO field access remain TODO.)
+field values.
+
+**Multi-field (struct) projections** (`SELECT e.f1, e.f2 FROM /region e`) return Geode `Struct`
+rows. The response uses a `StructType` CollectionType (ResultsCollectionType → Struct with N
+`field$i` columns, each an `ObjectType`) and a nested `Object[]` (DSCODE `0x34`) result: an outer
+array of structs, each an `Object[]` of its field values. `GemResponseWriter.buildQueryStructResponse`
+generates both for any field count; the bytes were diffed byte-for-byte against the real Geode
+server (`GeodeQueryCapture`, M=2 and M=3 captures). (ORDER BY, joins, PDX/POJO field access remain TODO.)
 
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```
