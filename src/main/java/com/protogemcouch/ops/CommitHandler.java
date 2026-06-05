@@ -11,6 +11,7 @@ import io.netty.channel.ChannelHandlerContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,34 +39,30 @@ public class CommitHandler implements OperationHandler {
         TxState state = transactions.remove(channelId, txId);
 
         List<TxState.Op> ops = state == null ? List.of() : state.ops();
-        int applied = 0;
+        List<Repository.WriteOp> writes = new ArrayList<>(ops.size());
+        for (TxState.Op op : ops) {
+            writes.add(new Repository.WriteOp(op.docId(), op.value(), op.kind() == TxState.Kind.REMOVE));
+        }
+
         try {
-            for (TxState.Op op : ops) {
-                if (op.kind() == TxState.Kind.REMOVE) {
-                    repository.remove(op.docId());
-                } else {
-                    repository.put(op.docId(), op.value());
-                }
-                applied++;
-            }
+            // Atomic apply: all buffered writes land together, or none do (and the commit fails).
+            repository.commitAtomically(writes);
         } catch (RuntimeException e) {
             log.error(StructuredLog.event(
                     "handler_commit_failed",
                     "txId", txId,
-                    "applied", applied,
                     "buffered", ops.size(),
                     "error", e.getMessage()));
             ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildExceptionResponse(
                     txId,
-                    "commit failed after applying " + applied + " of " + ops.size()
-                            + " operations: " + e.getMessage())));
+                    "commit failed for " + ops.size() + " operations: " + e.getMessage())));
             return;
         }
 
         log.info(StructuredLog.event(
                 "handler_commit_ok",
                 "txId", txId,
-                "applied", applied));
+                "applied", writes.size()));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildCommitResponse(txId)));
     }
 }

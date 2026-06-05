@@ -19,6 +19,7 @@ import com.couchbase.client.java.kv.ReplaceOptions;
 import com.couchbase.client.java.kv.UpsertOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
+import com.couchbase.client.java.transactions.TransactionGetResult;
 import com.protogemcouch.config.ServerConfig;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.StoredValue;
@@ -381,6 +382,114 @@ public class CouchbaseRepository implements Repository {
                 "docId", docId,
                 "valueType", value.type()
         ));
+    }
+
+    /**
+     * Apply a committed transaction's writes atomically via a Couchbase multi-document ACID
+     * transaction: every value document and the affected per-region keyset-metadata documents are
+     * inserted/replaced/removed inside one {@code cluster.transactions().run(...)}, so a mid-apply
+     * failure rolls the whole commit back (nothing is persisted) and surfaces as a
+     * {@link RepositoryException}.
+     *
+     * <p>Notes: transactional inserts/replaces do not carry per-document expiry, so per-region TTL is
+     * not applied to writes committed this way; transaction durability is Couchbase's transaction
+     * default. Each buffered op targets a distinct document id (the buffer is keyed by id), so no
+     * document is touched twice within the transaction.
+     */
+    @Override
+    public void commitAtomically(List<WriteOp> ops) {
+        if (ops == null || ops.isEmpty()) {
+            return;
+        }
+
+        // Net keyset change per region, applied inside the same transaction so size()/keySet() stay
+        // consistent with the value writes.
+        Map<String, TreeSet<String>> adds = new LinkedHashMap<>();
+        Map<String, TreeSet<String>> removes = new LinkedHashMap<>();
+        for (WriteOp op : ops) {
+            ParsedDocumentKey parsed = parseDocumentKey(op.docId());
+            if (parsed == null) {
+                continue;
+            }
+            if (op.remove()) {
+                removes.computeIfAbsent(parsed.region(), r -> new TreeSet<>()).add(parsed.key());
+            } else {
+                adds.computeIfAbsent(parsed.region(), r -> new TreeSet<>()).add(parsed.key());
+            }
+        }
+
+        try {
+            cluster.transactions().run(ctx -> {
+                for (WriteOp op : ops) {
+                    if (op.remove()) {
+                        try {
+                            ctx.remove(ctx.get(collection, op.docId()));
+                        } catch (DocumentNotFoundException alreadyGone) {
+                            // Nothing to remove; the net keyset removal below still applies.
+                        }
+                    } else if (op.value() != null) {
+                        JsonObject body = encodeStoredValue(op.value());
+                        try {
+                            ctx.replace(ctx.get(collection, op.docId()), body);
+                        } catch (DocumentNotFoundException absent) {
+                            ctx.insert(collection, op.docId(), body);
+                        }
+                    }
+                }
+
+                // Recompute each affected region's keyset within the transaction.
+                java.util.Set<String> regions = new java.util.LinkedHashSet<>();
+                regions.addAll(adds.keySet());
+                regions.addAll(removes.keySet());
+                for (String region : regions) {
+                    String metadataDocId = keySetMetadataDocId(region);
+                    TreeSet<String> keys = new TreeSet<>();
+                    TransactionGetResult metaGet = null;
+                    try {
+                        metaGet = ctx.get(collection, metadataDocId);
+                        JsonArray existingKeys = metaGet.contentAsObject().getArray(FIELD_KEYS);
+                        if (existingKeys != null) {
+                            for (Object rawKey : existingKeys) {
+                                if (rawKey != null) {
+                                    keys.add(String.valueOf(rawKey));
+                                }
+                            }
+                        }
+                    } catch (DocumentNotFoundException absent) {
+                        metaGet = null;
+                    }
+                    keys.addAll(adds.getOrDefault(region, new TreeSet<>()));
+                    keys.removeAll(removes.getOrDefault(region, new TreeSet<>()));
+
+                    JsonArray keyArray = JsonArray.create();
+                    for (String currentKey : keys) {
+                        keyArray.add(currentKey);
+                    }
+                    JsonObject metadata = JsonObject.create()
+                            .put(FIELD_TYPE, "keySetMetadata")
+                            .put("region", region)
+                            .put(FIELD_KEYS, keyArray)
+                            .put(FIELD_LENGTH, keys.size());
+
+                    if (metaGet == null) {
+                        ctx.insert(collection, metadataDocId, metadata);
+                    } else {
+                        ctx.replace(metaGet, metadata);
+                    }
+                }
+            });
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_commit_atomic_error",
+                    "op_count", ops.size(),
+                    "error", e.getMessage()), e);
+            throw new RepositoryException("atomic commit failed for " + ops.size() + " operations", e);
+        }
+
+        log.info(StructuredLog.event(
+                "repository_commit_atomic_ok",
+                "op_count", ops.size(),
+                "regions", adds.size()));
     }
 
     @Override

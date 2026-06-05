@@ -30,10 +30,16 @@ The shim supports Geode client transactions (`CacheTransactionManager.begin()` /
   `GetAllHandler` overlays the buffer on the fetched values and `SizeOnServerHandler` /
   `KeySetOnServerHandler` overlay the buffer's net adds/removes on the committed key set
   (`TxState.regionOverlay`).
-- `CommitHandler` applies the buffered ops to the repository in order, then returns a **zero-region
-  `TXCommitMessage`**. With no region content changes there is nothing for a proxy-region client to
-  apply locally, so a fixed, valid skeleton (carrying the shim's stable committing-member identity)
-  is accepted for any commit; only `TXId.uniqId` is patched per commit to the transaction id.
+- `CommitHandler` applies the buffered ops via `Repository.commitAtomically`, then returns a
+  **zero-region `TXCommitMessage`**. With no region content changes there is nothing for a
+  proxy-region client to apply locally, so a fixed, valid skeleton (carrying the shim's stable
+  committing-member identity) is accepted for any commit; only `TXId.uniqId` is patched per commit to
+  the transaction id.
+- **Atomic commit:** `CouchbaseRepository.commitAtomically` applies every value document and the
+  affected per-region keyset-metadata documents inside a single Couchbase multi-document ACID
+  transaction (`cluster.transactions().run(...)`), so a mid-apply failure rolls the whole commit back
+  (nothing is persisted) and surfaces to the client as an error. Each op uses
+  get-then-`replace`/`insert` (transactions have no `upsert`).
 - `RollbackHandler` drops the buffer and returns a `REPLY` ack.
 
 ### The `TXCommitMessage` template
@@ -54,12 +60,13 @@ regenerating (e.g. a Geode version bump), run `TxCommitProbe`, copy the `0-regio
 - Transactional `put` and `remove` (buffered, applied on commit, discarded on rollback).
 - **Read-your-writes** within a transaction across `get`, `containsKey`, `getAll`, `size`, and
   `keySet` — all see the transaction's own buffered writes/removes overlaid on committed state.
+- **Atomic commit** — all of a commit's writes land together or none do, via a Couchbase
+  multi-document ACID transaction (validated by `commitIsAtomicWhenAnOperationFails`).
 
 ## Known limitations (documented gaps)
 
-- **Commit is best-effort sequential**, not cross-key atomic. A mid-apply failure leaves earlier ops
-  applied and returns a Geode `EXCEPTION` reply. True atomicity would use Couchbase multi-document
-  ACID transactions.
+- **Per-region TTL is not applied to transactionally-committed writes** — Couchbase transactional
+  inserts/replaces do not carry per-document expiry. Non-transactional writes are unaffected.
 - **In-transaction compare ops** (`putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`,
   `remove(k,v)`) buffer as a plain put/remove; their compare semantics are not evaluated within the
   transaction.

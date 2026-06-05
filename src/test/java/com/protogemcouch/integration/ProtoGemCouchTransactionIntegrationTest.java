@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -149,6 +150,22 @@ class ProtoGemCouchTransactionIntegrationTest {
         txMgr.commit();
 
         assertNull(region.get("doomed"), "the remove is applied on commit");
+    }
+
+    @Test
+    void commitIsAtomicWhenAnOperationFails() {
+        region.put("survivor", "before"); // committed before the transaction
+
+        txMgr.begin();
+        region.put("survivor", "after");          // would overwrite
+        region.put("ok", "v");                     // new key
+        region.put("x".repeat(300), "tooLong");    // doc id exceeds Couchbase's 250-byte limit
+        assertThrows(Exception.class, () -> txMgr.commit(),
+                "an invalid operation fails the whole commit");
+
+        // All-or-nothing: nothing from the failed transaction was persisted.
+        assertEquals("before", region.get("survivor"), "the prior committed value is unchanged");
+        assertNull(region.get("ok"), "no buffered write from a failed commit is persisted");
     }
 
     private static void waitForReady(String url, Duration timeout) {
