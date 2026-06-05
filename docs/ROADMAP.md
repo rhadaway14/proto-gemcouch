@@ -152,9 +152,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   (`GeodeQueryCapture` tool): a `ChunkedMessage` (12-byte header + per-chunk framing) with a fixed
   `CollectionType` part and a result-list part. Implemented `GemResponseWriter.buildQueryResponse`
   (+ chunked framing, empty-result and error forms), an `OqlQuery` parser, and a `QueryHandler`
-  (opcode 34) that gathers the region's values. Validated by `ProtoGemCouchQueryIntegrationTest`
-  (all-rows / empty / unsupported-query-error). **Remaining:** `WHERE`/projections/`ORDER BY`/joins,
-  parameterized queries (opcode 80), and result paging for large regions.
+  (opcode 34) that gathers the region's values. **`WHERE` filtering now supported** too:
+  `SELECT * FROM /region [alias] WHERE <field> <op> <literal> [AND ...]` (ops `= <> != < <= > >=`;
+  string/number/boolean/null literals), evaluated in-shim against map-typed values' top-level fields.
+  Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE-filter / unsupported)
+  + `OqlQuery` parser & predicate unit tests. **Remaining:** projections/`ORDER BY`/`OR`/joins,
+  field access on PDX/serialized POJO values, parameterized queries (opcode 80), result paging.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

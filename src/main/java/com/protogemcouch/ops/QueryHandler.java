@@ -54,7 +54,7 @@ public class QueryHandler implements OperationHandler {
         Map<String, StoredValue> all = repository.getAll(region, keys);
         List<StoredValue> values = new ArrayList<>(all.size());
         for (StoredValue value : all.values()) {
-            if (value != null) {
+            if (value != null && query.matches(value)) {
                 values.add(value);
             }
         }

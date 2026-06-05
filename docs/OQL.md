@@ -1,9 +1,12 @@
 # OQL query support — design notes
 
-Status: **first cut done.** `SELECT * FROM /region` works end-to-end against a real Geode client
-(`ProtoGemCouchQueryIntegrationTest`). The chunked query-response format below was captured from a
-real Geode 1.15 server with `GeodeQueryCapture` and is implemented in
-`GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34).
+Status: **first cut + WHERE done.** `SELECT * FROM /region [alias] [WHERE <conditions>]` works
+end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`). Conditions are
+`<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals) joined by
+`AND`, evaluated in-shim against the top-level fields of map-typed values; the response is filtered
+to matching rows. The chunked query-response format below was captured from a real Geode 1.15 server
+with `GeodeQueryCapture` and is implemented in `GemResponseWriter.buildQueryResponse` +
+`QueryHandler` (opcode 34); the OQL text is parsed by `OqlQuery`.
 
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```

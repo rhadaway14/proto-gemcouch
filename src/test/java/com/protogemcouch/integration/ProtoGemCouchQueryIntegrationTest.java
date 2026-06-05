@@ -13,7 +13,9 @@ import org.junit.jupiter.api.Test;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -80,10 +82,27 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void selectStarWithWhereFiltersByField() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "closed", "amount", 50)));
+        region.put("c", new HashMap<>(Map.of("status", "active", "amount", 10)));
+
+        SelectResults<?> active = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " WHERE status = 'active'").execute();
+        assertEquals(2, active.size(), "two active rows match");
+
+        SelectResults<?> activeBig = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " WHERE status = 'active' AND amount > 50").execute();
+        assertEquals(1, activeBig.size(), "ANDed conditions narrow to one row");
+    }
+
+    @Test
     void unsupportedQueryRaisesAnError() {
         region.put("k1", "v1");
+        // A projection is outside the supported SELECT * subset and must surface a server error
+        // rather than silently mishandling.
         assertThrows(Exception.class, () -> cache.getQueryService()
-                .newQuery("SELECT * FROM /" + regionName + " WHERE x = 1").execute(),
+                .newQuery("SELECT e.key FROM /" + regionName + " e").execute(),
                 "an unsupported query surfaces a server error rather than wrong results");
     }
 
