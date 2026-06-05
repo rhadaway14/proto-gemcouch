@@ -36,8 +36,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   multi-server Geode pool, and asserts `size`/`keySet` reflect every key (cross-process CAS) while
   confirming both replicas served traffic. The shim is otherwise stateless, so it scales
   horizontally behind a load balancer.
-- [ ] **Durability/consistency options** — configurable Couchbase durability; partial-failure
-  behavior for `putAll`.
+- [x] **Durability/consistency options** — configurable Couchbase write durability via
+  `CB_DURABILITY` (`none` default / `majority` / `majorityAndPersistToActive` / `persistToMajority`)
+  applied to all value writes; and **`putAll` partial-failure semantics**: per-entry outcomes so
+  successful writes persist and are counted even when others fail, with the failure surfaced to the
+  client as a PUT_ALL server error naming the failed keys (validated by
+  `ProtoGemCouchPutAllFailureIntegrationTest` + `CouchbaseDurabilityTest`). Remaining: structured
+  per-key `VersionedObjectList` partial result (vs. a single error), and durability validation on a
+  replicated cluster.
 - [x] **TTL / expiration & eviction** — entry TTL via Couchbase document expiry on value writes
   (put/putAll/putIfAbsent/replace/invalidate), with: a default (`CB_TTL_SECONDS`), **per-region
   overrides** (`CB_TTL_REGIONS`), **idle-timeout** vs time-to-live semantics (`CB_TTL_MODE=idle`

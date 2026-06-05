@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.couchbase.RepositoryException;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.StoredValue;
@@ -106,8 +107,23 @@ public class PutAllHandler implements OperationHandler {
 
         // Store the whole batch in one repository call so the value writes can be issued
         // concurrently and the region's keyset metadata updated once, instead of paying a
-        // value upsert plus a keyset get+upsert per entry.
-        repository.putAll(region, entries);
+        // value upsert plus a keyset get+upsert per entry. On a partial failure the repository
+        // still persists the entries that succeeded (and counts them) and then throws; surface that
+        // to the client as a PUT_ALL error so the failure is not swallowed.
+        try {
+            repository.putAll(region, entries);
+        } catch (RepositoryException e) {
+            log.warn(StructuredLog.event(
+                    "handler_put_all_failed",
+                    "region", region,
+                    "error", e.getMessage(),
+                    "txId", frame.getTransactionId()
+            ));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                    GemResponseWriter.buildPutAllErrorResponse(frame.getTransactionId(), e.getMessage())
+            ));
+            return;
+        }
 
         log.info(StructuredLog.event(
                 "handler_put_all_stored",
