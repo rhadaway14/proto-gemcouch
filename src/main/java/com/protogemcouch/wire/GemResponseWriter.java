@@ -52,6 +52,21 @@ public final class GemResponseWriter {
     };
 
     /*
+     * A valid, zero-region org.apache.geode.internal.cache.TXCommitMessage (DSFID 110 = 0x6e),
+     * serialized by Geode's own DataSerializer. It is the COMMIT reply the client deserializes via
+     * CommitOp.processObjResponse; with no region content changes there is nothing for the (proxy)
+     * client to apply locally, so this fixed skeleton — carrying the shim's stable committing-member
+     * identity — is accepted for any commit. The only per-commit dynamic field is TXId.uniqId, the
+     * four bytes at offset 6 (after the 01 6e header and the int processorId), which buildCommitResponse
+     * patches to the transaction id. Captured + round-trip-validated via TxCommitProbe against a real
+     * Geode 1.15 server.
+     */
+    private static final byte[] TX_COMMIT_MESSAGE_TEMPLATE = ByteUtils.hex(
+            "016e0000000000000001040a0000bc0000e29a570014686f73742e646f636b65722e696e7465726e616c09000000000000a1ec0d0057000057000862306436393139375700000000012cff0096000000000000000000000000000000000000000000001904c0a8a0020000a029050a57000131570007736572766572310000000000052dff0000000000000000000100000000012656015c040a0000bc0000e29a570014686f73742e646f636b65722e696e7465726e616c09000000000000a1ec0d0057000057000862306436393139375700000000012cff0096000000000000000000000000000000000000000001ff");
+
+    private static final int TX_COMMIT_UNIQ_ID_OFFSET = 6;
+
+    /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
      *
      *   new byte[] {}                         -> 2e 00
@@ -572,6 +587,31 @@ public final class GemResponseWriter {
                         new Part(flag, (byte) 0)
                 )
         );
+    }
+
+    /**
+     * COMMIT reply: a RESPONSE message whose single object part is a zero-region TXCommitMessage with
+     * its {@code TXId.uniqId} set to {@code txId}. The shim has already applied the transaction's
+     * buffered writes to storage; the client reads this as the authoritative "committed" ack.
+     */
+    public static byte[] buildCommitResponse(int txId) {
+        byte[] obj = TX_COMMIT_MESSAGE_TEMPLATE.clone();
+        obj[TX_COMMIT_UNIQ_ID_OFFSET] = (byte) (txId >>> 24);
+        obj[TX_COMMIT_UNIQ_ID_OFFSET + 1] = (byte) (txId >>> 16);
+        obj[TX_COMMIT_UNIQ_ID_OFFSET + 2] = (byte) (txId >>> 8);
+        obj[TX_COMMIT_UNIQ_ID_OFFSET + 3] = (byte) txId;
+        return buildMessage(MessageTypes.RESPONSE, txId, List.of(new Part(obj, (byte) 1)));
+    }
+
+    /**
+     * ROLLBACK reply: a plain REPLY ack. RollbackOp.processAck accepts any REPLY-typed message (it
+     * only inspects the message type), so a single small no-op part suffices.
+     */
+    public static byte[] buildRollbackResponse(int txId) {
+        return buildMessage(
+                MessageTypes.REPLY,
+                txId,
+                List.of(new Part(new byte[] {0x00}, (byte) 0)));
     }
 
     /**

@@ -25,6 +25,17 @@ public final class MessageTypes {
     public static final int SIZE_ERROR = 82;
 
     /*
+     * Client transaction opcodes (org.apache.geode.internal.cache.tier.MessageType). Transactional
+     * ops (PUT/GET/REMOVE/...) carry the tx id (>= 0) in the message header; COMMIT/ROLLBACK end the
+     * tx. The COMMIT reply is a RESPONSE carrying a serialized TXCommitMessage object; ROLLBACK is a
+     * plain REPLY ack.
+     */
+    public static final int COMMIT = 85;
+    public static final int COMMIT_ERROR = 86;
+    public static final int ROLLBACK = 87;
+    public static final int TX_SYNCHRONIZATION = 90;
+
+    /*
      * PDX registry request discovered from Geode client PdxInstanceFactory.
      *
      * Geode stack trace:

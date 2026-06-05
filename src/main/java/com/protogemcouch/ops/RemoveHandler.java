@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -21,9 +22,16 @@ public class RemoveHandler implements OperationHandler {
     private static final int OP_REMOVE_IF_VALUE = 0x2e;
 
     private final Repository repository;
+    private final TransactionRegistry transactions;
 
-    public RemoveHandler(Repository repository) {
+    public RemoveHandler(Repository repository, TransactionRegistry transactions) {
         this.repository = repository;
+        this.transactions = transactions;
+    }
+
+    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public RemoveHandler(Repository repository) {
+        this(repository, new TransactionRegistry());
     }
 
     @Override
@@ -33,6 +41,18 @@ public class RemoveHandler implements OperationHandler {
         String key = parts > 1 ? ByteUtils.bytesToString(frame.getParts().get(1).getPayload()) : "";
         String docId = DocumentKeyUtil.docId(region, key);
         int txId = frame.getTransactionId();
+
+        // Transactional remove: buffer the delete in the transaction's state; it is applied on COMMIT
+        // and discarded on ROLLBACK. Buffered as a plain remove (compare-remove semantics within a
+        // transaction are a documented gap).
+        if (txId >= 0) {
+            transactions.getOrCreate(ctx.channel().id().asLongText(), txId).remove(docId);
+            log.info(StructuredLog.event(
+                    "handler_remove_tx_buffered",
+                    "region", region, "key", key, "docId", docId, "txId", txId));
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
+            return;
+        }
 
         // remove(key, value): DESTROY carries the expected value in part[2] and op 0x2e in part[3].
         boolean isCompareRemove = parts > 3
