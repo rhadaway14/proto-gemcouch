@@ -10,9 +10,12 @@ import com.couchbase.client.java.Scope;
 import com.couchbase.client.java.env.ClusterEnvironment;
 import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
+import com.couchbase.client.java.kv.ExistsResult;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.kv.InsertOptions;
 import com.couchbase.client.java.kv.RemoveOptions;
 import com.couchbase.client.java.kv.ReplaceOptions;
+import com.couchbase.client.java.kv.UpsertOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
@@ -87,6 +90,11 @@ public class CouchbaseRepository implements Repository {
     private Scope scope;
     private Collection collection;
 
+    // Entry time-to-live config (Couchbase document expiry): default + per-region overrides + idle
+    // (entry-idle-time) vs ttl (entry-time-to-live) mode. Drives write expiry, idle get-and-touch,
+    // and keyset eviction.
+    private TtlConfig ttlConfig = new TtlConfig(0, java.util.Map.of(), false);
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -102,6 +110,14 @@ public class CouchbaseRepository implements Repository {
 
         long kvTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_KV_TIMEOUT_MS"), 5_000L);
         long connectTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_CONNECT_TIMEOUT_MS"), 10_000L);
+
+        this.ttlConfig = TtlConfig.fromEnv();
+        log.info(StructuredLog.event(
+                "repository_ttl_configured",
+                "defaultSeconds", ttlConfig.defaultSeconds(),
+                "perRegion", ttlConfig.perRegionSeconds(),
+                "mode", ttlConfig.idle() ? "idle" : "ttl",
+                "enabled", ttlConfig.anyEnabled()));
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -193,10 +209,54 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    // Write-option builders that attach the region's configured entry TTL (Couchbase document
+    // expiry) when one applies; otherwise they return default options (no expiry).
+    private UpsertOptions upsertOptions(String region) {
+        UpsertOptions options = UpsertOptions.upsertOptions();
+        Duration ttl = ttlConfig.durationFor(region);
+        if (ttl != null) {
+            options.expiry(ttl);
+        }
+        return options;
+    }
+
+    private InsertOptions insertOptions(String region) {
+        InsertOptions options = InsertOptions.insertOptions();
+        Duration ttl = ttlConfig.durationFor(region);
+        if (ttl != null) {
+            options.expiry(ttl);
+        }
+        return options;
+    }
+
+    private ReplaceOptions replaceOptions(String region, long cas) {
+        ReplaceOptions options = ReplaceOptions.replaceOptions().cas(cas);
+        Duration ttl = ttlConfig.durationFor(region);
+        if (ttl != null) {
+            options.expiry(ttl);
+        }
+        return options;
+    }
+
+    /** The region embedded in a value docId ({@code region::key}), or null if unparseable. */
+    private static String regionOf(String docId) {
+        ParsedDocumentKey parsed = parseDocumentKey(docId);
+        return parsed == null ? null : parsed.region();
+    }
+
     @Override
     public StoredValue get(String docId) {
         try {
-            GetResult result = collection.get(docId);
+            String region = regionOf(docId);
+            // In idle mode (entry-idle-time), a read also refreshes the document's expiry via
+            // get-and-touch, so frequently-accessed entries stay alive. In ttl mode, a plain read.
+            GetResult result;
+            Duration idleTtl = ttlConfig.idle() ? ttlConfig.durationFor(region) : null;
+            if (idleTtl != null) {
+                result = collection.getAndTouch(docId, idleTtl);
+            } else {
+                result = collection.get(docId);
+            }
             JsonObject content = result.contentAsObject();
 
             log.info(StructuredLog.event(
@@ -253,7 +313,7 @@ public class CouchbaseRepository implements Repository {
         JsonObject body = encodeStoredValue(value);
 
         try {
-            collection.upsert(docId, body);
+            collection.upsert(docId, body, upsertOptions(regionOf(docId)));
         } catch (Exception e) {
             log.error(StructuredLog.event(
                     "repository_put_error",
@@ -296,7 +356,7 @@ public class CouchbaseRepository implements Repository {
 
             String docId = DocumentKeyUtil.docId(region, entry.getKey());
             JsonObject body = encodeStoredValue(value);
-            upserts.add(collection.async().upsert(docId, body));
+            upserts.add(collection.async().upsert(docId, body, upsertOptions(region)));
             storedKeys.add(entry.getKey());
         }
 
@@ -370,7 +430,8 @@ public class CouchbaseRepository implements Repository {
     @Override
     public void invalidate(String docId) {
         try {
-            collection.upsert(docId, JsonObject.create().put(FIELD_TYPE, "invalidated"));
+            collection.upsert(docId, JsonObject.create().put(FIELD_TYPE, "invalidated"),
+                    upsertOptions(regionOf(docId)));
             updateKeySetMetadataForDocId(docId, true);
             log.info(StructuredLog.event("repository_invalidate_ok", "docId", docId));
         } catch (Exception e) {
@@ -414,7 +475,7 @@ public class CouchbaseRepository implements Repository {
         }
         JsonObject body = encodeStoredValue(value);
         try {
-            collection.insert(docId, body);
+            collection.insert(docId, body, insertOptions(regionOf(docId)));
             updateKeySetMetadataForDocId(docId, true);
             log.info(StructuredLog.event(
                     "repository_put_if_absent_inserted", "docId", docId, "valueType", value.type()));
@@ -450,7 +511,7 @@ public class CouchbaseRepository implements Repository {
                     return null; // absent: replace is a no-op
                 }
                 StoredValue previous = decodeStoredValue(existing.contentAsObject());
-                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                collection.replace(docId, body, replaceOptions(regionOf(docId), existing.cas()));
                 log.info(StructuredLog.event(
                         "repository_replace_ok", "docId", docId, "valueType", value.type(), "attempt", attempt));
                 return previous;
@@ -491,7 +552,7 @@ public class CouchbaseRepository implements Repository {
                 if (current == null || !current.equals(expected)) {
                     return false;
                 }
-                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                collection.replace(docId, body, replaceOptions(regionOf(docId), existing.cas()));
                 log.info(StructuredLog.event(
                         "repository_compare_replace_ok", "docId", docId, "attempt", attempt));
                 return true;
@@ -635,6 +696,13 @@ public class CouchbaseRepository implements Repository {
                 }
             }
 
+            // Keyset eviction: when a TTL applies to this region, value docs can expire out from
+            // under the keyset metadata. Verify which keys still exist and prune the expired ones so
+            // size/keySet stay correct.
+            if (ttlConfig.enabledFor(region) && !keys.isEmpty()) {
+                keys = pruneExpiredKeys(region, keys);
+            }
+
             log.info(StructuredLog.event(
                     "repository_key_set_ok",
                     "region", region,
@@ -661,6 +729,43 @@ public class CouchbaseRepository implements Repository {
                     "error", e.getMessage()
             ), e);
             throw new RepositoryException("keySet failed for region=" + region, e);
+        }
+    }
+
+    /**
+     * Verify which keys still have a live value document (concurrently) and prune the expired ones
+     * from the region's keyset metadata. Best-effort: on any failure the original keyset is returned
+     * unpruned. Invalidated entries still exist (value-less marker), so they are not pruned.
+     */
+    private List<String> pruneExpiredKeys(String region, List<String> keys) {
+        try {
+            List<String> ordered = new ArrayList<>(keys);
+            List<CompletableFuture<ExistsResult>> futures = new ArrayList<>(ordered.size());
+            for (String key : ordered) {
+                futures.add(collection.async().exists(DocumentKeyUtil.docId(region, key)));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            List<String> live = new ArrayList<>(ordered.size());
+            List<String> stale = new ArrayList<>();
+            for (int i = 0; i < ordered.size(); i++) {
+                if (futures.get(i).join().exists()) {
+                    live.add(ordered.get(i));
+                } else {
+                    stale.add(ordered.get(i));
+                }
+            }
+
+            if (!stale.isEmpty()) {
+                mutateKeySetMetadata(region, current -> current.removeAll(stale), "evict:" + stale.size());
+                log.info(StructuredLog.event(
+                        "repository_keyset_evicted", "region", region, "evicted", stale.size()));
+            }
+            return live;
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_keyset_prune_failed", "region", region, "error", e.getMessage()));
+            return keys;
         }
     }
 
