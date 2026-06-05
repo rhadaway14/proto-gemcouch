@@ -89,6 +89,34 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # TTL shim instance: applies a short Couchbase document expiry (CB_TTL_SECONDS) to value writes,
+  # emulating a region-wide Geode entry-time-to-live. Validated by ProtoGemCouchTtlIntegrationTest.
+  protogemcouch-ttl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-ttl
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40410:40405"
+      - "8086:8086"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8086"
+      CB_TTL_SECONDS: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8086/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # TLS-enabled shim instance for validating inbound TLS against a real Geode SSL client.
   # Shares the same Couchbase; the plaintext shim above remains for all other integration tests.
   protogemcouch-tls:

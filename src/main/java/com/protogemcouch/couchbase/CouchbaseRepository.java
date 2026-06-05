@@ -11,8 +11,10 @@ import com.couchbase.client.java.env.ClusterEnvironment;
 import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.kv.InsertOptions;
 import com.couchbase.client.java.kv.RemoveOptions;
 import com.couchbase.client.java.kv.ReplaceOptions;
+import com.couchbase.client.java.kv.UpsertOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
 import com.protogemcouch.config.ServerConfig;
@@ -87,6 +89,10 @@ public class CouchbaseRepository implements Repository {
     private Scope scope;
     private Collection collection;
 
+    // Entry time-to-live applied to value writes (Couchbase document expiry). null = no expiry.
+    // Configured via CB_TTL_SECONDS; emulates a region-wide Geode entry-time-to-live.
+    private Duration entryTtl;
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -102,6 +108,13 @@ public class CouchbaseRepository implements Repository {
 
         long kvTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_KV_TIMEOUT_MS"), 5_000L);
         long connectTimeoutMs = parsePositiveLongOrDefault(System.getenv("CB_CONNECT_TIMEOUT_MS"), 10_000L);
+
+        long ttlSeconds = parsePositiveLongOrDefault(System.getenv("CB_TTL_SECONDS"), 0L);
+        this.entryTtl = ttlSeconds > 0 ? Duration.ofSeconds(ttlSeconds) : null;
+        log.info(StructuredLog.event(
+                "repository_ttl_configured",
+                "entryTtlSeconds", ttlSeconds,
+                "enabled", entryTtl != null));
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -193,6 +206,32 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    // Write-option builders that attach the configured entry TTL (Couchbase document expiry) when
+    // CB_TTL_SECONDS is set; otherwise they return default options (no expiry).
+    private UpsertOptions upsertOptions() {
+        UpsertOptions options = UpsertOptions.upsertOptions();
+        if (entryTtl != null) {
+            options.expiry(entryTtl);
+        }
+        return options;
+    }
+
+    private InsertOptions insertOptions() {
+        InsertOptions options = InsertOptions.insertOptions();
+        if (entryTtl != null) {
+            options.expiry(entryTtl);
+        }
+        return options;
+    }
+
+    private ReplaceOptions replaceOptions(long cas) {
+        ReplaceOptions options = ReplaceOptions.replaceOptions().cas(cas);
+        if (entryTtl != null) {
+            options.expiry(entryTtl);
+        }
+        return options;
+    }
+
     @Override
     public StoredValue get(String docId) {
         try {
@@ -253,7 +292,7 @@ public class CouchbaseRepository implements Repository {
         JsonObject body = encodeStoredValue(value);
 
         try {
-            collection.upsert(docId, body);
+            collection.upsert(docId, body, upsertOptions());
         } catch (Exception e) {
             log.error(StructuredLog.event(
                     "repository_put_error",
@@ -296,7 +335,7 @@ public class CouchbaseRepository implements Repository {
 
             String docId = DocumentKeyUtil.docId(region, entry.getKey());
             JsonObject body = encodeStoredValue(value);
-            upserts.add(collection.async().upsert(docId, body));
+            upserts.add(collection.async().upsert(docId, body, upsertOptions()));
             storedKeys.add(entry.getKey());
         }
 
@@ -370,7 +409,7 @@ public class CouchbaseRepository implements Repository {
     @Override
     public void invalidate(String docId) {
         try {
-            collection.upsert(docId, JsonObject.create().put(FIELD_TYPE, "invalidated"));
+            collection.upsert(docId, JsonObject.create().put(FIELD_TYPE, "invalidated"), upsertOptions());
             updateKeySetMetadataForDocId(docId, true);
             log.info(StructuredLog.event("repository_invalidate_ok", "docId", docId));
         } catch (Exception e) {
@@ -414,7 +453,7 @@ public class CouchbaseRepository implements Repository {
         }
         JsonObject body = encodeStoredValue(value);
         try {
-            collection.insert(docId, body);
+            collection.insert(docId, body, insertOptions());
             updateKeySetMetadataForDocId(docId, true);
             log.info(StructuredLog.event(
                     "repository_put_if_absent_inserted", "docId", docId, "valueType", value.type()));
@@ -450,7 +489,7 @@ public class CouchbaseRepository implements Repository {
                     return null; // absent: replace is a no-op
                 }
                 StoredValue previous = decodeStoredValue(existing.contentAsObject());
-                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                collection.replace(docId, body, replaceOptions(existing.cas()));
                 log.info(StructuredLog.event(
                         "repository_replace_ok", "docId", docId, "valueType", value.type(), "attempt", attempt));
                 return previous;
@@ -491,7 +530,7 @@ public class CouchbaseRepository implements Repository {
                 if (current == null || !current.equals(expected)) {
                     return false;
                 }
-                collection.replace(docId, body, ReplaceOptions.replaceOptions().cas(existing.cas()));
+                collection.replace(docId, body, replaceOptions(existing.cas()));
                 log.info(StructuredLog.event(
                         "repository_compare_replace_ok", "docId", docId, "attempt", attempt));
                 return true;

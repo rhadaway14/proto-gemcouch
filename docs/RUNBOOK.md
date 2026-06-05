@@ -42,6 +42,11 @@ Optional:
   Netty event loop; raise it if many connections may block on a slow backend at once)
 - `CB_KV_TIMEOUT_MS` default `5000` (per-operation Couchbase KV timeout)
 - `CB_CONNECT_TIMEOUT_MS` default `10000` (Couchbase connect timeout)
+- `CB_TTL_SECONDS` default `0` (entry time-to-live: when `> 0`, value writes get a Couchbase
+  document expiry of this many seconds, emulating a region-wide Geode entry-time-to-live; `0`
+  disables expiry. Note: `get`/`containsKey` are correct after expiry, but `size`/`keySet` are
+  backed by per-region keyset metadata that is not auto-pruned on expiry, so they may transiently
+  over-count expired keys.)
 - `CONNECTION_IDLE_TIMEOUT_SECONDS` default `300` (close a connection with no read/write activity
   for this long; `0` disables idle reaping)
 - `MAX_CONNECTIONS` default `0` (max concurrent client connections; new connections beyond this
