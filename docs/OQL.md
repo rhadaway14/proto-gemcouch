@@ -52,6 +52,19 @@ CHUNK:      0000007b(chunkLen) 01(lastChunk)
 ```
 Empty result uses a different part B (`34 00 2b…java.lang.Object`); both forms are emitted.
 
+**Result paging (multi-chunk streaming).** A large `SELECT *` / single-field result is streamed as
+multiple chunks instead of one, matching the real server: the header keeps `numberOfParts=2`, and
+**each chunk repeats part0=CollectionType + part1=that batch's result list**, with the `lastChunk`
+flag set only on the final chunk. The client's `QueryOp` reads `[part0, part1]` per chunk and
+accumulates the rows across chunks into one `SelectResults`. The shim batches by row count
+(`GemResponseWriter.QUERY_PAGE_SIZE`, default 100, overridable via `PGC_QUERY_PAGE_SIZE`); results at
+or below the page size emit a single chunk byte-identical to before. The server's own batching is by
+byte size (~800B/chunk, captured at 50/150/250 rows via `GeodeQueryCapture` — 1/2/3 chunks); the
+shim's row-count batching is wire-compatible since the client only depends on the per-chunk
+`[CollectionType, batch]` layout and the `lastChunk` flag. Locked by `QueryResponsePagingTest` and
+validated end-to-end by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`. (ORDER BY and struct
+projections remain single-chunk — functionally correct for any size, just not byte-batched.)
+
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
 ### Request — easy

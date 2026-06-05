@@ -173,9 +173,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   name (validated by `PdxFieldAccessorTest` on captured bytes + a real-client PDX query test).
   **Parameterized queries** (`query.execute($1, $2, …)`, opcode 80) are supported: the shim decodes
   the bind values and `OqlQuery.bindParameters` substitutes `$N` as OQL literals before parsing
-  (validated by `parameterizedQueryBindsValues`). **Remaining:** ORDER BY on struct projections,
-  joins, POJO (Java-serialized) field access (needs the domain classes — not feasible server-side;
-  PDX is the queryable path), result paging.
+  (validated by `parameterizedQueryBindsValues`). **Result paging** is supported: a large SELECT * /
+  single-field result streams as multiple chunks (each repeating part0=CollectionType + part1=batch,
+  lastChunk only on the final chunk), matching the real server; the shim batches by row count
+  (`QUERY_PAGE_SIZE`, default 100), validated by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`.
+  **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs the
+  domain classes — not feasible server-side; PDX is the queryable path); paging for ORDER BY/struct
+  responses (currently single-chunk — correct for any size, just not byte-batched).
 - [x] **Transactions (bounded first cut)** — client `begin`/`commit`/`rollback`. Transactional ops
   carry the tx id in the message header; the shim buffers writes per `(connection, txId)` in a
   `TransactionRegistry`, serves reads-your-writes from the buffer, applies the buffer to storage on

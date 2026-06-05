@@ -219,6 +219,25 @@ class ProtoGemCouchQueryIntegrationTest {
         assertTrue(new HashSet<>(amounts).containsAll(Set.of(100, 10)), "bound projection values: " + amounts);
     }
 
+    @Test
+    void largeResultSetIsStreamedAcrossChunksAndFullyAssembled() throws Exception {
+        // 250 rows exceeds the shim's default 100-row page size, so the response streams as multiple
+        // chunks; the client must assemble every row back into one SelectResults.
+        Map<String, Object> batch = new HashMap<>();
+        Set<String> expected = new HashSet<>();
+        for (int i = 0; i < 250; i++) {
+            batch.put("k" + i, "val" + i);
+            expected.add("val" + i);
+        }
+        region.putAll(batch);
+
+        SelectResults<?> results = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName).execute();
+
+        assertEquals(250, results.size(), "all paged rows are assembled");
+        assertEquals(expected, new HashSet<>(results), "every value survives the multi-chunk streaming");
+    }
+
     private static void waitForReady(String url, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {

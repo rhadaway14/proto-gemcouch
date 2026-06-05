@@ -191,6 +191,7 @@ public final class GeodeQueryCapture {
                     System.arraycopy(all, from, delta, 0, delta.length);
                     System.out.println("=== CONN " + i + " QUERY-RESPONSE " + delta.length + " bytes ===");
                     System.out.println(hex(delta));
+                    analyzeChunks(delta);
                 }
                 i++;
             }
@@ -234,6 +235,35 @@ public final class GeodeQueryCapture {
         });
         t.setDaemon(true);
         t.start();
+    }
+
+    /** Parse a chunked query-response: 12-byte header, then chunks of [chunkLength(int), lastChunk(byte), payload]. */
+    private static void analyzeChunks(byte[] b) {
+        if (b.length < 12) {
+            return;
+        }
+        int msgType = i32(b, 0);
+        int numParts = i32(b, 4);
+        System.out.println("--- chunk analysis: msgType=" + msgType + " numParts=" + numParts
+                + " txId=" + Integer.toHexString(i32(b, 8)));
+        int o = 12;
+        int chunk = 0;
+        while (o + 5 <= b.length) {
+            int chunkLen = i32(b, o);
+            int last = b[o + 4] & 0xff;
+            System.out.println("    chunk#" + chunk + " off=" + o + " chunkLength=" + chunkLen + " lastChunk=" + last);
+            o += 5 + chunkLen;
+            chunk++;
+            if (chunk > 50) {
+                System.out.println("    ...stopping");
+                break;
+            }
+        }
+        System.out.println("--- chunks total=" + chunk + " endOffset=" + o + " (len=" + b.length + ")");
+    }
+
+    private static int i32(byte[] b, int o) {
+        return ((b[o] & 0xff) << 24) | ((b[o + 1] & 0xff) << 16) | ((b[o + 2] & 0xff) << 8) | (b[o + 3] & 0xff);
     }
 
     private static String hex(byte[] bytes) {
