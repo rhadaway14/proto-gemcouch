@@ -154,10 +154,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   (+ chunked framing, empty-result and error forms), an `OqlQuery` parser, and a `QueryHandler`
   (opcode 34) that gathers the region's values. **`WHERE` filtering now supported** too:
   `SELECT * FROM /region [alias] WHERE <field> <op> <literal> [AND ...]` (ops `= <> != < <= > >=`;
-  string/number/boolean/null literals), evaluated in-shim against map-typed values' top-level fields.
-  Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE-filter / unsupported)
-  + `OqlQuery` parser & predicate unit tests. **Remaining:** projections/`ORDER BY`/`OR`/joins,
-  field access on PDX/serialized POJO values, parameterized queries (opcode 80), result paging.
+  string/number/boolean/null literals) combined with **`AND`/`OR`** (AND binds tighter), evaluated
+  in-shim against map-typed values' top-level fields. **Single-field projections** too
+  (`SELECT e.status FROM /region e` returns that field's value per row). Validated by
+  `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR / projection / unsupported)
+  + `OqlQuery` parser & predicate unit tests. **Remaining:** multi-field/struct projections,
+  `ORDER BY`/joins, field access on PDX/serialized POJO values, parameterized queries (opcode 80),
+  result paging.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

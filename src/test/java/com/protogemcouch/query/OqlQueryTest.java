@@ -31,15 +31,39 @@ class OqlQueryTest {
 
     @Test
     void rejectsUnsupportedQueries() {
-        assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse("SELECT name FROM /orders"));
+        assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse("SELECT a, b FROM /orders"),
+                "multi-field (struct) projection");
         assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse("SELECT DISTINCT * FROM /orders"));
         assertThrows(OqlQuery.UnsupportedQueryException.class,
-                () -> OqlQuery.parse("SELECT * FROM /orders WHERE status = 'a' OR status = 'b'"));
+                () -> OqlQuery.parse("SELECT * FROM /orders WHERE (status = 'a')"), "parentheses");
         assertThrows(OqlQuery.UnsupportedQueryException.class,
-                () -> OqlQuery.parse("SELECT * FROM /orders WHERE (status = 'a')"));
-        assertThrows(OqlQuery.UnsupportedQueryException.class,
-                () -> OqlQuery.parse("SELECT * FROM /orders WHERE status"));
+                () -> OqlQuery.parse("SELECT * FROM /orders WHERE status"), "malformed condition");
         assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse(""));
+    }
+
+    @Test
+    void orCombinesGroupsWithAndBindingTighter() {
+        // (status='active' AND amount>50) OR status='vip'
+        OqlQuery q = OqlQuery.parse(
+                "SELECT * FROM /o WHERE status = 'active' AND amount > 50 OR status = 'vip'");
+        assertTrue(q.matches(map("status", "active", "amount", 100)), "first group matches");
+        assertFalse(q.matches(map("status", "active", "amount", 10)), "first group fails, not vip");
+        assertTrue(q.matches(map("status", "vip", "amount", 1)), "second group (vip) matches");
+    }
+
+    @Test
+    void singleFieldProjectionReturnsThatField() {
+        OqlQuery q = OqlQuery.parse("SELECT status FROM /o");
+        assertEquals(StoredValue.stringValue("active"), q.project(map("status", "active", "amount", 100)));
+
+        OqlQuery aliased = OqlQuery.parse("SELECT e.amount FROM /o e WHERE e.amount > 50");
+        assertEquals(StoredValue.integerValue(100), aliased.project(map("status", "active", "amount", 100)));
+    }
+
+    @Test
+    void selectStarProjectionReturnsWholeValue() {
+        StoredValue v = map("status", "active");
+        assertEquals(v, OqlQuery.parse("SELECT * FROM /o").project(v));
     }
 
     @Test

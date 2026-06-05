@@ -1,12 +1,15 @@
 # OQL query support — design notes
 
-Status: **first cut + WHERE done.** `SELECT * FROM /region [alias] [WHERE <conditions>]` works
-end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`). Conditions are
-`<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals) joined by
-`AND`, evaluated in-shim against the top-level fields of map-typed values; the response is filtered
-to matching rows. The chunked query-response format below was captured from a real Geode 1.15 server
-with `GeodeQueryCapture` and is implemented in `GemResponseWriter.buildQueryResponse` +
-`QueryHandler` (opcode 34); the OQL text is parsed by `OqlQuery`.
+Status: **SELECT * / single-field projection / WHERE (AND+OR) done**, all end-to-end against a real
+Geode client (`ProtoGemCouchQueryIntegrationTest`). Supported:
+`SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>]` where conditions are
+`<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals) combined
+with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level fields
+of map-typed values; the response is filtered (and projected) accordingly. The chunked
+query-response format below was captured from a real Geode 1.15 server with `GeodeQueryCapture` and
+is implemented in `GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34); the OQL text
+is parsed by `OqlQuery`. Single-field projections reuse the same response shape with the projected
+field values. (Multi-field/struct projections, ORDER BY, joins, PDX/POJO field access remain TODO.)
 
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```

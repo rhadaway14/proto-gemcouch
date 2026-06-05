@@ -97,12 +97,40 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void whereWithOrMatchesEitherGroup() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active")));
+        region.put("b", new HashMap<>(Map.of("status", "closed")));
+        region.put("c", new HashMap<>(Map.of("status", "vip")));
+
+        SelectResults<?> results = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " WHERE status = 'active' OR status = 'vip'").execute();
+        assertEquals(2, results.size(), "OR matches active and vip");
+    }
+
+    @Test
+    void singleFieldProjectionReturnsFieldValues() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "closed", "amount", 50)));
+
+        SelectResults<?> statuses = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.status FROM /" + regionName + " e").execute();
+        assertEquals(2, statuses.size());
+        assertTrue(new HashSet<>(statuses).containsAll(Set.of("active", "closed")),
+                "projection returns the field values");
+
+        SelectResults<?> bigAmount = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e WHERE status = 'active'").execute();
+        assertEquals(1, bigAmount.size());
+        assertTrue(new HashSet<>(bigAmount).contains(100), "projection + WHERE returns the matching field value");
+    }
+
+    @Test
     void unsupportedQueryRaisesAnError() {
         region.put("k1", "v1");
-        // A projection is outside the supported SELECT * subset and must surface a server error
-        // rather than silently mishandling.
+        // A multi-field (struct) projection is outside the supported subset and must surface a server
+        // error rather than silently mishandling.
         assertThrows(Exception.class, () -> cache.getQueryService()
-                .newQuery("SELECT e.key FROM /" + regionName + " e").execute(),
+                .newQuery("SELECT e.id, e.amount FROM /" + regionName + " e").execute(),
                 "an unsupported query surfaces a server error rather than wrong results");
     }
 

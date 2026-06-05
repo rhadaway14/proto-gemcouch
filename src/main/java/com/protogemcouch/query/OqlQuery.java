@@ -3,6 +3,7 @@ package com.protogemcouch.query;
 import com.protogemcouch.serialization.StoredValue;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -11,18 +12,19 @@ import java.util.regex.Pattern;
 /**
  * A parsed OQL query.
  *
- * <p>Supported subset: {@code SELECT * FROM /region [alias] [WHERE <conditions>]}, where each
- * condition is {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are quoted
- * strings, numbers, booleans, or {@code null}) and conditions are joined by {@code AND}. Field
- * access resolves a top-level key of map-typed values (a Geode {@code HashMap} value); other value
- * types simply do not match a field predicate. Anything outside this subset (projections, {@code OR},
- * parentheses, {@code ORDER BY}, joins, methods) is reported as unsupported so the shim can return a
- * clean query error instead of silently mishandling it.
+ * <p>Supported subset:
+ * {@code SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>]}, where conditions are
+ * {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are quoted strings,
+ * numbers, booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds tighter; no
+ * parentheses). Field access resolves a top-level key of map-typed values (a Geode {@code HashMap}
+ * value). A single projected field returns that field's value per row; {@code SELECT *} returns the
+ * whole value. Anything else (multi-field/struct projections, parentheses, {@code ORDER BY}, joins,
+ * methods) is reported as unsupported so the shim returns a clean query error.
  */
 public final class OqlQuery {
 
     private static final Pattern QUERY = Pattern.compile(
-            "(?is)^\\s*SELECT\\s+\\*\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
+            "(?is)^\\s*SELECT\\s+(.+?)\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
                     + "(?:\\s+(?!WHERE\\b)[A-Za-z_][A-Za-z0-9_]*)?"   // optional alias
                     + "(?:\\s+WHERE\\s+(.+?))?\\s*;?\\s*$");
 
@@ -30,25 +32,46 @@ public final class OqlQuery {
             "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
 
     private final String regionPath;
-    private final List<Condition> conditions;
+    private final String projectionField;          // null = SELECT *
+    private final List<List<Condition>> orGroups;  // OR of AND-groups; empty = match all
 
-    private OqlQuery(String regionPath, List<Condition> conditions) {
+    private OqlQuery(String regionPath, String projectionField, List<List<Condition>> orGroups) {
         this.regionPath = regionPath;
-        this.conditions = conditions;
+        this.projectionField = projectionField;
+        this.orGroups = orGroups;
     }
 
     public String regionPath() {
         return regionPath;
     }
 
-    /** True if the value satisfies every condition (an empty WHERE matches everything). */
+    /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
     public boolean matches(StoredValue value) {
-        for (Condition condition : conditions) {
-            if (!condition.matches(value)) {
-                return false;
+        if (orGroups.isEmpty()) {
+            return true;
+        }
+        for (List<Condition> andGroup : orGroups) {
+            boolean all = true;
+            for (Condition condition : andGroup) {
+                if (!condition.matches(value)) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) {
+                return true;
             }
         }
-        return true;
+        return false;
+    }
+
+    /** Project a matched value into the result row: the whole value, or the single projected field. */
+    public StoredValue project(StoredValue value) {
+        if (projectionField == null) {
+            return value;
+        }
+        Object field = resolveField(value, projectionField);
+        return wrap(field == ABSENT ? null : field);
     }
 
     public static OqlQuery parse(String oql) {
@@ -59,33 +82,50 @@ public final class OqlQuery {
         Matcher matcher = QUERY.matcher(text);
         if (!matcher.matches()) {
             throw new UnsupportedQueryException(
-                    "only 'SELECT * FROM /region [WHERE ...]' is supported in this build: " + text);
+                    "only 'SELECT (* | field) FROM /region [WHERE ...]' is supported: " + text);
         }
-        String region = matcher.group(1);
-        String where = matcher.group(2);
-        return new OqlQuery(region, parseConditions(where));
+        return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1)),
+                parseWhere(matcher.group(3)));
     }
 
-    private static List<Condition> parseConditions(String where) {
-        List<Condition> conditions = new ArrayList<>();
+    private static String parseProjection(String selectList) {
+        String list = selectList.trim();
+        if (list.equals("*")) {
+            return null;
+        }
+        if (list.contains(",")) {
+            throw new UnsupportedQueryException("multi-field (struct) projections are not supported: " + list);
+        }
+        if (list.equalsIgnoreCase("DISTINCT") || list.toUpperCase().startsWith("DISTINCT ")) {
+            throw new UnsupportedQueryException("DISTINCT is not supported: " + list);
+        }
+        if (!list.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
+            throw new UnsupportedQueryException("unsupported projection: " + list);
+        }
+        return lastSegment(list);
+    }
+
+    private static List<List<Condition>> parseWhere(String where) {
+        List<List<Condition>> orGroups = new ArrayList<>();
         if (where == null || where.isBlank()) {
-            return conditions;
+            return orGroups;
         }
         if (where.contains("(") || where.contains(")")) {
             throw new UnsupportedQueryException("parentheses are not supported: " + where);
         }
-        if (where.matches("(?is).*\\bOR\\b.*")) {
-            throw new UnsupportedQueryException("OR is not supported: " + where);
-        }
-        for (String clause : where.split("(?i)\\s+AND\\s+")) {
-            Matcher m = CONDITION.matcher(clause);
-            if (!m.matches()) {
-                throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
+        for (String orGroup : where.split("(?i)\\s+OR\\s+")) {
+            List<Condition> andGroup = new ArrayList<>();
+            for (String clause : orGroup.split("(?i)\\s+AND\\s+")) {
+                Matcher m = CONDITION.matcher(clause);
+                if (!m.matches()) {
+                    throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
+                }
+                andGroup.add(new Condition(lastSegment(m.group(1)), Operator.of(m.group(2)),
+                        Literal.parse(m.group(3))));
             }
-            conditions.add(new Condition(lastSegment(m.group(1)), Operator.of(m.group(2)),
-                    Literal.parse(m.group(3))));
+            orGroups.add(andGroup);
         }
-        return conditions;
+        return orGroups;
     }
 
     /** Take the final segment of a possibly alias/nested path (e.g. {@code r.status} -> {@code status}). */
@@ -118,7 +158,6 @@ public final class OqlQuery {
         }
     }
 
-    /** One {@code field op literal} condition. */
     static final class Condition {
         private final String field;
         private final Operator op;
@@ -133,7 +172,7 @@ public final class OqlQuery {
         boolean matches(StoredValue value) {
             Object actual = resolveField(value, field);
             if (actual == ABSENT) {
-                return false; // field not resolvable on this value
+                return false;
             }
             switch (op) {
                 case EQ: return literal.equalsValue(actual);
@@ -156,7 +195,6 @@ public final class OqlQuery {
 
     private static final Object ABSENT = new Object();
 
-    /** Resolve a top-level field of a map-typed value; {@link #ABSENT} if not resolvable. */
     private static Object resolveField(StoredValue value, String field) {
         if (value == null) {
             return ABSENT;
@@ -172,7 +210,41 @@ public final class OqlQuery {
         return ABSENT;
     }
 
-    /** A WHERE literal: number, string, boolean, or null, with lenient comparison helpers. */
+    /** Wrap a projected field value (from a map) back into a StoredValue for the result. */
+    private static StoredValue wrap(Object o) {
+        if (o == null) {
+            return StoredValue.stringValue("");
+        }
+        if (o instanceof String s) {
+            return StoredValue.stringValue(s);
+        }
+        if (o instanceof Boolean b) {
+            return StoredValue.booleanValue(b);
+        }
+        if (o instanceof Integer i) {
+            return StoredValue.integerValue(i);
+        }
+        if (o instanceof Long l) {
+            return StoredValue.longValue(l);
+        }
+        if (o instanceof Short sh) {
+            return StoredValue.shortValue(sh);
+        }
+        if (o instanceof Byte by) {
+            return StoredValue.byteValue(by);
+        }
+        if (o instanceof Double d) {
+            return StoredValue.doubleValue(d);
+        }
+        if (o instanceof Float f) {
+            return StoredValue.floatValue(f);
+        }
+        if (o instanceof Date dt) {
+            return StoredValue.dateValue(dt);
+        }
+        return StoredValue.stringValue(String.valueOf(o));
+    }
+
     static final class Literal {
         private final Double number;
         private final String text;
@@ -201,7 +273,7 @@ public final class OqlQuery {
             try {
                 return new Literal(Double.parseDouble(t), t, null, false);
             } catch (NumberFormatException e) {
-                return new Literal(null, t, null, false); // bare identifier treated as a string
+                return new Literal(null, t, null, false);
             }
         }
 
@@ -222,7 +294,6 @@ public final class OqlQuery {
             return String.valueOf(actual).equals(text);
         }
 
-        /** -1/0/1 comparing {@code actual} to this literal, or null if not comparable. */
         Integer compareValue(Object actual) {
             if (isNull || actual == null) {
                 return null;

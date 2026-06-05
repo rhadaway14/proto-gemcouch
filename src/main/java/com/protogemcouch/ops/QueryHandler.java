@@ -55,7 +55,7 @@ public class QueryHandler implements OperationHandler {
         List<StoredValue> values = new ArrayList<>(all.size());
         for (StoredValue value : all.values()) {
             if (value != null && query.matches(value)) {
-                values.add(value);
+                values.add(query.project(value));
             }
         }
 
