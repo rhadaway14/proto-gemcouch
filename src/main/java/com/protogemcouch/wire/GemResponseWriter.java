@@ -861,6 +861,20 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * Chunked PUT_ALL error response: a single part whose object deserializes to a Throwable, which
+     * the client's PutAllOp raises as a {@code ServerOperationException} (used for partial failures).
+     */
+    public static byte[] buildPutAllErrorResponse(int txId, String message) {
+        String safeMessage = (message == null || message.isBlank()) ? "putAll failed" : message;
+        byte[] serializedException = javaSerializeClientSafeException(safeMessage);
+        return buildSingleChunkedMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                new Part(geodeSerializedJavaObject(serializedException), (byte) 1)
+        );
+    }
+
     public static byte[] buildKeySetChunkedResponse(int txId, List<String> keys) {
         byte[] payload = buildManualStringListPayload(keys);
 

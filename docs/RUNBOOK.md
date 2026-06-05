@@ -48,6 +48,13 @@ Optional:
   region-name match wins over `CB_TTL_SECONDS`)
 - `CB_TTL_MODE` default `ttl` (`ttl` = expiry counts from the last write, i.e. entry-time-to-live;
   `idle` = reads also refresh the expiry via get-and-touch, i.e. entry-idle-time)
+- `CB_DURABILITY` default `none` (Couchbase write durability applied to all value writes:
+  `none` = ack on the active node's memory; `majority`, `majorityAndPersistToActive`,
+  `persistToMajority` = synchronous durability — these require a replicated cluster and will fail
+  writes on a single-node cluster)
+  - `putAll` is **partial-failure aware**: entries that succeed are persisted and counted in
+    `size`/`keySet` even if others fail, and a partial failure is reported to the client as a
+    PUT_ALL server error naming the failed keys (rather than silently dropping or rolling back).
   - When a region has a TTL, `size`/`keySet` verify which keys still exist and evict expired ones
     from the keyset metadata, so they stay correct (at the cost of an existence check per key).
 - `CONNECTION_IDLE_TIMEOUT_SECONDS` default `300` (close a connection with no read/write activity

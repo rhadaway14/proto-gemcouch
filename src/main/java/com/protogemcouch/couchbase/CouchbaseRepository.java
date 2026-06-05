@@ -3,6 +3,7 @@ package com.protogemcouch.couchbase;
 import com.couchbase.client.core.error.CasMismatchException;
 import com.couchbase.client.core.error.DocumentExistsException;
 import com.couchbase.client.core.error.DocumentNotFoundException;
+import com.couchbase.client.core.msg.kv.DurabilityLevel;
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.Collection;
@@ -95,6 +96,10 @@ public class CouchbaseRepository implements Repository {
     // and keyset eviction.
     private TtlConfig ttlConfig = new TtlConfig(0, java.util.Map.of(), false);
 
+    // Couchbase write durability applied to all value writes (CB_DURABILITY). NONE = ack on memory
+    // (the default / fastest); higher levels require a suitably-replicated cluster.
+    private DurabilityLevel writeDurability = DurabilityLevel.NONE;
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -118,6 +123,9 @@ public class CouchbaseRepository implements Repository {
                 "perRegion", ttlConfig.perRegionSeconds(),
                 "mode", ttlConfig.idle() ? "idle" : "ttl",
                 "enabled", ttlConfig.anyEnabled()));
+
+        this.writeDurability = parseDurability(System.getenv("CB_DURABILITY"));
+        log.info(StructuredLog.event("repository_durability_configured", "level", writeDurability.name()));
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -217,6 +225,9 @@ public class CouchbaseRepository implements Repository {
         if (ttl != null) {
             options.expiry(ttl);
         }
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
         return options;
     }
 
@@ -225,6 +236,9 @@ public class CouchbaseRepository implements Repository {
         Duration ttl = ttlConfig.durationFor(region);
         if (ttl != null) {
             options.expiry(ttl);
+        }
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
         }
         return options;
     }
@@ -235,7 +249,43 @@ public class CouchbaseRepository implements Repository {
         if (ttl != null) {
             options.expiry(ttl);
         }
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
         return options;
+    }
+
+    private RemoveOptions removeOptions() {
+        RemoveOptions options = RemoveOptions.removeOptions();
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
+        return options;
+    }
+
+    private RemoveOptions removeOptions(long cas) {
+        RemoveOptions options = RemoveOptions.removeOptions().cas(cas);
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
+        return options;
+    }
+
+    /** Parse CB_DURABILITY into a Couchbase durability level (unknown/blank -> NONE). */
+    static DurabilityLevel parseDurability(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DurabilityLevel.NONE;
+        }
+        switch (raw.trim().toLowerCase().replace("_", "")) {
+            case "majority":
+                return DurabilityLevel.MAJORITY;
+            case "majorityandpersisttoactive":
+                return DurabilityLevel.MAJORITY_AND_PERSIST_TO_ACTIVE;
+            case "persisttomajority":
+                return DurabilityLevel.PERSIST_TO_MAJORITY;
+            default:
+                return DurabilityLevel.NONE;
+        }
     }
 
     /** The region embedded in a value docId ({@code region::key}), or null if unparseable. */
@@ -356,36 +406,68 @@ public class CouchbaseRepository implements Repository {
 
             String docId = DocumentKeyUtil.docId(region, entry.getKey());
             JsonObject body = encodeStoredValue(value);
-            upserts.add(collection.async().upsert(docId, body, upsertOptions(region)));
             storedKeys.add(entry.getKey());
+            try {
+                upserts.add(collection.async().upsert(docId, body, upsertOptions(region)));
+            } catch (RuntimeException submitError) {
+                // A synchronous failure (e.g. an invalid/over-long key) is recorded per key too.
+                CompletableFuture<Object> failed = new CompletableFuture<>();
+                failed.completeExceptionally(submitError);
+                upserts.add(failed);
+            }
         }
 
         if (upserts.isEmpty()) {
             return;
         }
 
-        try {
-            CompletableFuture.allOf(upserts.toArray(new CompletableFuture[0])).join();
-        } catch (Exception e) {
-            log.error(StructuredLog.event(
-                    "repository_put_all_error",
-                    "region", region,
-                    "valueCount", upserts.size(),
-                    "error", e.getMessage()
-            ), e);
-            throw new RepositoryException(
-                    "putAll failed for region=" + region + " (" + upserts.size() + " values)", e);
+        // Wait for every upsert (not fail-fast) and record per-key outcomes, so a partial failure
+        // still persists the entries that succeeded and counts them in the keyset, rather than
+        // discarding the whole batch.
+        List<String> succeeded = new ArrayList<>(storedKeys.size());
+        LinkedHashMap<String, String> failures = new LinkedHashMap<>();
+        for (int i = 0; i < upserts.size(); i++) {
+            try {
+                upserts.get(i).join();
+                succeeded.add(storedKeys.get(i));
+            } catch (Exception e) {
+                failures.put(storedKeys.get(i), rootCauseMessage(e));
+            }
         }
 
-        // Update the region's keyset metadata once for the whole batch (one read + one write),
-        // rather than a get+upsert per key.
-        updateKeySetMetadataBatch(region, storedKeys);
+        // Add only the successfully-stored keys to the region's keyset metadata (one batch write).
+        if (!succeeded.isEmpty()) {
+            updateKeySetMetadataBatch(region, succeeded);
+        }
 
         log.info(StructuredLog.event(
                 "repository_put_all_ok",
                 "region", region,
-                "stored_count", storedKeys.size()
+                "stored_count", succeeded.size(),
+                "failed_count", failures.size()
         ));
+
+        if (!failures.isEmpty()) {
+            log.error(StructuredLog.event(
+                    "repository_put_all_partial_failure",
+                    "region", region,
+                    "stored_count", succeeded.size(),
+                    "failed_count", failures.size(),
+                    "failedKeys", failures.keySet()
+            ));
+            throw new RepositoryException(
+                    "putAll partially failed for region=" + region + ": " + failures.size() + " of "
+                            + upserts.size() + " entries failed (succeeded: " + succeeded.size()
+                            + "); failed keys=" + failures.keySet());
+        }
+    }
+
+    private static String rootCauseMessage(Throwable t) {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
     private void updateKeySetMetadataBatch(String region, List<String> keys) {
@@ -398,7 +480,7 @@ public class CouchbaseRepository implements Repository {
     @Override
     public void remove(String docId) {
         try {
-            collection.remove(docId);
+            collection.remove(docId, removeOptions());
             updateKeySetMetadataForDocId(docId, false);
 
             log.info(StructuredLog.event(
@@ -448,7 +530,7 @@ public class CouchbaseRepository implements Repository {
         for (String key : keys) {
             String docId = DocumentKeyUtil.docId(region, key);
             try {
-                collection.remove(docId);
+                collection.remove(docId, removeOptions());
             } catch (DocumentNotFoundException ignored) {
                 // already gone
             } catch (Exception e) {
@@ -588,7 +670,7 @@ public class CouchbaseRepository implements Repository {
                 if (current == null || !current.equals(expected)) {
                     return false;
                 }
-                collection.remove(docId, RemoveOptions.removeOptions().cas(existing.cas()));
+                collection.remove(docId, removeOptions(existing.cas()));
                 updateKeySetMetadataForDocId(docId, false);
                 log.info(StructuredLog.event(
                         "repository_compare_remove_ok", "docId", docId, "attempt", attempt));
