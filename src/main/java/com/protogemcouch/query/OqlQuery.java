@@ -121,6 +121,41 @@ public final class OqlQuery {
         return row;
     }
 
+    private static final Pattern BIND_PARAM = Pattern.compile("\\$(\\d+)");
+
+    /**
+     * Substitute {@code $1..$N} bind-parameter references in an OQL string with the corresponding
+     * values from {@code params} (1-based), rendered as OQL literals: numbers/booleans bare, strings
+     * single-quoted, {@code null} as {@code null}. The result is then parsed/matched exactly like a
+     * literal query. Throws {@link UnsupportedQueryException} if a referenced parameter is missing.
+     */
+    public static String bindParameters(String oql, List<Object> params) {
+        if (oql == null || !oql.contains("$")) {
+            return oql;
+        }
+        List<Object> bound = params == null ? List.of() : params;
+        return BIND_PARAM.matcher(oql).replaceAll(m -> {
+            int oneBased = Integer.parseInt(m.group(1));
+            if (oneBased < 1 || oneBased > bound.size()) {
+                throw new UnsupportedQueryException(
+                        "bind parameter $" + oneBased + " has no value (" + bound.size() + " provided)");
+            }
+            return Matcher.quoteReplacement(formatLiteral(bound.get(oneBased - 1)));
+        });
+    }
+
+    /** Render a bind value as an OQL literal token. */
+    private static String formatLiteral(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        // String (and any other type): an OQL single-quoted string literal, doubling embedded quotes.
+        return "'" + String.valueOf(value).replace("'", "''") + "'";
+    }
+
     public static OqlQuery parse(String oql) {
         if (oql == null || oql.isBlank()) {
             throw new UnsupportedQueryException("empty query");

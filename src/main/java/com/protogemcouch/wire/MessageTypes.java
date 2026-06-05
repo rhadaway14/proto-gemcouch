@@ -12,6 +12,13 @@ public final class MessageTypes {
     public static final int REMOVE = 9;
     public static final int QUERY = 34;
     public static final int QUERY_DATA_ERROR = 35;
+    /*
+     * Parameterized OQL query (org.apache.geode.internal.cache.tier.MessageType.QUERY_WITH_PARAMETERS).
+     * part[0] = OQL string (with $1..$N placeholders), part[1] = int bind-parameter count,
+     * part[2..] = each bind value as a Geode-serialized object. The response is the same chunked
+     * CumulativeNonDistinctResults as a plain QUERY.
+     */
+    public static final int QUERY_WITH_PARAMETERS = 80;
     public static final int CLEAR_REGION = 36;
     public static final int CONTROL = 18;
     public static final int CONTAINS_KEY = 38;

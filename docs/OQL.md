@@ -32,6 +32,16 @@ real-client PDX query test. Note: POJO (Java-serialized) field access is not fea
 (needs the domain classes); PDX is Geode's queryable serialization. (ORDER BY on struct projections,
 joins remain TODO.)
 
+**Parameterized queries** (`query.execute($1, $2, …)`, opcode `QUERY_WITH_PARAMETERS = 80`): the
+request carries the OQL string in part[0], an `int` bind-parameter count in part[1], and each bind
+value as a Geode-serialized object in part[2..]. `QueryHandler` decodes the values (reusing the
+standard value decoder), and `OqlQuery.bindParameters` substitutes `$N` with the corresponding value
+rendered as an OQL literal (numbers/booleans bare, strings single-quoted, `null` as `null`) before
+parsing — so binding reuses the full literal/predicate path and the response is the same chunked
+result as a plain `QUERY`. Validated by `OqlQueryTest` + `ProtoGemCouchQueryIntegrationTest`
+(`parameterizedQueryBindsValues`). Edge note: a string bind value containing a single quote is
+doubled per OQL convention but not un-doubled on parse (rare; documented).
+
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```
 HEADER(12): 00000001(msgType=RESPONSE) 00000002(numParts=2) ffffffff(txId)
@@ -45,8 +55,10 @@ Empty result uses a different part B (`34 00 2b…java.lang.Object`); both forms
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
 ### Request — easy
-- Opcode **`QUERY = 34`** (`QUERY_WITH_PARAMETERS = 80` for parameterized queries; not in scope).
-- `QueryOp` builds a 1-part message: **part[0] = the OQL string** (a plain string part).
+- Opcode **`QUERY = 34`**, or **`QUERY_WITH_PARAMETERS = 80`** for parameterized queries (supported).
+- `QueryOp` builds a 1-part message: **part[0] = the OQL string** (a plain string part). The
+  parameterized form adds **part[1] = int bind-parameter count** and **part[2..] = each bind value**
+  as a Geode-serialized object.
 
 ### Response — a *chunked* message (the hard part)
 `QueryOp.processResponse` reads a **`ChunkedMessage`**, not a normal single REPLY, and assembles the

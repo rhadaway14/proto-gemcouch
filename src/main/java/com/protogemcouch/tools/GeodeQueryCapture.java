@@ -158,7 +158,25 @@ public final class GeodeQueryCapture {
         }
 
         System.out.println("=== executing: " + query + " ===");
-        SelectResults<?> results = (SelectResults<?>) cache.getQueryService().newQuery(query).execute();
+        String rawParams = env("QUERY_PARAMS", "");
+        SelectResults<?> results;
+        if (rawParams.isBlank()) {
+            results = (SelectResults<?>) cache.getQueryService().newQuery(query).execute();
+        } else {
+            // Comma-separated bind parameters; numeric tokens become Integer, otherwise String.
+            String[] tokens = rawParams.split(",");
+            Object[] params = new Object[tokens.length];
+            for (int i = 0; i < tokens.length; i++) {
+                String t = tokens[i].trim();
+                try {
+                    params[i] = Integer.valueOf(t);
+                } catch (NumberFormatException nfe) {
+                    params[i] = t;
+                }
+            }
+            System.out.println("=== params=" + java.util.Arrays.toString(params) + " ===");
+            results = (SelectResults<?>) cache.getQueryService().newQuery(query).execute(params);
+        }
         System.out.println("=== result size=" + results.size() + " values=" + new ArrayList<>(results) + " ===");
 
         Thread.sleep(750);
