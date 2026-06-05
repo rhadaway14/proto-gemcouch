@@ -181,9 +181,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   CollectionType so the client preserves row order; validated by
   `structProjectionWithOrderByPreservesRowOrder`). **Result paging now covers ORDER BY and struct
   responses too** (each chunk repeats its CollectionType/StructType + that batch's Object[]; validated
-  by `largeOrderedAndStructResultsArePagedAndAssembledInOrder`). **Remaining:** joins, POJO
-  (Java-serialized) field access (needs the domain classes — not feasible server-side; PDX is the
-  queryable path).
+  by `largeOrderedAndStructResultsArePagedAndAssembledInOrder`). OQL is **practically complete** for
+  the shim. **Deferred (out of scope for now):** *joins* — cross-region joins are uncommon and
+  discouraged in GemFire (poor performance), and a Couchbase-backed shim would have to load both
+  whole regions into memory and cross-product them (fine only for tiny regions), so the ROI does not
+  justify the multi-source-parser + alias-aware-resolver + nested-loop rewrite. **Not feasible
+  server-side:** POJO (Java-serialized) field access (needs the domain classes — PDX is the queryable
+  path).
 - [x] **Transactions (bounded first cut)** — client `begin`/`commit`/`rollback`. Transactional ops
   carry the tx id in the message header; the shim buffers writes per `(connection, txId)` in a
   `TransactionRegistry`, serves reads-your-writes from the buffer, applies the buffer to storage on

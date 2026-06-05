@@ -33,7 +33,13 @@ shim keeps each registered `PdxType` (from opcode 93) by id; a PDX instance is f
 uses Geode's own `PdxReaderImpl` to read scalar fields by name (so the PDX binary/offset handling is
 exactly correct). Validated by `PdxFieldAccessorTest` (real captured PdxType + instance bytes) and a
 real-client PDX query test. Note: POJO (Java-serialized) field access is not feasible server-side
-(needs the domain classes); PDX is Geode's queryable serialization. (Joins remain TODO.)
+(needs the domain classes); PDX is Geode's queryable serialization.
+
+**Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
+GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
+memory and cross-product them — acceptable only for tiny regions. The ROI does not justify the
+required multi-source FROM parser, alias-aware field resolution (`a.fk = b.id`), and nested-loop
+execution. Revisit only if a concrete need arises.
 
 **Parameterized queries** (`query.execute($1, $2, …)`, opcode `QUERY_WITH_PARAMETERS = 80`): the
 request carries the OQL string in part[0], an `int` bind-parameter count in part[1], and each bind
