@@ -755,8 +755,26 @@ public final class GemResponseWriter {
      * sorted into. Matches the captured real-server bytes.
      */
     public static byte[] buildOrderedQueryResponse(int txId, List<StoredValue> values) {
+        List<List<Part>> chunks = new ArrayList<>();
+        if (values == null || values.isEmpty()) {
+            chunks.add(List.of(
+                    new Part(QUERY_ORDERED_COLLECTION_TYPE, (byte) 1),
+                    new Part(orderedObjectArray(List.of()), (byte) 1)));
+        } else {
+            // Page like SELECT *: each chunk repeats the Ordered CollectionType + its batch's Object[].
+            for (int start = 0; start < values.size(); start += QUERY_PAGE_SIZE) {
+                List<StoredValue> batch = values.subList(start, Math.min(start + QUERY_PAGE_SIZE, values.size()));
+                chunks.add(List.of(
+                        new Part(QUERY_ORDERED_COLLECTION_TYPE, (byte) 1),
+                        new Part(orderedObjectArray(batch), (byte) 1)));
+            }
+        }
+        return buildMultiChunkResponse(txId, 2, chunks);
+    }
+
+    /** One chunk's ordered result: an Object[] (0x34) of the batch's values. */
+    private static byte[] orderedObjectArray(List<StoredValue> values) {
         ByteBuf resultPart = Unpooled.buffer();
-        byte[] ordered;
         try {
             resultPart.writeByte(OBJECT_ARRAY_CODE);
             writeGeodeArrayLength(resultPart, values.size());
@@ -764,14 +782,11 @@ public final class GemResponseWriter {
             for (StoredValue value : values) {
                 resultPart.writeBytes(encodeStoredValueForGetAll(value));
             }
-            ordered = toByteArrayAndRelease(resultPart);
+            return toByteArrayAndRelease(resultPart);
         } catch (RuntimeException e) {
             resultPart.release();
             throw e;
         }
-        return buildChunkedResponse(txId, List.of(
-                new Part(QUERY_ORDERED_COLLECTION_TYPE, (byte) 1),
-                new Part(ordered, (byte) 1)));
     }
 
     /**
@@ -790,8 +805,29 @@ public final class GemResponseWriter {
      */
     public static byte[] buildQueryStructResponse(int txId, int fieldCount, List<List<StoredValue>> rows,
                                                   boolean ordered) {
+        byte[] structType = buildStructType(fieldCount, ordered);
+        List<List<StoredValue>> safeRows = rows == null ? List.of() : rows;
+
+        List<List<Part>> chunks = new ArrayList<>();
+        if (safeRows.isEmpty()) {
+            chunks.add(List.of(
+                    new Part(structType, (byte) 1),
+                    new Part(structObjectArray(List.of()), (byte) 1)));
+        } else {
+            // Page: each chunk repeats the StructType + an outer Object[] of that batch's structs.
+            for (int start = 0; start < safeRows.size(); start += QUERY_PAGE_SIZE) {
+                List<List<StoredValue>> batch = safeRows.subList(start, Math.min(start + QUERY_PAGE_SIZE, safeRows.size()));
+                chunks.add(List.of(
+                        new Part(structType, (byte) 1),
+                        new Part(structObjectArray(batch), (byte) 1)));
+            }
+        }
+        return buildMultiChunkResponse(txId, 2, chunks);
+    }
+
+    /** The StructType CollectionType part: field$i names + ObjectType field types, ordered or not. */
+    private static byte[] buildStructType(int fieldCount, boolean ordered) {
         ByteBuf typePart = Unpooled.buffer();
-        byte[] structType;
         try {
             typePart.writeBytes(ordered ? QUERY_STRUCT_ORDERED_COLLECTION_PREFIX : QUERY_STRUCT_COLLECTION_PREFIX);
             writeGeodeArrayLength(typePart, fieldCount);
@@ -803,14 +839,16 @@ public final class GemResponseWriter {
             for (int i = 0; i < fieldCount; i++) {
                 typePart.writeBytes(QUERY_OBJECT_TYPE_ELEMENT);
             }
-            structType = toByteArrayAndRelease(typePart);
+            return toByteArrayAndRelease(typePart);
         } catch (RuntimeException e) {
             typePart.release();
             throw e;
         }
+    }
 
+    /** One chunk's struct result: an outer Object[] (0x34) whose elements are per-row Object[] of fields. */
+    private static byte[] structObjectArray(List<List<StoredValue>> rows) {
         ByteBuf resultPart = Unpooled.buffer();
-        byte[] structRows;
         try {
             resultPart.writeByte(OBJECT_ARRAY_CODE);          // outer Object[] of structs
             writeGeodeArrayLength(resultPart, rows.size());
@@ -823,15 +861,11 @@ public final class GemResponseWriter {
                     resultPart.writeBytes(encodeStoredValueForGetAll(field));
                 }
             }
-            structRows = toByteArrayAndRelease(resultPart);
+            return toByteArrayAndRelease(resultPart);
         } catch (RuntimeException e) {
             resultPart.release();
             throw e;
         }
-
-        return buildChunkedResponse(txId, List.of(
-                new Part(structType, (byte) 1),
-                new Part(structRows, (byte) 1)));
     }
 
     /**

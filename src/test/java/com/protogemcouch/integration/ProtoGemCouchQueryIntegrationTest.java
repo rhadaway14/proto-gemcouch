@@ -262,6 +262,36 @@ class ProtoGemCouchQueryIntegrationTest {
         assertEquals(expected, new HashSet<>(results), "every value survives the multi-chunk streaming");
     }
 
+    @Test
+    void largeOrderedAndStructResultsArePagedAndAssembledInOrder() throws Exception {
+        // 250 rows exceeds the 100-row page size, so the ORDER BY (Object[]) and struct responses both
+        // stream as multiple chunks; the client must assemble every row and preserve the sort order.
+        Map<String, Object> batch = new HashMap<>();
+        for (int i = 0; i < 250; i++) {
+            batch.put("k" + i, new HashMap<>(Map.of("status", "s" + i, "amount", i)));
+        }
+        region.putAll(batch);
+
+        SelectResults<?> ordered = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e ORDER BY e.amount").execute();
+        List<Object> amounts = new ArrayList<>(ordered);
+        assertEquals(250, amounts.size(), "all paged ORDER BY rows assembled");
+        List<Object> expected = new ArrayList<>();
+        for (int i = 0; i < 250; i++) {
+            expected.add(i);
+        }
+        assertEquals(expected, amounts, "ascending order preserved across chunks");
+
+        SelectResults<?> structs = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount, e.status FROM /" + regionName + " e ORDER BY e.amount").execute();
+        assertEquals(250, structs.size(), "all paged struct rows assembled");
+        List<Object> structAmounts = new ArrayList<>();
+        for (Object o : structs) {
+            structAmounts.add(((Struct) o).getFieldValues()[0]);
+        }
+        assertEquals(expected, structAmounts, "struct rows ordered across chunks");
+    }
+
     private static void waitForReady(String url, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {

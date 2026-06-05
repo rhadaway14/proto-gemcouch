@@ -70,4 +70,30 @@ class QueryResponsePagingTest {
         assertTrue(flags.subList(0, flags.size() - 1).stream().allMatch(f -> f == 0),
                 "all non-final chunks have lastChunk=0");
     }
+
+    @Test
+    void orderedResultPagesAcrossChunks() {
+        assertEquals(List.of(1), chunkFlags(GemResponseWriter.buildOrderedQueryResponse(7, values(10))),
+                "small ordered result is one chunk");
+        assertEquals(List.of(0, 0, 1), chunkFlags(GemResponseWriter.buildOrderedQueryResponse(7, values(250))),
+                "large ORDER BY result streams as 3 chunks");
+    }
+
+    @Test
+    void structResultPagesAcrossChunks() {
+        assertEquals(List.of(1),
+                chunkFlags(GemResponseWriter.buildQueryStructResponse(7, 2, structRows(10), true)),
+                "small struct result is one chunk");
+        assertEquals(List.of(0, 0, 1),
+                chunkFlags(GemResponseWriter.buildQueryStructResponse(7, 2, structRows(250), true)),
+                "large ORDER BY struct result streams as 3 chunks");
+    }
+
+    private static List<List<StoredValue>> structRows(int n) {
+        List<List<StoredValue>> rows = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            rows.add(List.of(StoredValue.integerValue(i), StoredValue.stringValue("s" + i)));
+        }
+        return rows;
+    }
 }
