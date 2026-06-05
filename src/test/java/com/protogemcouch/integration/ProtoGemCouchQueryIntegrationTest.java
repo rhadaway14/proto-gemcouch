@@ -6,6 +6,7 @@ import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 import org.apache.geode.cache.query.SelectResults;
 import org.apache.geode.cache.query.Struct;
+import org.apache.geode.pdx.PdxInstance;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -49,6 +50,7 @@ class ProtoGemCouchQueryIntegrationTest {
         cache = new ClientCacheFactory()
                 .set("log-level", "warn")
                 .setPoolSubscriptionEnabled(false)
+                .setPdxReadSerialized(true) // SELECT * on PDX returns PdxInstances (no domain classes needed)
                 .addPoolServer(HOST, SHIM_PORT)
                 .create();
         regionName = "q" + UUID.randomUUID().toString().replace("-", "");
@@ -161,6 +163,30 @@ class ProtoGemCouchQueryIntegrationTest {
         SelectResults<?> desc = (SelectResults<?>) cache.getQueryService()
                 .newQuery("SELECT e.amount FROM /" + regionName + " e ORDER BY amount DESC").execute();
         assertEquals(List.of(30, 20, 10), new ArrayList<>(desc), "descending order preserved");
+    }
+
+    @Test
+    void queryPdxByFieldAndProject() throws Exception {
+        region.put("a", pdxOrder("active", 100));
+        region.put("b", pdxOrder("closed", 50));
+        region.put("c", pdxOrder("active", 10));
+
+        SelectResults<?> active = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " WHERE status = 'active'").execute();
+        assertEquals(2, active.size(), "WHERE on a PDX object field");
+
+        SelectResults<?> amounts = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount FROM /" + regionName + " e WHERE status = 'active' AND amount > 50")
+                .execute();
+        assertEquals(1, amounts.size(), "PDX field filter + projection");
+        assertTrue(new HashSet<>(amounts).contains(100), "projected PDX field value");
+    }
+
+    private PdxInstance pdxOrder(String status, int amount) {
+        return cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", status)
+                .writeInt("amount", amount)
+                .create();
     }
 
     @Test

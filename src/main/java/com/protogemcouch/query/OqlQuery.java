@@ -60,15 +60,35 @@ public final class OqlQuery {
         return !orderBy.isEmpty();
     }
 
+    /**
+     * Resolves a field of a value to its raw object, returning {@link #ABSENT} when not resolvable.
+     * The default {@link #MAP_RESOLVER} reads map-typed values; callers (e.g. for PDX) can supply a
+     * resolver that understands other value types.
+     */
+    @FunctionalInterface
+    public interface FieldResolver {
+        Object resolve(StoredValue value, String field);
+    }
+
+    /** Sentinel for "field not resolvable on this value". */
+    public static final Object ABSENT = new Object();
+
+    /** Default resolver: top-level keys of map-typed values. */
+    public static final FieldResolver MAP_RESOLVER = OqlQuery::resolveMapField;
+
     /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
     public boolean matches(StoredValue value) {
+        return matches(value, MAP_RESOLVER);
+    }
+
+    public boolean matches(StoredValue value, FieldResolver resolver) {
         if (orGroups.isEmpty()) {
             return true;
         }
         for (List<Condition> andGroup : orGroups) {
             boolean all = true;
             for (Condition condition : andGroup) {
-                if (!condition.matches(value)) {
+                if (!condition.matches(value, resolver)) {
                     all = false;
                     break;
                 }
@@ -85,13 +105,17 @@ public final class OqlQuery {
      * wrapped field for a single-field projection, or the M wrapped fields of a struct projection.
      */
     public List<StoredValue> projectRow(StoredValue value) {
+        return projectRow(value, MAP_RESOLVER);
+    }
+
+    public List<StoredValue> projectRow(StoredValue value, FieldResolver resolver) {
         List<StoredValue> row = new ArrayList<>();
         if (projectionFields.isEmpty()) {
             row.add(value);
             return row;
         }
         for (String field : projectionFields) {
-            Object resolved = resolveField(value, field);
+            Object resolved = resolver.resolve(value, field);
             row.add(wrap(resolved == ABSENT ? null : resolved));
         }
         return row;
@@ -113,12 +137,16 @@ public final class OqlQuery {
 
     /** Sort matched values in place by the ORDER BY keys (no-op when there is no ORDER BY). */
     public void sort(List<StoredValue> values) {
+        sort(values, MAP_RESOLVER);
+    }
+
+    public void sort(List<StoredValue> values, FieldResolver resolver) {
         if (orderBy.isEmpty()) {
             return;
         }
         values.sort((a, b) -> {
             for (OrderKey key : orderBy) {
-                int c = compareField(a, b, key.field);
+                int c = compareField(a, b, key.field, resolver);
                 if (c != 0) {
                     return key.ascending ? c : -c;
                 }
@@ -154,9 +182,9 @@ public final class OqlQuery {
     }
 
     /** Compare a field across two values: numeric when both parse as numbers, else string; nulls last. */
-    private static int compareField(StoredValue a, StoredValue b, String field) {
-        Object av = resolveField(a, field);
-        Object bv = resolveField(b, field);
+    private static int compareField(StoredValue a, StoredValue b, String field, FieldResolver resolver) {
+        Object av = resolver.resolve(a, field);
+        Object bv = resolver.resolve(b, field);
         boolean aMissing = av == ABSENT || av == null;
         boolean bMissing = bv == ABSENT || bv == null;
         if (aMissing && bMissing) {
@@ -280,8 +308,8 @@ public final class OqlQuery {
             this.literal = literal;
         }
 
-        boolean matches(StoredValue value) {
-            Object actual = resolveField(value, field);
+        boolean matches(StoredValue value, FieldResolver resolver) {
+            Object actual = resolver.resolve(value, field);
             if (actual == ABSENT) {
                 return false;
             }
@@ -304,9 +332,7 @@ public final class OqlQuery {
         }
     }
 
-    private static final Object ABSENT = new Object();
-
-    private static Object resolveField(StoredValue value, String field) {
+    private static Object resolveMapField(StoredValue value, String field) {
         if (value == null) {
             return ABSENT;
         }

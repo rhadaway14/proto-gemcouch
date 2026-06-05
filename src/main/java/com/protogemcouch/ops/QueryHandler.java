@@ -26,9 +26,18 @@ public class QueryHandler implements OperationHandler {
     private static final Logger log = LoggerFactory.getLogger(QueryHandler.class);
 
     private final Repository repository;
+    private final OqlQuery.FieldResolver fieldResolver;
 
-    public QueryHandler(Repository repository) {
+    public QueryHandler(Repository repository, PdxTypeRegistry pdxTypeRegistry) {
         this.repository = repository;
+        // Resolve query fields on PDX instances via the kept PdxType; fall back to map-typed values.
+        this.fieldResolver = (value, field) -> {
+            if (value.type() == StoredValue.Type.PDX_INSTANCE) {
+                Object resolved = PdxFieldAccessor.read(value.asPdxInstanceValue(), pdxTypeRegistry, field);
+                return resolved == null ? OqlQuery.ABSENT : resolved;
+            }
+            return OqlQuery.MAP_RESOLVER.resolve(value, field);
+        };
     }
 
     @Override
@@ -56,11 +65,11 @@ public class QueryHandler implements OperationHandler {
         // Filter, then ORDER BY (on the source values), then project.
         List<StoredValue> matched = new ArrayList<>();
         for (StoredValue value : all.values()) {
-            if (value != null && query.matches(value)) {
+            if (value != null && query.matches(value, fieldResolver)) {
                 matched.add(value);
             }
         }
-        query.sort(matched);
+        query.sort(matched, fieldResolver);
 
         int fieldCount = query.projectionFieldCount();
         int rowCount = matched.size();
@@ -69,7 +78,7 @@ public class QueryHandler implements OperationHandler {
             // Multi-field (struct) projection: each row is a list of field values.
             List<List<StoredValue>> rows = new ArrayList<>(matched.size());
             for (StoredValue value : matched) {
-                rows.add(query.projectRow(value));
+                rows.add(query.projectRow(value, fieldResolver));
             }
             response = GemResponseWriter.buildQueryStructResponse(txId, fieldCount, rows);
         } else {
@@ -77,7 +86,7 @@ public class QueryHandler implements OperationHandler {
             // order-preserving "Ordered" response; otherwise the standard result list.
             List<StoredValue> values = new ArrayList<>(matched.size());
             for (StoredValue value : matched) {
-                values.add(query.projectRow(value).get(0));
+                values.add(query.projectRow(value, fieldResolver).get(0));
             }
             response = query.hasOrderBy()
                     ? GemResponseWriter.buildOrderedQueryResponse(txId, values)

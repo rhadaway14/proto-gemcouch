@@ -162,8 +162,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   with Geode's order-preserving `Ordered` CollectionType + Object[] result (for SELECT */single-field).
   Validated by `ProtoGemCouchQueryIntegrationTest` (all-rows / empty / WHERE / OR / single+multi
   projection / ORDER BY asc+desc / unsupported) + `OqlQuery` parser/predicate/sort unit tests.
-  **Remaining:** ORDER BY on struct projections, joins, field access on PDX/serialized POJO values,
-  parameterized queries (opcode 80), result paging.
+  **PDX field access** too: WHERE/projection/ORDER BY resolve fields of stored PDX instances — the
+  shim keeps each `PdxType` by id and uses Geode's own `PdxReaderImpl` to read instance fields by
+  name (validated by `PdxFieldAccessorTest` on captured bytes + a real-client PDX query test).
+  **Remaining:** ORDER BY on struct projections, joins, POJO (Java-serialized) field access (needs
+  the domain classes — not feasible server-side; PDX is the queryable path), parameterized queries
+  (opcode 80), result paging.
 - [ ] **Transactions** — client begin/commit/rollback.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client

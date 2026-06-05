@@ -1,5 +1,10 @@
 package com.protogemcouch.ops;
 
+import org.apache.geode.DataSerializer;
+import org.apache.geode.pdx.internal.PdxType;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -7,9 +12,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Assigns stable ids to PDX types (by content fingerprint) and keeps the deserialized
+ * {@link PdxType} per id so queries can resolve PDX instance fields by name. The id is what the
+ * client embeds in PDX instances it later writes, so an instance's type id maps back to its layout.
+ */
 public class PdxTypeRegistry {
 
     private final ConcurrentMap<String, Integer> typeIdsByFingerprint = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, PdxType> typesById = new ConcurrentHashMap<>();
     private final AtomicInteger nextTypeId = new AtomicInteger(1);
 
     public int getOrCreateTypeId(byte[] encodedPdxType) {
@@ -18,15 +29,35 @@ public class PdxTypeRegistry {
         }
 
         String fingerprint = sha256Hex(encodedPdxType);
+        int typeId = typeIdsByFingerprint.computeIfAbsent(
+                fingerprint, ignored -> nextTypeId.getAndIncrement());
 
-        return typeIdsByFingerprint.computeIfAbsent(
-                fingerprint,
-                ignored -> nextTypeId.getAndIncrement()
-        );
+        // Keep the parsed type so query field access can read instance fields by name (best-effort:
+        // if the PdxType cannot be deserialized, field access for that type simply degrades).
+        PdxType parsed = deserialize(encodedPdxType);
+        if (parsed != null) {
+            typesById.putIfAbsent(typeId, parsed);
+        }
+        return typeId;
+    }
+
+    /** The PdxType registered for an id, or {@code null} if unknown / not parseable. */
+    public PdxType getPdxType(int typeId) {
+        return typesById.get(typeId);
     }
 
     public int size() {
         return typeIdsByFingerprint.size();
+    }
+
+    private static PdxType deserialize(byte[] encodedPdxType) {
+        try {
+            Object object = DataSerializer.readObject(
+                    new DataInputStream(new ByteArrayInputStream(encodedPdxType)));
+            return object instanceof PdxType ? (PdxType) object : null;
+        } catch (Exception | LinkageError e) {
+            return null;
+        }
     }
 
     private static String sha256Hex(byte[] bytes) {

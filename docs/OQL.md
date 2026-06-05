@@ -21,7 +21,16 @@ server (`GeodeQueryCapture`, M=2 and M=3 captures).
 **ORDER BY** (`ORDER BY field [ASC|DESC]`, multi-key) sorts the matched values in-shim. The
 non-distinct CollectionType does not preserve client-side order, so ordered SELECT */single-field
 responses use Geode's **`...internal.Ordered`** CollectionType + an Object[] (`0x34`) result (also
-captured + byte-matched). (ORDER BY on struct projections, joins, PDX/POJO field access remain TODO.)
+captured + byte-matched).
+
+**PDX field access**: WHERE / projection / ORDER BY can read fields of stored PDX instances. The
+shim keeps each registered `PdxType` (from opcode 93) by id; a PDX instance is framed
+`5d <len> <typeId> <fieldData>`, and `PdxFieldAccessor` looks up the `PdxType` by the embedded id and
+uses Geode's own `PdxReaderImpl` to read scalar fields by name (so the PDX binary/offset handling is
+exactly correct). Validated by `PdxFieldAccessorTest` (real captured PdxType + instance bytes) and a
+real-client PDX query test. Note: POJO (Java-serialized) field access is not feasible server-side
+(needs the domain classes); PDX is Geode's queryable serialization. (ORDER BY on struct projections,
+joins remain TODO.)
 
 Captured `SELECT *` response (2 rows v1,v2), annotated:
 ```

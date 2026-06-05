@@ -42,6 +42,7 @@ public final class GeodeQueryCapture {
 
         boolean direct = "1".equals(env("CAPTURE_DIRECT", "0"));
         List<ByteArrayOutputStream> serverToClient = Collections.synchronizedList(new ArrayList<>());
+        List<ByteArrayOutputStream> clientToServer = Collections.synchronizedList(new ArrayList<>());
         ServerSocket proxy = null;
 
         if (!direct) {
@@ -53,10 +54,12 @@ public final class GeodeQueryCapture {
                         Socket client = bound.accept();
                         Socket upstream = new Socket(geodeHost, geodePort);
                         System.err.println("[proxy] accepted client, connected upstream " + geodeHost + ":" + geodePort);
-                        ByteArrayOutputStream captured = new ByteArrayOutputStream();
-                        serverToClient.add(captured);
-                        pump(client.getInputStream(), upstream.getOutputStream(), null, "c->s");
-                        pump(upstream.getInputStream(), client.getOutputStream(), captured, "s->c");
+                        ByteArrayOutputStream s2c = new ByteArrayOutputStream();
+                        ByteArrayOutputStream c2s = new ByteArrayOutputStream();
+                        serverToClient.add(s2c);
+                        clientToServer.add(c2s);
+                        pump(client.getInputStream(), upstream.getOutputStream(), c2s, "c->s");
+                        pump(upstream.getInputStream(), client.getOutputStream(), s2c, "s->c");
                     }
                 } catch (IOException e) {
                     System.err.println("[proxy] acceptor stopped: " + e);
@@ -84,7 +87,17 @@ public final class GeodeQueryCapture {
         }
         int seed = Integer.parseInt(env("SEED_COUNT", "2"));
         boolean maps = "1".equals(env("SEED_MAPS", "0"));
-        for (int n = 1; n <= seed; n++) {
+        boolean pdx = "1".equals(env("SEED_PDX", "0"));
+        if (pdx) {
+            for (int n = 1; n <= seed; n++) {
+                org.apache.geode.pdx.PdxInstance instance = cache.createPdxInstanceFactory("demo.Order")
+                        .writeString("status", n % 2 == 0 ? "active" : "closed")
+                        .writeInt("amount", n * 10)
+                        .create();
+                r.put("k" + n, instance);
+            }
+        }
+        for (int n = 1; n <= seed && !pdx; n++) {
             if (maps) {
                 java.util.HashMap<String, Object> m = new java.util.HashMap<>();
                 m.put("status", n % 2 == 0 ? "active" : "closed");
@@ -122,6 +135,17 @@ public final class GeodeQueryCapture {
                     System.out.println(hex(delta));
                 }
                 i++;
+            }
+        }
+
+        if ("1".equals(env("DUMP_C2S", "0"))) {
+            synchronized (clientToServer) {
+                int i = 0;
+                for (ByteArrayOutputStream s : clientToServer) {
+                    byte[] all = s.toByteArray();
+                    System.out.println("=== CONN " + (i++) + " CLIENT->SERVER " + all.length + " bytes ===");
+                    System.out.println(hex(all));
+                }
             }
         }
 
