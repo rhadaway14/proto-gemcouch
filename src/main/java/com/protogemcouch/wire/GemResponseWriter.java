@@ -730,6 +730,13 @@ public final class GemResponseWriter {
             "01c52b5700426f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e"
                     + "43756d756c61746976654e6f6e44697374696e6374526573756c747301c42b5700236f72672e6170616368"
                     + "652e67656f64652e63616368652e71756572792e537472756374");
+    // Same StructType as above but wrapped in the "Ordered" CollectionType instead of
+    // CumulativeNonDistinctResults, so the client preserves the row order for an ORDER BY + struct
+    // projection. Only the leading wrapper class differs (Ordered vs CumulativeNonDistinctResults);
+    // the Struct part and the field$i / ObjectType tail are identical. Captured from the real server.
+    private static final byte[] QUERY_STRUCT_ORDERED_COLLECTION_PREFIX = ByteUtils.hex(
+            "01c52b57002d6f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e4f726465726564"
+                    + "01c42b5700236f72672e6170616368652e67656f64652e63616368652e71756572792e537472756374");
     private static final byte[] QUERY_OBJECT_TYPE_CLASS = ByteUtils.hex(
             "2b57002d6f72672e6170616368652e67656f64652e63616368652e71756572792e74797065732e4f626a65637454797065");
     private static final byte[] QUERY_OBJECT_TYPE_ELEMENT = ByteUtils.hex("01c32b5700106a6176612e6c616e672e4f626a656374");
@@ -773,10 +780,20 @@ public final class GemResponseWriter {
      * Object[] of the row's field values. Matches the captured real-server bytes.
      */
     public static byte[] buildQueryStructResponse(int txId, int fieldCount, List<List<StoredValue>> rows) {
+        return buildQueryStructResponse(txId, fieldCount, rows, false);
+    }
+
+    /**
+     * As {@link #buildQueryStructResponse(int, int, List)}, but when {@code ordered} the StructType is
+     * wrapped in the "Ordered" CollectionType so the client preserves the row order of an
+     * {@code ORDER BY} struct projection (the rows are already sorted by the handler).
+     */
+    public static byte[] buildQueryStructResponse(int txId, int fieldCount, List<List<StoredValue>> rows,
+                                                  boolean ordered) {
         ByteBuf typePart = Unpooled.buffer();
         byte[] structType;
         try {
-            typePart.writeBytes(QUERY_STRUCT_COLLECTION_PREFIX);
+            typePart.writeBytes(ordered ? QUERY_STRUCT_ORDERED_COLLECTION_PREFIX : QUERY_STRUCT_COLLECTION_PREFIX);
             writeGeodeArrayLength(typePart, fieldCount);
             for (int i = 0; i < fieldCount; i++) {
                 typePart.writeBytes(ValueEncoding.encodeGeodeStringValue("field$" + i));

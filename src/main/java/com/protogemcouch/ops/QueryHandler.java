@@ -89,7 +89,7 @@ public class QueryHandler implements OperationHandler {
             for (StoredValue value : matched) {
                 rows.add(query.projectRow(value, fieldResolver));
             }
-            response = GemResponseWriter.buildQueryStructResponse(txId, fieldCount, rows);
+            response = GemResponseWriter.buildQueryStructResponse(txId, fieldCount, rows, query.hasOrderBy());
         } else {
             // SELECT * or single-field projection: a flat list of values. ORDER BY uses the
             // order-preserving "Ordered" response; otherwise the standard result list.

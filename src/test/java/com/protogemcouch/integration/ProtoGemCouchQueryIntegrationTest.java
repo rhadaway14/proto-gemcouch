@@ -166,6 +166,30 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void structProjectionWithOrderByPreservesRowOrder() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "x", "amount", 30)));
+        region.put("b", new HashMap<>(Map.of("status", "y", "amount", 10)));
+        region.put("c", new HashMap<>(Map.of("status", "z", "amount", 20)));
+
+        SelectResults<?> asc = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount, e.status FROM /" + regionName + " e ORDER BY e.amount").execute();
+        List<Object> amountsInOrder = new ArrayList<>();
+        for (Object o : asc) {
+            amountsInOrder.add(((Struct) o).getFieldValues()[0]); // field 0 = amount
+        }
+        assertEquals(List.of(10, 20, 30), amountsInOrder,
+                "struct projection rows are returned in ORDER BY order: " + amountsInOrder);
+
+        SelectResults<?> desc = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.amount, e.status FROM /" + regionName + " e ORDER BY e.amount DESC").execute();
+        List<Object> descAmounts = new ArrayList<>();
+        for (Object o : desc) {
+            descAmounts.add(((Struct) o).getFieldValues()[0]);
+        }
+        assertEquals(List.of(30, 20, 10), descAmounts, "descending struct order preserved: " + descAmounts);
+    }
+
+    @Test
     void queryPdxByFieldAndProject() throws Exception {
         region.put("a", pdxOrder("active", 100));
         region.put("b", pdxOrder("closed", 50));
