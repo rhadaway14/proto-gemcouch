@@ -203,7 +203,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   tx failover are not handled.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client
-  notifications (a subsystem; prerequisite for CQ and listeners).
+  notifications (a subsystem; prerequisite for CQ and listeners). **Scoped** — see
+  `docs/SUBSCRIPTIONS.md`: the client opens a separate feed connection (mode byte 101) the server
+  pushes events down + a control connection (107) for REGISTER_INTEREST; events are CLIENT_MARKER +
+  LOCAL_CREATE/UPDATE/DESTROY/INVALIDATE carrying an EventID. Largest subsystem (inverts the shim to
+  server-push); cross-replica eventing needs a backplane (single-instance first cut). Phased plan
+  P1/P2/P3 in the doc; `tools/SubscriptionCapture` reproduces the capture.
 - [ ] **Server-side functions** — `onRegion`/`onServer`/`onMembers` execution.
 - [ ] **Partitioned-region metadata / single-hop** — bucket routing
   (`GET_CLIENT_PARTITION_ATTRIBUTES` is only stubbed today).
