@@ -34,6 +34,29 @@ public interface Repository {
 
     void remove(String docId);
 
+    /** A single write to apply on transaction commit: a put of {@code value}, or a remove. */
+    record WriteOp(String docId, StoredValue value, boolean remove) {
+    }
+
+    /**
+     * Apply a committed transaction's buffered writes (backs Geode client {@code commit()}). The
+     * default applies them sequentially (best-effort, not cross-key atomic); {@code CouchbaseRepository}
+     * overrides it to apply all value documents and the affected per-region keyset metadata inside a
+     * single Couchbase multi-document ACID transaction, so a failure leaves nothing applied.
+     */
+    default void commitAtomically(List<WriteOp> ops) {
+        if (ops == null) {
+            return;
+        }
+        for (WriteOp op : ops) {
+            if (op.remove()) {
+                remove(op.docId());
+            } else if (op.value() != null) {
+                put(op.docId(), op.value());
+            }
+        }
+    }
+
     /**
      * Atomic insert-if-absent (backs Geode {@code Region.putIfAbsent}). Stores {@code value} only if
      * the key is currently absent. Returns the existing value when the key was already present (so

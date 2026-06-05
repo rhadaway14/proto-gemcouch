@@ -180,10 +180,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   COMMIT (returning a zero-region `TXCommitMessage`, captured + round-trip-validated via
   `TxCommitProbe`), and discards it on ROLLBACK. Validated against a real Geode 1.15 client by
   `ProtoGemCouchTransactionIntegrationTest`. Read-your-writes covers `get`, `containsKey`, `getAll`,
-  `size`, and `keySet` (all see the tx's own buffered writes/removes). See `docs/TRANSACTIONS.md`.
-  **Remaining:** commit is best-effort sequential (not cross-key atomic — Couchbase multi-doc ACID
-  would close this); transactional putIfAbsent/replace/remove(k,v) buffer as plain put/remove (no
-  in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and tx failover are not handled.
+  `size`, and `keySet` (all see the tx's own buffered writes/removes). **Commit is atomic** — all
+  value docs + affected keyset metadata are applied in one Couchbase multi-document ACID transaction,
+  so a failed op rolls the whole commit back (validated by `commitIsAtomicWhenAnOperationFails`). See
+  `docs/TRANSACTIONS.md`. **Remaining:** per-region TTL is not applied to transactionally-committed
+  writes (no per-op expiry in Couchbase transactions); transactional putIfAbsent/replace/remove(k,v)
+  buffer as plain put/remove (no in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and
+  tx failover are not handled.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [ ] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners).
