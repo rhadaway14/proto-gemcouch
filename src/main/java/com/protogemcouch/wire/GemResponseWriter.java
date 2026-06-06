@@ -600,7 +600,17 @@ public final class GemResponseWriter {
      * region, key, empty callback arg, versionTag, Boolean.TRUE, Boolean.FALSE, EventID.
      */
     public static byte[] buildLocalDestroy(String region, String key, byte[] versionTag, byte[] eventId) {
-        return buildMessage(MessageTypes.LOCAL_DESTROY, 0, List.of(
+        return buildLocalKeyEvent(MessageTypes.LOCAL_DESTROY, region, key, versionTag, eventId);
+    }
+
+    /** LOCAL_INVALIDATE notification: same 7-part layout as LOCAL_DESTROY, captured from the server. */
+    public static byte[] buildLocalInvalidate(String region, String key, byte[] versionTag, byte[] eventId) {
+        return buildLocalKeyEvent(MessageTypes.LOCAL_INVALIDATE, region, key, versionTag, eventId);
+    }
+
+    private static byte[] buildLocalKeyEvent(int messageType, String region, String key,
+                                             byte[] versionTag, byte[] eventId) {
+        return buildMessage(messageType, 0, List.of(
                 new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
                 new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
                 new Part(new byte[0], (byte) 0),

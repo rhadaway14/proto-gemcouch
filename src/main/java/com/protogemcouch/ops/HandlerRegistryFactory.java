@@ -26,7 +26,7 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.REMOVE, new RemoveHandler(repository, transactions, subscriptions));
         registry.register(MessageTypes.COMMIT, new CommitHandler(repository, transactions));
         registry.register(MessageTypes.ROLLBACK, new RollbackHandler(transactions));
-        registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository));
+        registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository, subscriptions));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
         QueryHandler queryHandler = new QueryHandler(repository, pdxTypeRegistry);

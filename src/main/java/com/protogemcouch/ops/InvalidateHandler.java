@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
 import com.protogemcouch.wire.GemFrame;
@@ -21,9 +22,16 @@ public class InvalidateHandler implements OperationHandler {
     private static final Logger log = LoggerFactory.getLogger(InvalidateHandler.class);
 
     private final Repository repository;
+    private final SubscriptionRegistry subscriptions;
 
-    public InvalidateHandler(Repository repository) {
+    public InvalidateHandler(Repository repository, SubscriptionRegistry subscriptions) {
         this.repository = repository;
+        this.subscriptions = subscriptions;
+    }
+
+    /** Convenience for callers/tests with no subscription feed. */
+    public InvalidateHandler(Repository repository) {
+        this(repository, new SubscriptionRegistry());
     }
 
     @Override
@@ -34,6 +42,7 @@ public class InvalidateHandler implements OperationHandler {
         String docId = DocumentKeyUtil.docId(region, key);
 
         repository.invalidate(docId);
+        subscriptions.publishInvalidate(region, key);
 
         log.info(StructuredLog.event(
                 "handler_invalidate", "region", region, "key", key, "docId", docId,

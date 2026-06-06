@@ -110,6 +110,15 @@ public final class SubscriptionRegistry {
         pushToFeeds(message, "destroy", region, key);
     }
 
+    /** Push an invalidate notification for an interested region's key to every open feed. */
+    public void publishInvalidate(String region, String key) {
+        if (!hasInterest(region)) {
+            return;
+        }
+        byte[] message = GemResponseWriter.buildLocalInvalidate(region, key, nextVersionTag(), nextEventId());
+        pushToFeeds(message, "invalidate", region, key);
+    }
+
     private void pushToFeeds(byte[] message, String kind, String region, String key) {
         int sent = 0;
         for (Channel channel : feeds) {

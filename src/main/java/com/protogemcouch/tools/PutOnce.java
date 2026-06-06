@@ -43,6 +43,9 @@ public final class PutOnce {
                 // Second put to the same key exercises the LOCAL_UPDATE notification.
                 r.put(key, value + "-upd");
                 System.out.println("PutOnce: updated " + region + "/" + key + "=" + value + "-upd");
+            } else if ("invalidate".equalsIgnoreCase(op)) {
+                r.invalidate(key);
+                System.out.println("PutOnce: invalidated " + region + "/" + key);
             }
         } finally {
             cache.close();

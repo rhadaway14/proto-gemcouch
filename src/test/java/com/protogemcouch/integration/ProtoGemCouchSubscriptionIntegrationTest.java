@@ -160,6 +160,31 @@ class ProtoGemCouchSubscriptionIntegrationTest {
         assertEquals("evt2", key.get());
     }
 
+    @Test
+    void cacheListenerFiresOnRemoteInvalidate() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        CountDownLatch invalidated = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterInvalidate(EntryEvent<String, Object> event) {
+                        key.set(event.getKey());
+                        invalidated.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+
+        // A separate client creates then invalidates the key; afterInvalidate must fire.
+        runPutOnce(regionName, "evt4", "hello", "invalidate");
+
+        assertTrue(invalidated.await(20, TimeUnit.SECONDS),
+                "the CacheListener fired from the server-pushed invalidate event");
+        assertEquals("evt4", key.get());
+    }
+
     private static void runPutOnce(String region, String key, String value) throws Exception {
         runPutOnce(region, key, value, null);
     }

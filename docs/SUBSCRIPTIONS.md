@@ -93,8 +93,11 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     dedup/version keys). These are P2/P3 items.
   - **P2 (in progress):** create/update distinction **DONE** — a PUT to an existing key (checked when
     a feed is interested) notifies as `LOCAL_UPDATE` so the client fires `afterUpdate`, not
-    `afterCreate` (gate `cacheListenerDistinguishesCreateFromUpdate`). Remaining P2: per-client +
-    regex/key-list interest, LOCAL_INVALIDATE, KEYS_VALUES GII, self-event suppression, UNREGISTER.
+    `afterCreate` (gate `cacheListenerDistinguishesCreateFromUpdate`). **LOCAL_INVALIDATE DONE** —
+    `Region.invalidate` pushes a LOCAL_INVALIDATE (same 7-part layout as LOCAL_DESTROY, byte-matched)
+    so the client fires `afterInvalidate` (gate `cacheListenerFiresOnRemoteInvalidate`). The
+    create/update/destroy/invalidate event types are now complete. Remaining P2: per-client +
+    regex/key-list interest, KEYS_VALUES GII, self-event suppression, UNREGISTER.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica
