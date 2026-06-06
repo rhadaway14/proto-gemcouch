@@ -22,8 +22,8 @@ public final class HandlerRegistryFactory {
         TransactionRegistry transactions = new TransactionRegistry();
 
         registry.register(MessageTypes.GET, new GetHandler(repository, transactions));
-        registry.register(MessageTypes.PUT, new PutHandler(repository, transactions));
-        registry.register(MessageTypes.REMOVE, new RemoveHandler(repository, transactions));
+        registry.register(MessageTypes.PUT, new PutHandler(repository, transactions, subscriptions));
+        registry.register(MessageTypes.REMOVE, new RemoveHandler(repository, transactions, subscriptions));
         registry.register(MessageTypes.COMMIT, new CommitHandler(repository, transactions));
         registry.register(MessageTypes.ROLLBACK, new RollbackHandler(transactions));
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository));

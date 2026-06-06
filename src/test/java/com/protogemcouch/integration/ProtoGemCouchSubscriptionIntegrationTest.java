@@ -1,21 +1,29 @@
 package com.protogemcouch.integration;
 
+import org.apache.geode.cache.EntryEvent;
 import org.apache.geode.cache.InterestResultPolicy;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.cache.util.CacheListenerAdapter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -63,6 +71,90 @@ class ProtoGemCouchSubscriptionIntegrationTest {
         // handshake is wrong the client raises here instead.
         assertDoesNotThrow(() -> region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE),
                 "subscription-enabled client registers interest against the shim without error");
+    }
+
+    @Test
+    void cacheListenerFiresOnRemoteCreate() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        CountDownLatch created = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+        AtomicReference<Object> value = new AtomicReference<>();
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterCreate(EntryEvent<String, Object> event) {
+                        key.set(event.getKey());
+                        value.set(event.getNewValue());
+                        created.countDown();
+                    }
+
+                    @Override
+                    public void afterUpdate(EntryEvent<String, Object> event) {
+                        key.set(event.getKey());
+                        value.set(event.getNewValue());
+                        created.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+
+        // Mutate from a SEPARATE client process, so the listener can only fire from the
+        // server-pushed notification (not a local operation).
+        runPutOnce(regionName, "evt1", "hello");
+
+        assertTrue(created.await(20, TimeUnit.SECONDS),
+                "the CacheListener fired from the server-pushed create event");
+        assertEquals("evt1", key.get());
+        assertEquals("hello", value.get());
+    }
+
+    @Test
+    void cacheListenerFiresOnRemoteDestroy() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        CountDownLatch destroyed = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterDestroy(EntryEvent<String, Object> event) {
+                        key.set(event.getKey());
+                        destroyed.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+
+        // A separate client creates then removes the key; the destroy must reach the listener.
+        runPutOnce(regionName, "evt2", "hello", "remove");
+
+        assertTrue(destroyed.await(20, TimeUnit.SECONDS),
+                "the CacheListener fired from the server-pushed destroy event");
+        assertEquals("evt2", key.get());
+    }
+
+    private static void runPutOnce(String region, String key, String value) throws Exception {
+        runPutOnce(region, key, value, null);
+    }
+
+    private static void runPutOnce(String region, String key, String value, String op) throws Exception {
+        String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+        String classpath = System.getProperty("java.class.path");
+        java.util.List<String> command = new java.util.ArrayList<>(java.util.List.of(
+                javaBin, "-cp", classpath, "com.protogemcouch.tools.PutOnce",
+                HOST, Integer.toString(SHIM_PORT), region, key, value));
+        if (op != null) {
+            command.add(op);
+        }
+        Process process = new ProcessBuilder(command)
+                .inheritIO()
+                .start();
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            fail("PutOnce mutator process did not finish in time");
+        }
+        assertEquals(0, process.exitValue(), "PutOnce mutator process succeeded");
     }
 
     private static void waitForReady(String url, Duration timeout) {

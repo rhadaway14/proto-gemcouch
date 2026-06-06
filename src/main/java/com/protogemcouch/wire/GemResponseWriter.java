@@ -568,6 +568,48 @@ public final class GemResponseWriter {
         );
     }
 
+    // Server->client subscription notifications (pushed down the feed). Boolean part values captured
+    // from the real Geode server: part[2]/part[7] = Boolean.FALSE (35 00), part[6] = Boolean.TRUE
+    // (35 01, value-is-object). EventID and versionTag are Geode-serialized objects supplied by the
+    // caller. Layout for LOCAL_CREATE/UPDATE (9 parts) and LOCAL_DESTROY (7 parts) matches the capture.
+    private static final byte[] BOOL_FALSE = ByteUtils.hex("3500");
+    private static final byte[] BOOL_TRUE = ByteUtils.hex("3501");
+
+    /** CLIENT_MARKER: sent once down a feed before live events; one object part carrying an EventID. */
+    public static byte[] buildClientMarker(byte[] eventId) {
+        return buildMessage(MessageTypes.CLIENT_MARKER, 0, List.of(new Part(eventId, (byte) 1)));
+    }
+
+    /** LOCAL_CREATE/UPDATE notification for an interested feed (region, key, value, versionTag, eventId). */
+    public static byte[] buildLocalWrite(int messageType, String region, String key, StoredValue value,
+                                         byte[] versionTag, byte[] eventId) {
+        return buildMessage(messageType, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(encodeStoredValueForGetAll(value), (byte) 1),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(eventId, (byte) 1)));
+    }
+
+    /**
+     * LOCAL_DESTROY notification (7 parts, captured from the real server):
+     * region, key, empty callback arg, versionTag, Boolean.TRUE, Boolean.FALSE, EventID.
+     */
+    public static byte[] buildLocalDestroy(String region, String key, byte[] versionTag, byte[] eventId) {
+        return buildMessage(MessageTypes.LOCAL_DESTROY, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(eventId, (byte) 1)));
+    }
+
     public static byte[] buildRemoveResponse(int txId) {
         return buildMessage(
                 MessageTypes.REPLY,

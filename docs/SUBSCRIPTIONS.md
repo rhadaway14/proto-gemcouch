@@ -79,8 +79,19 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     `RegisterInterestHandler` records region interest and replies with the captured NONE ack. Gate
     `ProtoGemCouchSubscriptionIntegrationTest.subscriptionClientConnectsAndRegistersInterest` (real
     subscription client connects + registers interest, no error).
-  - **P1b — next.** Hook the mutation path (PUT/REMOVE) to push CLIENT_MARKER + LOCAL_CREATE/UPDATE/
-    DESTROY (with EventID) down interested feeds; gate = a real client's `CacheListener` fires.
+  - **P1b — DONE.** PUT/REMOVE push CLIENT_MARKER + LOCAL_CREATE / LOCAL_DESTROY down interested
+    feeds. EventID and VMVersionTag are constructed via Geode's own classes and serialized
+    (`SubscriptionRegistry`); the message part layouts are byte-matched to the captured server
+    (LOCAL_CREATE = 9 parts, LOCAL_DESTROY = 7 parts). The CLIENT_MARKER uses a separate EventID
+    thread id so it cannot shadow data events in the client's `(membershipId, threadId, seq)` dedup
+    (the initial bug that silently dropped the first event). Gates `cacheListenerFiresOnRemoteCreate`
+    and `cacheListenerFiresOnRemoteDestroy` (a real Geode 1.15 client's `CacheListener` fires for a
+    create and a destroy made by a *separate* client).
+  - **P1 limitations (documented):** single shim instance only; interest is per-region (ALL_KEYS),
+    not per-client; no self-event suppression (the originating client also receives its event); all
+    puts notify as LOCAL_CREATE (no create/update distinction); the EventID membership id and
+    versionTag member are fabricated/null (accepted by the client as opaque dedup/version keys). These
+    are P2/P3 items.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica
