@@ -88,10 +88,13 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     and `cacheListenerFiresOnRemoteDestroy` (a real Geode 1.15 client's `CacheListener` fires for a
     create and a destroy made by a *separate* client).
   - **P1 limitations (documented):** single shim instance only; interest is per-region (ALL_KEYS),
-    not per-client; no self-event suppression (the originating client also receives its event); all
-    puts notify as LOCAL_CREATE (no create/update distinction); the EventID membership id and
-    versionTag member are fabricated/null (accepted by the client as opaque dedup/version keys). These
-    are P2/P3 items.
+    not per-client; no self-event suppression (the originating client also receives its event); the
+    EventID membership id and versionTag member are fabricated/null (accepted by the client as opaque
+    dedup/version keys). These are P2/P3 items.
+  - **P2 (in progress):** create/update distinction **DONE** — a PUT to an existing key (checked when
+    a feed is interested) notifies as `LOCAL_UPDATE` so the client fires `afterUpdate`, not
+    `afterCreate` (gate `cacheListenerDistinguishesCreateFromUpdate`). Remaining P2: per-client +
+    regex/key-list interest, LOCAL_INVALIDATE, KEYS_VALUES GII, self-event suppression, UNREGISTER.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

@@ -158,9 +158,12 @@ public class PutHandler implements OperationHandler {
                 }
             }
             default -> {
+                // When a feed is interested, check prior existence so the notification is a
+                // LOCAL_UPDATE (key existed) vs LOCAL_CREATE (new key). The extra read is only paid
+                // when subscriptions are active for this region.
+                boolean existed = subscriptions.hasInterest(region) && repository.containsKey(docId);
                 repository.put(docId, value);
-                // Notify interested subscription feeds of the write (P1: LOCAL_CREATE for plain puts).
-                subscriptions.publishWrite(region, key, value);
+                subscriptions.publishWrite(region, key, value, existed);
                 response = GemResponseWriter.buildPutResponse(txId);
                 logRouted("put", region, key, docId, value, txId, "ok");
             }

@@ -35,10 +35,14 @@ public final class PutOnce {
                     .create(region);
             r.put(key, value);
             System.out.println("PutOnce: put " + region + "/" + key + "=" + value);
-            // Optional 6th arg "remove": also remove the key, to exercise the destroy notification.
-            if (args.length > 5 && "remove".equalsIgnoreCase(args[5])) {
+            String op = args.length > 5 ? args[5] : "";
+            if ("remove".equalsIgnoreCase(op)) {
                 r.remove(key);
                 System.out.println("PutOnce: removed " + region + "/" + key);
+            } else if ("update".equalsIgnoreCase(op)) {
+                // Second put to the same key exercises the LOCAL_UPDATE notification.
+                r.put(key, value + "-upd");
+                System.out.println("PutOnce: updated " + region + "/" + key + "=" + value + "-upd");
             }
         } finally {
             cache.close();

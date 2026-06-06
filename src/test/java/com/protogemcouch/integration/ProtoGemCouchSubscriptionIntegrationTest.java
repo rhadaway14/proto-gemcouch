@@ -110,6 +110,32 @@ class ProtoGemCouchSubscriptionIntegrationTest {
     }
 
     @Test
+    void cacheListenerDistinguishesCreateFromUpdate() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        CountDownLatch updated = new CountDownLatch(1);
+        AtomicReference<Object> updatedValue = new AtomicReference<>();
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterUpdate(EntryEvent<String, Object> event) {
+                        updatedValue.set(event.getNewValue());
+                        updated.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+
+        // A separate client creates then updates the same key; only the second put is an UPDATE, so
+        // afterUpdate (not afterCreate) must fire.
+        runPutOnce(regionName, "evt3", "hello", "update");
+
+        assertTrue(updated.await(20, TimeUnit.SECONDS),
+                "afterUpdate fired for the server-pushed update (LOCAL_UPDATE, not LOCAL_CREATE)");
+        assertEquals("hello-upd", updatedValue.get());
+    }
+
+    @Test
     void cacheListenerFiresOnRemoteDestroy() throws Exception {
         String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
         CountDownLatch destroyed = new CountDownLatch(1);

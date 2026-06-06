@@ -87,14 +87,18 @@ public final class SubscriptionRegistry {
         return feeds.size();
     }
 
-    /** Push a create/update notification for an interested region's key to every open feed. */
-    public void publishWrite(String region, String key, StoredValue value) {
+    /**
+     * Push a write notification for an interested region's key to every open feed:
+     * {@code LOCAL_UPDATE} when the key already existed, otherwise {@code LOCAL_CREATE}.
+     */
+    public void publishWrite(String region, String key, StoredValue value, boolean update) {
         if (!hasInterest(region) || value == null) {
             return;
         }
+        int messageType = update ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
         byte[] message = GemResponseWriter.buildLocalWrite(
-                MessageTypes.LOCAL_CREATE, region, key, value, nextVersionTag(), nextEventId());
-        pushToFeeds(message, "create", region, key);
+                messageType, region, key, value, nextVersionTag(), nextEventId());
+        pushToFeeds(message, update ? "update" : "create", region, key);
     }
 
     /** Push a destroy notification for an interested region's key to every open feed. */
