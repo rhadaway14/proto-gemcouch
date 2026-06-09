@@ -486,6 +486,13 @@ public class RawShimServer {
                 buf.release();
 
                 int mode = inbound.length > 0 ? (inbound[0] & 0xff) : MODE_CLIENT_TO_SERVER;
+                // Stable client identity from the ClientProxyMembershipID bytes (identical across a
+                // client's op/control/feed connections; the mode byte + readTimeout before offset 10
+                // differ). Used for subscription self-event suppression.
+                if (inbound.length > 10) {
+                    String clientId = ByteBufUtil.hexDump(inbound, 10, inbound.length - 10);
+                    ctx.channel().attr(com.protogemcouch.subscription.SubscriptionRegistry.CLIENT_ID).set(clientId);
+                }
                 metrics.recordHandshakeRequest();
                 log.info(StructuredLog.event(
                         "handshake_request",

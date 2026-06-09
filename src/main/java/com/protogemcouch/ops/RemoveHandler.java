@@ -84,7 +84,7 @@ public class RemoveHandler implements OperationHandler {
         log.info(StructuredLog.event(
                 "handler_remove", "region", region, "key", key, "docId", docId, "txId", txId));
         repository.remove(docId);
-        subscriptions.publishDestroy(region, key);
+        subscriptions.publishDestroy(region, key, SubscriptionRegistry.clientId(ctx));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
     }
 

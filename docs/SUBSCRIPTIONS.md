@@ -96,8 +96,12 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     `afterCreate` (gate `cacheListenerDistinguishesCreateFromUpdate`). **LOCAL_INVALIDATE DONE** —
     `Region.invalidate` pushes a LOCAL_INVALIDATE (same 7-part layout as LOCAL_DESTROY, byte-matched)
     so the client fires `afterInvalidate` (gate `cacheListenerFiresOnRemoteInvalidate`). The
-    create/update/destroy/invalidate event types are now complete. Remaining P2: per-client +
-    regex/key-list interest, KEYS_VALUES GII, self-event suppression, UNREGISTER.
+    create/update/destroy/invalidate event types are now complete. **Self-event suppression DONE** —
+    every connection's `ClientProxyMembershipID` bytes are captured at handshake as a stable client
+    id (identical across a client's op/control/feed connections), and a mutation is never echoed to
+    the originating client's own feed (gate `clientDoesNotReceiveItsOwnEventsEchoedBack`); this client
+    identity is also the foundation for per-client interest + UNREGISTER. Remaining P2: per-client +
+    regex/key-list interest, KEYS_VALUES GII, UNREGISTER.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

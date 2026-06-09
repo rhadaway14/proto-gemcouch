@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -158,6 +159,30 @@ class ProtoGemCouchSubscriptionIntegrationTest {
         assertTrue(destroyed.await(20, TimeUnit.SECONDS),
                 "the CacheListener fired from the server-pushed destroy event");
         assertEquals("evt2", key.get());
+    }
+
+    @Test
+    void clientDoesNotReceiveItsOwnEventsEchoedBack() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        // A self-echoed create would land as an afterUpdate (the key already exists locally after the
+        // local put). With self-event suppression it must never arrive.
+        CountDownLatch selfEcho = new CountDownLatch(1);
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterUpdate(EntryEvent<String, Object> event) {
+                        selfEcho.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+
+        // This client makes the mutation itself; the server must not echo it back to this client.
+        region.put("selfKey", "v");
+
+        assertFalse(selfEcho.await(5, TimeUnit.SECONDS),
+                "a client does not receive its own mutation echoed back to its feed");
     }
 
     @Test

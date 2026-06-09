@@ -42,6 +42,14 @@ public final class SubscriptionRegistry {
     private static final AttributeKey<Boolean> MARKER_SENT =
             AttributeKey.valueOf("protogemcouch.subscription.markerSent");
 
+    /**
+     * Stable client identity, set on every connection at handshake from the ClientProxyMembershipID
+     * bytes (identical across a client's op/control/feed connections). Used to suppress echoing a
+     * client's own mutations back to its own feed.
+     */
+    public static final AttributeKey<String> CLIENT_ID =
+            AttributeKey.valueOf("protogemcouch.subscription.clientId");
+
     private final Set<Channel> feeds = ConcurrentHashMap.newKeySet();
     private final Set<String> interestedRegions = ConcurrentHashMap.newKeySet();
 
@@ -56,6 +64,12 @@ public final class SubscriptionRegistry {
     private final AtomicLong markerSequence = new AtomicLong(0);
     private final AtomicInteger entryVersion = new AtomicInteger(0);
     private final AtomicLong regionVersion = new AtomicLong(0);
+
+    /** Null-safe origin client id for a request's channel (null when there is no channel, e.g. tests). */
+    public static String clientId(io.netty.channel.ChannelHandlerContext ctx) {
+        Channel channel = ctx == null ? null : ctx.channel();
+        return channel == null ? null : channel.attr(CLIENT_ID).get();
+    }
 
     public void addFeed(Channel channel) {
         feeds.add(channel);
@@ -91,38 +105,42 @@ public final class SubscriptionRegistry {
      * Push a write notification for an interested region's key to every open feed:
      * {@code LOCAL_UPDATE} when the key already existed, otherwise {@code LOCAL_CREATE}.
      */
-    public void publishWrite(String region, String key, StoredValue value, boolean update) {
+    public void publishWrite(String region, String key, StoredValue value, boolean update, String originClientId) {
         if (!hasInterest(region) || value == null) {
             return;
         }
         int messageType = update ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
         byte[] message = GemResponseWriter.buildLocalWrite(
                 messageType, region, key, value, nextVersionTag(), nextEventId());
-        pushToFeeds(message, update ? "update" : "create", region, key);
+        pushToFeeds(message, update ? "update" : "create", region, key, originClientId);
     }
 
-    /** Push a destroy notification for an interested region's key to every open feed. */
-    public void publishDestroy(String region, String key) {
+    /** Push a destroy notification for an interested region's key to every open feed (except the origin). */
+    public void publishDestroy(String region, String key, String originClientId) {
         if (!hasInterest(region)) {
             return;
         }
         byte[] message = GemResponseWriter.buildLocalDestroy(region, key, nextVersionTag(), nextEventId());
-        pushToFeeds(message, "destroy", region, key);
+        pushToFeeds(message, "destroy", region, key, originClientId);
     }
 
-    /** Push an invalidate notification for an interested region's key to every open feed. */
-    public void publishInvalidate(String region, String key) {
+    /** Push an invalidate notification for an interested region's key to every open feed (except the origin). */
+    public void publishInvalidate(String region, String key, String originClientId) {
         if (!hasInterest(region)) {
             return;
         }
         byte[] message = GemResponseWriter.buildLocalInvalidate(region, key, nextVersionTag(), nextEventId());
-        pushToFeeds(message, "invalidate", region, key);
+        pushToFeeds(message, "invalidate", region, key, originClientId);
     }
 
-    private void pushToFeeds(byte[] message, String kind, String region, String key) {
+    private void pushToFeeds(byte[] message, String kind, String region, String key, String originClientId) {
         int sent = 0;
         for (Channel channel : feeds) {
             if (!channel.isActive()) {
+                continue;
+            }
+            // Self-event suppression: never echo a mutation back to the client that made it.
+            if (originClientId != null && originClientId.equals(channel.attr(CLIENT_ID).get())) {
                 continue;
             }
             // CLIENT_MARKER once per feed before its first live event (the GII boundary). Uses a

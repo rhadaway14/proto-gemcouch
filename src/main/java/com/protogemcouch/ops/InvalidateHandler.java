@@ -42,7 +42,7 @@ public class InvalidateHandler implements OperationHandler {
         String docId = DocumentKeyUtil.docId(region, key);
 
         repository.invalidate(docId);
-        subscriptions.publishInvalidate(region, key);
+        subscriptions.publishInvalidate(region, key, SubscriptionRegistry.clientId(ctx));
 
         log.info(StructuredLog.event(
                 "handler_invalidate", "region", region, "key", key, "docId", docId,
