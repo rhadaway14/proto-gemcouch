@@ -207,8 +207,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   client's feed, so a real Geode 1.15 client's `CqListener` fires for create/update/destroy filtered
   by the predicate (`ProtoGemCouchCqIntegrationTest`); STOPCQ/CLOSECQ deregister. Built on the
   subscription feed + OQL engine; `geode-cq` is a test-only dependency (the shim needs no CQ engine).
-  See `docs/CONTINUOUS_QUERIES.md`. **Remaining (P2):** executeWithInitialResults, stops-matching on
-  update → CQ DESTROY (prior-match tracking), multiple CQs per event, PDX-field CQ predicates.
+  **P2: stops-matching DONE** — an updated value that leaves the result set fires CQ DESTROY
+  (prior-value match comparison; gate `cqListenerFiresDestroyWhenUpdatedValueStopsMatching`).
+  See `docs/CONTINUOUS_QUERIES.md`. **Remaining:** executeWithInitialResults (decoded — a chunked
+  Struct{key,value} result set; deferred as a deep serialization), multiple CQs per event, PDX-field
+  CQ predicates.
 - [~] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners). **P1 + P2 DONE** (server→client push
   works end-to-end), validated against a real Geode 1.15 client by 8 gates in

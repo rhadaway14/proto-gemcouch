@@ -75,6 +75,24 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   `cqListenerFiresDestroyWhenMatchingEntryIsRemoved`). **Remaining P2:** EXECUTECQ_WITH_IR initial
   result set, "stops-matching" on update → CQ DESTROY (prior-match tracking), multiple CQs per event,
   PDX-field CQ predicates (uses the map resolver today).
+
+## CQ P2 progress
+
+- **stops-matching — DONE.** `publishCqEvent` uses the entry's prior value: new-matches+prior-not →
+  CQ CREATE, new+prior match → CQ UPDATE, new-doesn't-match+prior-matched → CQ DESTROY (the entry
+  leaves the result set). `PutHandler` reads the prior value when a CQ exists on the region. Gate
+  `cqListenerFiresDestroyWhenUpdatedValueStopsMatching`.
+- **executeWithInitialResults — decoded, deferred (deep serialization).** Captured (`tools/CqCapture`
+  with `WITH_IR=1`): the `EXECUTECQ_WITH_IR (43)` reply is **three messages** — a leading REPLY ack, a
+  chunked `RESPONSE` carrying the current matching set, and a trailing REPLY. The RESPONSE has
+  part[0] = a CollectionType (`java.util.Collection` wrapping a `Struct` with named fields
+  `key`,`value`, each `ObjectType`) and part[1] = the results as an **ObjectPartList of Structs**,
+  where each Struct is itself an `ObjectPartList[key, value]` (header `01 19 00000000` + count, each
+  element `00` + `encodeStoredValueForGetAll`). Building it = bake the (static) CollectionType + emit
+  the nested-struct result via the existing ObjectPartList/value encoders + reproduce the
+  three-message framing (with the same leading-byte nuance as the GII VOL). A bounded but
+  multi-iteration build; the shim returns the no-IR ack for `execute()` today, so CQs already work —
+  this only adds the initial snapshot for `executeWithInitialResults()`.
 - **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
   multiple CQs per event, CQ stats.
 - **P3:** durable CQs, monitoring, and the cross-replica story.

@@ -161,11 +161,16 @@ public class PutHandler implements OperationHandler {
                 // When a feed is interested, check prior existence so the notification is a
                 // LOCAL_UPDATE (key existed) vs LOCAL_CREATE (new key). The extra read is only paid
                 // when subscriptions are active for this region.
-                boolean existed = subscriptions.hasInterest(region) && repository.containsKey(docId);
+                // CQ needs the prior value (to tell create/update/stops-matching apart); register-
+                // interest only needs prior existence. Read each only when a subscriber needs it.
+                boolean cqOnRegion = subscriptions.hasCqOnRegion(region);
+                StoredValue priorValue = cqOnRegion ? repository.get(docId) : null;
+                boolean existed = priorValue != null
+                        || (subscriptions.hasInterest(region) && repository.containsKey(docId));
                 repository.put(docId, value);
                 String originClientId = SubscriptionRegistry.clientId(ctx);
                 subscriptions.publishWrite(region, key, value, existed, originClientId);
-                subscriptions.publishCqEvent(region, key, value, existed, originClientId);
+                subscriptions.publishCqEvent(region, key, value, priorValue, originClientId);
                 response = GemResponseWriter.buildPutResponse(txId);
                 logRouted("put", region, key, docId, value, txId, "ok");
             }

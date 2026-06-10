@@ -194,15 +194,21 @@ public final class SubscriptionRegistry {
     }
 
     /**
-     * Evaluate registered continuous queries against a write and push a CQ event (LOCAL_CREATE/UPDATE
-     * with a CQ section) to each client whose CQ on this region matches the new value. Independent of
-     * register-interest, and self-suppressed.
+     * Evaluate registered continuous queries against a write and push the appropriate CQ event to each
+     * matching client's feed, using the entry's prior value to determine the CQ operation:
+     * <ul>
+     *   <li>new matches, prior did not (or absent) &rarr; CQ CREATE</li>
+     *   <li>new matches, prior matched &rarr; CQ UPDATE</li>
+     *   <li>new does not match, prior matched &rarr; CQ DESTROY (the entry left the result set)</li>
+     *   <li>neither matches &rarr; no event</li>
+     * </ul>
+     * Independent of register-interest, and self-suppressed.
      */
-    public void publishCqEvent(String region, String key, StoredValue value, boolean update, String originClientId) {
+    public void publishCqEvent(String region, String key, StoredValue value, StoredValue priorValue,
+                               String originClientId) {
         if (cqs.isEmpty() || value == null) {
             return;
         }
-        int messageType = update ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
         for (Channel channel : feeds) {
             if (!channel.isActive()) {
                 continue;
@@ -216,15 +222,25 @@ public final class SubscriptionRegistry {
                 continue;
             }
             for (Cq cq : clientCqs.values()) {
-                if (region.equals(cq.region()) && cq.query().matches(value, OqlQuery.MAP_RESOLVER)) {
+                if (!region.equals(cq.region())) {
+                    continue;
+                }
+                boolean newMatches = cq.query().matches(value, OqlQuery.MAP_RESOLVER);
+                boolean priorMatches = priorValue != null && cq.query().matches(priorValue, OqlQuery.MAP_RESOLVER);
+                if (newMatches) {
+                    int op = priorMatches ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
                     sendMarkerIfNeeded(channel);
-                    byte[] msg = GemResponseWriter.buildCqEvent(
-                            messageType, region, key, value, nextVersionTag(), nextEventId(),
-                            cq.cqName(), messageType);
-                    channel.writeAndFlush(Unpooled.wrappedBuffer(msg));
-                    log.info(StructuredLog.event(
-                            "subscription_cq_event_pushed", "cq", cq.cqName(),
-                            "op", update ? "update" : "create", "region", region, "key", key));
+                    channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildCqEvent(
+                            op, region, key, value, nextVersionTag(), nextEventId(), cq.cqName(), op)));
+                    log.info(StructuredLog.event("subscription_cq_event_pushed", "cq", cq.cqName(),
+                            "op", priorMatches ? "update" : "create", "region", region, "key", key));
+                } else if (priorMatches) {
+                    // The updated value no longer matches: the entry leaves the result set (CQ DESTROY).
+                    sendMarkerIfNeeded(channel);
+                    channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY)));
+                    log.info(StructuredLog.event("subscription_cq_event_pushed", "cq", cq.cqName(),
+                            "op", "destroy-stops-matching", "region", region, "key", key));
                 }
             }
         }
