@@ -43,6 +43,24 @@ public final class MessageTypes {
     public static final int TX_SYNCHRONIZATION = 90;
 
     /*
+     * Client subscription / register-interest opcodes (request side, on the control connection), and
+     * the server->client notification opcodes pushed down the feed connection. See
+     * docs/SUBSCRIPTIONS.md. The feed/control connections are identified by their first
+     * communication-mode byte (101 PrimaryServerToClient feed, 107 ClientToServerForQueue control),
+     * handled in RawShimServer's handshake dispatch.
+     */
+    public static final int REGISTER_INTEREST = 20;
+    public static final int UNREGISTER_INTEREST = 22;
+    public static final int REGISTER_INTEREST_LIST = 24;
+    public static final int UNREGISTER_INTEREST_LIST = 25;
+    // Server->client notifications (pushed down the feed):
+    public static final int LOCAL_INVALIDATE = 15;
+    public static final int LOCAL_DESTROY = 16;
+    public static final int LOCAL_CREATE = 27;
+    public static final int LOCAL_UPDATE = 28;
+    public static final int CLIENT_MARKER = 54;
+
+    /*
      * PDX registry request discovered from Geode client PdxInstanceFactory.
      *
      * Geode stack trace:
@@ -62,6 +80,8 @@ public final class MessageTypes {
     // Response opcodes
     public static final int RESPONSE = 1;
     public static final int REPLY = 6;
+    /** Chunked response from the primary server (used by the register-interest KEYS_VALUES reply). */
+    public static final int RESPONSE_FROM_PRIMARY = 32;
 
     /**
      * Geode server-side exception response. The client deserializes part 0 into a Throwable and

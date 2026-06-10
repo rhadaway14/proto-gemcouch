@@ -202,8 +202,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   buffer as plain put/remove (no in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and
   tx failover are not handled.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
-- [ ] **Register interest / subscriptions / events** — client subscription queue and server→client
-  notifications (a subsystem; prerequisite for CQ and listeners).
+- [~] **Register interest / subscriptions / events** — client subscription queue and server→client
+  notifications (a subsystem; prerequisite for CQ and listeners). **P1 DONE** (server→client push
+  works end-to-end): the shim accepts the feed (mode 101) + control (107) connections, records
+  ALL_KEYS interest, and pushes CLIENT_MARKER + LOCAL_CREATE/LOCAL_DESTROY (EventID + versionTag
+  built via Geode's own classes) down interested feeds, so a real Geode 1.15 client's `CacheListener`
+  fires for a create/destroy made by a separate client (`ProtoGemCouchSubscriptionIntegrationTest`).
+  See `docs/SUBSCRIPTIONS.md`; `tools/SubscriptionCapture` reproduces the capture. **Remaining
+  (P2/P3):** per-client interest + regex/key-list, LOCAL_UPDATE/INVALIDATE + create/update
+  distinction, KEYS_VALUES GII, self-event suppression, UNREGISTER, acks/keepalive, durable clients,
+  redundancy, and a cross-replica eventing backplane (single-instance only today).
 - [ ] **Server-side functions** — `onRegion`/`onServer`/`onMembers` execution.
 - [ ] **Partitioned-region metadata / single-hop** — bucket routing
   (`GET_CLIENT_PARTITION_ATTRIBUTES` is only stubbed today).

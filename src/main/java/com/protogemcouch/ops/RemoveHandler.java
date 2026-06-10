@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
@@ -23,15 +24,22 @@ public class RemoveHandler implements OperationHandler {
 
     private final Repository repository;
     private final TransactionRegistry transactions;
+    private final SubscriptionRegistry subscriptions;
 
-    public RemoveHandler(Repository repository, TransactionRegistry transactions) {
+    public RemoveHandler(Repository repository, TransactionRegistry transactions,
+                         SubscriptionRegistry subscriptions) {
         this.repository = repository;
         this.transactions = transactions;
+        this.subscriptions = subscriptions;
     }
 
-    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public RemoveHandler(Repository repository, TransactionRegistry transactions) {
+        this(repository, transactions, new SubscriptionRegistry());
+    }
+
+    /** Convenience for non-transactional callers/tests: uses private, empty registries. */
     public RemoveHandler(Repository repository) {
-        this(repository, new TransactionRegistry());
+        this(repository, new TransactionRegistry(), new SubscriptionRegistry());
     }
 
     @Override
@@ -76,6 +84,7 @@ public class RemoveHandler implements OperationHandler {
         log.info(StructuredLog.event(
                 "handler_remove", "region", region, "key", key, "docId", docId, "txId", txId));
         repository.remove(docId);
+        subscriptions.publishDestroy(region, key, SubscriptionRegistry.clientId(ctx));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
     }
 

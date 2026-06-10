@@ -2,6 +2,7 @@ package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.StoredValue;
@@ -38,15 +39,22 @@ public class PutHandler implements OperationHandler {
 
     private final Repository repository;
     private final TransactionRegistry transactions;
+    private final SubscriptionRegistry subscriptions;
 
-    public PutHandler(Repository repository, TransactionRegistry transactions) {
+    public PutHandler(Repository repository, TransactionRegistry transactions,
+                      SubscriptionRegistry subscriptions) {
         this.repository = repository;
         this.transactions = transactions;
+        this.subscriptions = subscriptions;
     }
 
-    /** Convenience for non-transactional callers/tests: uses a private, empty transaction registry. */
+    public PutHandler(Repository repository, TransactionRegistry transactions) {
+        this(repository, transactions, new SubscriptionRegistry());
+    }
+
+    /** Convenience for non-transactional callers/tests: uses private, empty registries. */
     public PutHandler(Repository repository) {
-        this(repository, new TransactionRegistry());
+        this(repository, new TransactionRegistry(), new SubscriptionRegistry());
     }
 
     @Override
@@ -150,7 +158,12 @@ public class PutHandler implements OperationHandler {
                 }
             }
             default -> {
+                // When a feed is interested, check prior existence so the notification is a
+                // LOCAL_UPDATE (key existed) vs LOCAL_CREATE (new key). The extra read is only paid
+                // when subscriptions are active for this region.
+                boolean existed = subscriptions.hasInterest(region) && repository.containsKey(docId);
                 repository.put(docId, value);
+                subscriptions.publishWrite(region, key, value, existed, SubscriptionRegistry.clientId(ctx));
                 response = GemResponseWriter.buildPutResponse(txId);
                 logRouted("put", region, key, docId, value, txId, "ok");
             }

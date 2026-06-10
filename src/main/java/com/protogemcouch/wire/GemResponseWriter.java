@@ -67,6 +67,62 @@ public final class GemResponseWriter {
     private static final int TX_COMMIT_UNIQ_ID_OFFSET = 6;
 
     /*
+     * The reply to REGISTER_INTEREST with InterestResultPolicy.NONE: a chunked message carrying an
+     * empty result list (no initial image). Captured verbatim from a real Geode 1.15 server — it has
+     * no region/key/txId-specific content, so it is replayed as-is. KEYS / KEYS_VALUES GII replies are
+     * a later phase (see docs/SUBSCRIPTIONS.md).
+     */
+    private static final byte[] REGISTER_INTEREST_NONE_REPLY = ByteUtils.hex(
+            "0000002000000001ffffffff000000070100000002014100000000060000000600000001ffffffff000000000100"
+          + "00000000060000000600000001ffffffff00000000010000000000060000000600000001ffffffff00000000010000");
+
+    /** REGISTER_INTEREST reply (NONE policy): an empty-result chunked message the client accepts. */
+    public static byte[] buildRegisterInterestReply() {
+        return REGISTER_INTEREST_NONE_REPLY.clone();
+    }
+
+    /** UNREGISTER_INTEREST reply: a plain REPLY ack (UnregisterInterestOp.processAck accepts any REPLY). */
+    public static byte[] buildUnregisterInterestReply(int txId) {
+        return buildMessage(MessageTypes.REPLY, txId, List.of(new Part(new byte[] {0x00}, (byte) 0)));
+    }
+
+    // Trailer following the chunked VersionedObjectList in a KEYS_VALUES register-interest reply
+    // (a REPLY ack), captured verbatim from the real server.
+    private static final byte[] REGISTER_INTEREST_REPLY_TRAILER =
+            ByteUtils.hex("000000060000000600000001ffffffff00000000010000");
+
+    /**
+     * REGISTER_INTEREST reply with the initial image (InterestResultPolicy.KEYS_VALUES): a chunked
+     * RESPONSE_FROM_PRIMARY (message type 32) whose single object part is an item count (1) followed by
+     * a {@link #buildManualVersionedObjectListPayload VersionedObjectList} of the region's keys and
+     * values, then a REPLY trailer. The VOL (keys + objects, no version tags) deserializes as a valid
+     * VersionedObjectList that the client uses to populate its local cache. Framing captured from the
+     * real Geode 1.15 server.
+     */
+    public static byte[] buildRegisterInterestKeysValuesReply(List<String> keys, Map<String, ?> values) {
+        // The chunk's single object part IS the VersionedObjectList (read by the client via
+        // Part.getObject() -> readObject); it must not be prefixed with any extra byte.
+        byte[] vol = buildManualVersionedObjectListPayload(keys, values);
+
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeInt(MessageTypes.RESPONSE_FROM_PRIMARY); // 32: register-interest chunked reply
+            buf.writeInt(1);                                  // numberOfParts
+            buf.writeInt(-1);                                 // txId
+            buf.writeInt(4 + 1 + vol.length);                 // chunk length (partLen + isObject + data)
+            buf.writeByte(0x01);                              // last (and only) chunk
+            buf.writeInt(vol.length);                         // part length
+            buf.writeByte(0x01);                              // isObject
+            buf.writeBytes(vol);
+            buf.writeBytes(REGISTER_INTEREST_REPLY_TRAILER);
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
      *
      *   new byte[] {}                         -> 2e 00
@@ -551,6 +607,58 @@ public final class GemResponseWriter {
                         new Part(PUT_REPLY_PART3, (byte) 1)
                 )
         );
+    }
+
+    // Server->client subscription notifications (pushed down the feed). Boolean part values captured
+    // from the real Geode server: part[2]/part[7] = Boolean.FALSE (35 00), part[6] = Boolean.TRUE
+    // (35 01, value-is-object). EventID and versionTag are Geode-serialized objects supplied by the
+    // caller. Layout for LOCAL_CREATE/UPDATE (9 parts) and LOCAL_DESTROY (7 parts) matches the capture.
+    private static final byte[] BOOL_FALSE = ByteUtils.hex("3500");
+    private static final byte[] BOOL_TRUE = ByteUtils.hex("3501");
+
+    /** CLIENT_MARKER: sent once down a feed before live events; one object part carrying an EventID. */
+    public static byte[] buildClientMarker(byte[] eventId) {
+        return buildMessage(MessageTypes.CLIENT_MARKER, 0, List.of(new Part(eventId, (byte) 1)));
+    }
+
+    /** LOCAL_CREATE/UPDATE notification for an interested feed (region, key, value, versionTag, eventId). */
+    public static byte[] buildLocalWrite(int messageType, String region, String key, StoredValue value,
+                                         byte[] versionTag, byte[] eventId) {
+        return buildMessage(messageType, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(encodeStoredValueForGetAll(value), (byte) 1),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(eventId, (byte) 1)));
+    }
+
+    /**
+     * LOCAL_DESTROY notification (7 parts, captured from the real server):
+     * region, key, empty callback arg, versionTag, Boolean.TRUE, Boolean.FALSE, EventID.
+     */
+    public static byte[] buildLocalDestroy(String region, String key, byte[] versionTag, byte[] eventId) {
+        return buildLocalKeyEvent(MessageTypes.LOCAL_DESTROY, region, key, versionTag, eventId);
+    }
+
+    /** LOCAL_INVALIDATE notification: same 7-part layout as LOCAL_DESTROY, captured from the server. */
+    public static byte[] buildLocalInvalidate(String region, String key, byte[] versionTag, byte[] eventId) {
+        return buildLocalKeyEvent(MessageTypes.LOCAL_INVALIDATE, region, key, versionTag, eventId);
+    }
+
+    private static byte[] buildLocalKeyEvent(int messageType, String region, String key,
+                                             byte[] versionTag, byte[] eventId) {
+        return buildMessage(messageType, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(eventId, (byte) 1)));
     }
 
     public static byte[] buildRemoveResponse(int txId) {
