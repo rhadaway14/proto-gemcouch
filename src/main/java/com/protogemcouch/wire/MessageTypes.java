@@ -80,6 +80,8 @@ public final class MessageTypes {
     // Response opcodes
     public static final int RESPONSE = 1;
     public static final int REPLY = 6;
+    /** Chunked response from the primary server (used by the register-interest KEYS_VALUES reply). */
+    public static final int RESPONSE_FROM_PRIMARY = 32;
 
     /**
      * Geode server-side exception response. The client deserializes part 0 into a Throwable and

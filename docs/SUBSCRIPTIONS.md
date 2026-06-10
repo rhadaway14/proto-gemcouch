@@ -100,8 +100,13 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     every connection's `ClientProxyMembershipID` bytes are captured at handshake as a stable client
     id (identical across a client's op/control/feed connections), and a mutation is never echoed to
     the originating client's own feed (gate `clientDoesNotReceiveItsOwnEventsEchoedBack`); this client
-    identity is also the foundation for per-client interest + UNREGISTER. Remaining P2: per-client +
-    regex/key-list interest, KEYS_VALUES GII, UNREGISTER.
+    identity is also the foundation for per-client interest + UNREGISTER. **KEYS_VALUES GII DONE** —
+    `registerInterest(KEYS_VALUES)` returns the region's snapshot as a chunked `RESPONSE_FROM_PRIMARY`
+    whose single object part is a `VersionedObjectList` (keys + values, reusing the getAll VOL builder;
+    no version tags needed — the part is the VOL directly, read via `Part.getObject()`), so the client
+    loads the initial image into its local cache (gate `registerInterestKeysValuesLoadsInitialImage`).
+    The policy is read from the request's `01 25 <ordinal>` part (NONE=0/KEYS=1/KEYS_VALUES=2); NONE
+    still gets the empty ack. Remaining P2: per-client + regex/key-list interest, UNREGISTER.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

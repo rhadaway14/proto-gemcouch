@@ -162,6 +162,27 @@ class ProtoGemCouchSubscriptionIntegrationTest {
     }
 
     @Test
+    void registerInterestKeysValuesLoadsInitialImage() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        // A separate client populates the region BEFORE this client registers interest, so the keys
+        // can only appear in this client's local cache via the KEYS_VALUES initial image (GII).
+        runPutOnce(regionName, "gk1", "v1");
+        runPutOnce(regionName, "gk2", "v2");
+        runPutOnce(regionName, "gk3", "v3");
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.KEYS_VALUES);
+
+        // The initial image must have populated the local cache (containsKey is a local check).
+        assertTrue(region.containsKey("gk1") && region.containsKey("gk2") && region.containsKey("gk3"),
+                "KEYS_VALUES register-interest loaded the region snapshot into the local cache");
+        assertEquals("v1", region.get("gk1"));
+        assertEquals("v2", region.get("gk2"));
+        assertEquals("v3", region.get("gk3"));
+    }
+
+    @Test
     void clientDoesNotReceiveItsOwnEventsEchoedBack() throws Exception {
         String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
         // A self-echoed create would land as an afterUpdate (the key already exists locally after the

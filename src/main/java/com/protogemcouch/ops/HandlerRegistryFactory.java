@@ -41,7 +41,7 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.CONTROL, new SimpleAckHandler("CONTROL FRAME type=18"));
         registry.register(MessageTypes.PING, new SimpleAckHandler("PING FRAME"));
 
-        RegisterInterestHandler registerInterest = new RegisterInterestHandler(subscriptions);
+        RegisterInterestHandler registerInterest = new RegisterInterestHandler(repository, subscriptions);
         registry.register(MessageTypes.REGISTER_INTEREST, registerInterest);
         registry.register(MessageTypes.REGISTER_INTEREST_LIST, registerInterest);
 

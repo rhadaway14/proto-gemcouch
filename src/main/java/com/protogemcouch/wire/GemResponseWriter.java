@@ -81,6 +81,42 @@ public final class GemResponseWriter {
         return REGISTER_INTEREST_NONE_REPLY.clone();
     }
 
+    // Trailer following the chunked VersionedObjectList in a KEYS_VALUES register-interest reply
+    // (a REPLY ack), captured verbatim from the real server.
+    private static final byte[] REGISTER_INTEREST_REPLY_TRAILER =
+            ByteUtils.hex("000000060000000600000001ffffffff00000000010000");
+
+    /**
+     * REGISTER_INTEREST reply with the initial image (InterestResultPolicy.KEYS_VALUES): a chunked
+     * RESPONSE_FROM_PRIMARY (message type 32) whose single object part is an item count (1) followed by
+     * a {@link #buildManualVersionedObjectListPayload VersionedObjectList} of the region's keys and
+     * values, then a REPLY trailer. The VOL (keys + objects, no version tags) deserializes as a valid
+     * VersionedObjectList that the client uses to populate its local cache. Framing captured from the
+     * real Geode 1.15 server.
+     */
+    public static byte[] buildRegisterInterestKeysValuesReply(List<String> keys, Map<String, ?> values) {
+        // The chunk's single object part IS the VersionedObjectList (read by the client via
+        // Part.getObject() -> readObject); it must not be prefixed with any extra byte.
+        byte[] vol = buildManualVersionedObjectListPayload(keys, values);
+
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeInt(MessageTypes.RESPONSE_FROM_PRIMARY); // 32: register-interest chunked reply
+            buf.writeInt(1);                                  // numberOfParts
+            buf.writeInt(-1);                                 // txId
+            buf.writeInt(4 + 1 + vol.length);                 // chunk length (partLen + isObject + data)
+            buf.writeByte(0x01);                              // last (and only) chunk
+            buf.writeInt(vol.length);                         // part length
+            buf.writeByte(0x01);                              // isObject
+            buf.writeBytes(vol);
+            buf.writeBytes(REGISTER_INTEREST_REPLY_TRAILER);
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
     /*
      * Geode DataSerializer byte[] marker observed from ByteArrayShapeTest:
      *
