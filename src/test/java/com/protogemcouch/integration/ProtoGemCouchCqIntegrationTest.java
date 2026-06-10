@@ -139,6 +139,46 @@ class ProtoGemCouchCqIntegrationTest {
         assertEquals("dk", destroyedKey.get());
     }
 
+    @Test
+    void cqListenerFiresDestroyWhenUpdatedValueStopsMatching() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch destroyed = new CountDownLatch(1);
+        AtomicReference<Object> destroyedKey = new AtomicReference<>();
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                if ("DESTROY".equals(String.valueOf(event.getQueryOperation()))) {
+                    destroyedKey.set(event.getKey());
+                    destroyed.countDown();
+                }
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        CqQuery cq = qs.newCq("itCqS", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", caf.create());
+        cq.execute();
+
+        // A separate client creates a matching entry (amount 20) then updates it to a non-matching one
+        // (amount 1): the entry leaves the result set, so the CQ must fire DESTROY (stops-matching).
+        runPutMap(regionName, "sk", 20, "mapstops");
+
+        assertTrue(destroyed.await(20, TimeUnit.SECONDS),
+                "the CqListener fired DESTROY when the updated value stopped matching the predicate");
+        assertEquals("sk", destroyedKey.get());
+    }
+
     private static void runPutMap(String region, String key, int amount) throws Exception {
         runPutMap(region, key, amount, "map");
     }

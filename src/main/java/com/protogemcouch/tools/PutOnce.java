@@ -56,6 +56,16 @@ public final class PutOnce {
                     r.remove(key);
                     System.out.println("PutOnce: removed " + region + "/" + key);
                 }
+            } else if ("mapstops".equalsIgnoreCase(op)) {
+                // Put a matching map {amount: value}, then update it to a non-matching {amount: 1}
+                // (stops-matching -> CQ DESTROY).
+                java.util.HashMap<String, Object> m1 = new java.util.HashMap<>();
+                m1.put("amount", Integer.parseInt(value));
+                r.put(key, m1);
+                java.util.HashMap<String, Object> m2 = new java.util.HashMap<>();
+                m2.put("amount", 1);
+                r.put(key, m2);
+                System.out.println("PutOnce: " + region + "/" + key + " {amount:" + value + "} then {amount:1}");
             }
         } finally {
             cache.close();
