@@ -230,6 +230,59 @@ public final class SubscriptionRegistry {
         }
     }
 
+    /** True if any open feed's client has a CQ registered on this region (gates the prior-value read on remove). */
+    public boolean hasCqOnRegion(String region) {
+        if (cqs.isEmpty() || region == null) {
+            return false;
+        }
+        for (Channel channel : feeds) {
+            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(channel.attr(CLIENT_ID).get());
+            if (clientCqs != null) {
+                for (Cq cq : clientCqs.values()) {
+                    if (region.equals(cq.region())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Push a CQ DESTROY event to each client whose CQ on this region matched the entry's prior value
+     * (the value before removal). For a SELECT * CQ, any prior value matches; with a WHERE, the prior
+     * value is evaluated against the predicate. Self-suppressed.
+     */
+    public void publishCqDestroy(String region, String key, StoredValue priorValue, String originClientId) {
+        if (cqs.isEmpty() || priorValue == null) {
+            return;
+        }
+        for (Channel channel : feeds) {
+            if (!channel.isActive()) {
+                continue;
+            }
+            String feedClientId = channel.attr(CLIENT_ID).get();
+            if (feedClientId == null || feedClientId.equals(originClientId)) {
+                continue;
+            }
+            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(feedClientId);
+            if (clientCqs == null) {
+                continue;
+            }
+            for (Cq cq : clientCqs.values()) {
+                if (region.equals(cq.region()) && cq.query().matches(priorValue, OqlQuery.MAP_RESOLVER)) {
+                    sendMarkerIfNeeded(channel);
+                    byte[] msg = GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY);
+                    channel.writeAndFlush(Unpooled.wrappedBuffer(msg));
+                    log.info(StructuredLog.event(
+                            "subscription_cq_event_pushed", "cq", cq.cqName(), "op", "destroy",
+                            "region", region, "key", key));
+                }
+            }
+        }
+    }
+
     private void sendMarkerIfNeeded(Channel channel) {
         if (channel.attr(MARKER_SENT).setIfAbsent(Boolean.TRUE) == null) {
             byte[] markerEventId = serialize(

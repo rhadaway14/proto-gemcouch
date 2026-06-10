@@ -83,8 +83,13 @@ public class RemoveHandler implements OperationHandler {
 
         log.info(StructuredLog.event(
                 "handler_remove", "region", region, "key", key, "docId", docId, "txId", txId));
+        // A CQ DESTROY must evaluate the predicate against the value before removal, so read it first
+        // (only when a CQ exists on this region, to avoid the extra read otherwise).
+        StoredValue priorValue = subscriptions.hasCqOnRegion(region) ? repository.get(docId) : null;
         repository.remove(docId);
-        subscriptions.publishDestroy(region, key, SubscriptionRegistry.clientId(ctx));
+        String originClientId = SubscriptionRegistry.clientId(ctx);
+        subscriptions.publishDestroy(region, key, originClientId);
+        subscriptions.publishCqDestroy(region, key, priorValue, originClientId);
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
     }
 

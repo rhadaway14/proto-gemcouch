@@ -68,9 +68,13 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   with the `[numCqElems, cqName, cqOp]` section) — self-suppressed. `CloseCqHandler` (STOPCQ/CLOSECQ)
   deregisters + acks. Gate `ProtoGemCouchCqIntegrationTest.cqListenerFiresOnlyForPredicateMatchingMutation`
   (a real client's CqListener fires for a `WHERE r.amount > 10` match and not for a non-match, from a
-  separate client). **Remaining P1/P2:** CQ DESTROY events (LOCAL_DESTROY + CQ section, on REMOVE),
-  EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
-  multiple CQs per event, PDX-field CQ predicates (uses the map resolver today).
+  separate client). **CQ DESTROY events** are also delivered: on REMOVE, `RemoveHandler` reads the
+  prior value (only when a CQ exists on the region) and `publishCqDestroy` pushes a CQ DESTROY
+  (`buildCqDestroy`: LOCAL_DESTROY + CQ section) to clients whose CQ predicate matched that prior
+  value — so create/update/destroy CQ events are complete (gate
+  `cqListenerFiresDestroyWhenMatchingEntryIsRemoved`). **Remaining P2:** EXECUTECQ_WITH_IR initial
+  result set, "stops-matching" on update → CQ DESTROY (prior-match tracking), multiple CQs per event,
+  PDX-field CQ predicates (uses the map resolver today).
 - **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
   multiple CQs per event, CQ stats.
 - **P3:** durable CQs, monitoring, and the cross-replica story.

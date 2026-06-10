@@ -666,6 +666,26 @@ public final class GemResponseWriter {
                 new Part(eventId, (byte) 1)));
     }
 
+    /**
+     * A CQ destroy notification (10 parts, captured from the real server): region, key, empty
+     * callback, versionTag, false, true(hasCqs), then the CQ section [numCqElems, cqName, cqOp], then
+     * the EventID. (No value/object parts, unlike the create/update CQ event.)
+     */
+    public static byte[] buildCqDestroy(String region, String key, byte[] versionTag, byte[] eventId,
+                                        String cqName, int cqOp) {
+        return buildMessage(MessageTypes.LOCAL_DESTROY, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),                                  // hasCqs
+                new Part(intBytes(2), (byte) 0),                               // numCqElems
+                new Part(cqName.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(intBytes(cqOp), (byte) 0),
+                new Part(eventId, (byte) 1)));
+    }
+
     private static byte[] intBytes(int v) {
         return new byte[] {(byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v};
     }

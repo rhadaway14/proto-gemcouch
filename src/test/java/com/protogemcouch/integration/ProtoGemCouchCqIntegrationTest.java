@@ -101,12 +101,54 @@ class ProtoGemCouchCqIntegrationTest {
                 "the CQ fired only for the predicate-matching entry (not the non-matching 'low')");
     }
 
+    @Test
+    void cqListenerFiresDestroyWhenMatchingEntryIsRemoved() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch destroyed = new CountDownLatch(1);
+        AtomicReference<Object> destroyedKey = new AtomicReference<>();
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                if ("DESTROY".equals(String.valueOf(event.getQueryOperation()))) {
+                    destroyedKey.set(event.getKey());
+                    destroyed.countDown();
+                }
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        CqQuery cq = qs.newCq("itCqD", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", caf.create());
+        cq.execute();
+
+        // A separate client creates a matching entry then removes it -> CQ DESTROY.
+        runPutMap(regionName, "dk", 20, "mapdestroy");
+
+        assertTrue(destroyed.await(20, TimeUnit.SECONDS), "the CqListener fired a DESTROY for the removed match");
+        assertEquals("dk", destroyedKey.get());
+    }
+
     private static void runPutMap(String region, String key, int amount) throws Exception {
+        runPutMap(region, key, amount, "map");
+    }
+
+    private static void runPutMap(String region, String key, int amount, String op) throws Exception {
         String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
         String classpath = System.getProperty("java.class.path");
         Process process = new ProcessBuilder(
                 javaBin, "-cp", classpath, "com.protogemcouch.tools.PutOnce",
-                HOST, Integer.toString(SHIM_PORT), region, key, Integer.toString(amount), "map")
+                HOST, Integer.toString(SHIM_PORT), region, key, Integer.toString(amount), op)
                 .inheritIO()
                 .start();
         if (!process.waitFor(30, TimeUnit.SECONDS)) {
