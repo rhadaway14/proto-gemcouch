@@ -54,6 +54,8 @@ public final class HandlerRegistryFactory {
         CloseCqHandler closeCq = new CloseCqHandler(subscriptions);
         registry.register(MessageTypes.STOPCQ, closeCq);
         registry.register(MessageTypes.CLOSECQ, closeCq);
+        // Subscription/CQ clients periodically ack received events; drain without a reply.
+        registry.register(MessageTypes.PERIODIC_ACK, new PeriodicAckHandler());
 
         /*
          * PDX registry discovery showed Geode PdxInstanceFactory.create()

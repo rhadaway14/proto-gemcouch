@@ -65,6 +65,12 @@ public final class MessageTypes {
      * LOCAL_CREATE/UPDATE/DESTROY notifications with an extra [numCqElems, cqName, cqOp] section.
      * See docs/CONTINUOUS_QUERIES.md.
      */
+    /**
+     * Periodic batched ack from a subscription/CQ client so the server can trim its event queue. The
+     * shim keeps no durable queue, so it drains this without a reply (PeriodicAckOp is fire-and-forget).
+     */
+    public static final int PERIODIC_ACK = 52;
+
     public static final int EXECUTECQ = 42;
     public static final int EXECUTECQ_WITH_IR = 43;
     public static final int STOPCQ = 44;
