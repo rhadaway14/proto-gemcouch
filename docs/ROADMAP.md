@@ -203,15 +203,18 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   tx failover are not handled.
 - [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
 - [~] **Register interest / subscriptions / events** — client subscription queue and server→client
-  notifications (a subsystem; prerequisite for CQ and listeners). **P1 DONE** (server→client push
-  works end-to-end): the shim accepts the feed (mode 101) + control (107) connections, records
-  ALL_KEYS interest, and pushes CLIENT_MARKER + LOCAL_CREATE/LOCAL_DESTROY (EventID + versionTag
-  built via Geode's own classes) down interested feeds, so a real Geode 1.15 client's `CacheListener`
-  fires for a create/destroy made by a separate client (`ProtoGemCouchSubscriptionIntegrationTest`).
-  See `docs/SUBSCRIPTIONS.md`; `tools/SubscriptionCapture` reproduces the capture. **Remaining
-  (P2/P3):** per-client interest + regex/key-list, LOCAL_UPDATE/INVALIDATE + create/update
-  distinction, KEYS_VALUES GII, self-event suppression, UNREGISTER, acks/keepalive, durable clients,
-  redundancy, and a cross-replica eventing backplane (single-instance only today).
+  notifications (a subsystem; prerequisite for CQ and listeners). **P1 + P2 DONE** (server→client push
+  works end-to-end), validated against a real Geode 1.15 client by 8 gates in
+  `ProtoGemCouchSubscriptionIntegrationTest`: the shim accepts the feed (mode 101) + control (107)
+  connections; **register-interest** records per-client interest and `KEYS_VALUES` returns the region's
+  initial image (GII via a `VersionedObjectList`); **events** push CLIENT_MARKER + LOCAL_CREATE /
+  UPDATE / DESTROY / INVALIDATE (EventID + versionTag built via Geode's own classes) to interested
+  feeds, so a `CacheListener` fires for create/update/destroy/invalidate by another client; with
+  **create/update distinction**, **client-identity self-event suppression**, and **UNREGISTER**. See
+  `docs/SUBSCRIPTIONS.md`; `tools/SubscriptionCapture` reproduces the captures. **Remaining (P3):**
+  regex/key-list per-key event filtering (registers the whole region today), durable clients,
+  redundancy/MAKE_PRIMARY, PERIODIC_ACK draining / keepalive, and a cross-replica eventing backplane
+  (single shim instance only today).
 - [ ] **Server-side functions** — `onRegion`/`onServer`/`onMembers` execution.
 - [ ] **Partitioned-region metadata / single-hop** — bucket routing
   (`GET_CLIENT_PARTITION_ATTRIBUTES` is only stubbed today).
