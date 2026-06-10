@@ -231,6 +231,29 @@ class ProtoGemCouchSubscriptionIntegrationTest {
         assertEquals("evt4", key.get());
     }
 
+    @Test
+    void unregisterInterestStopsEvents() throws Exception {
+        String regionName = "sub" + UUID.randomUUID().toString().replace("-", "");
+        CountDownLatch event = new CountDownLatch(1);
+
+        Region<String, Object> region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                    @Override
+                    public void afterCreate(EntryEvent<String, Object> e) {
+                        event.countDown();
+                    }
+                })
+                .create(regionName);
+        region.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+        region.unregisterInterest("ALL_KEYS");
+
+        // After unregistering, a remote mutation must NOT reach this client's feed.
+        runPutOnce(regionName, "afterUnregister", "v");
+
+        assertFalse(event.await(5, TimeUnit.SECONDS),
+                "no events are delivered after unregisterInterest");
+    }
+
     private static void runPutOnce(String region, String key, String value) throws Exception {
         runPutOnce(region, key, value, null);
     }

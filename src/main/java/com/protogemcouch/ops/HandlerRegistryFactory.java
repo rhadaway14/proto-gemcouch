@@ -44,6 +44,9 @@ public final class HandlerRegistryFactory {
         RegisterInterestHandler registerInterest = new RegisterInterestHandler(repository, subscriptions);
         registry.register(MessageTypes.REGISTER_INTEREST, registerInterest);
         registry.register(MessageTypes.REGISTER_INTEREST_LIST, registerInterest);
+        UnregisterInterestHandler unregisterInterest = new UnregisterInterestHandler(subscriptions);
+        registry.register(MessageTypes.UNREGISTER_INTEREST, unregisterInterest);
+        registry.register(MessageTypes.UNREGISTER_INTEREST_LIST, unregisterInterest);
 
         /*
          * PDX registry discovery showed Geode PdxInstanceFactory.create()

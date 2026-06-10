@@ -45,7 +45,7 @@ public class RegisterInterestHandler implements OperationHandler {
                 : ByteUtils.bytesToString(frame.getParts().get(0).getPayload());
         int policy = interestResultPolicy(frame);
 
-        subscriptions.registerInterest(region);
+        subscriptions.registerInterest(SubscriptionRegistry.clientId(ctx), region);
 
         byte[] reply;
         if (policy == POLICY_KEYS_VALUES) {

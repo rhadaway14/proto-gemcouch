@@ -51,7 +51,11 @@ public final class SubscriptionRegistry {
             AttributeKey.valueOf("protogemcouch.subscription.clientId");
 
     private final Set<Channel> feeds = ConcurrentHashMap.newKeySet();
-    private final Set<String> interestedRegions = ConcurrentHashMap.newKeySet();
+    // Per-client interest: client id -> the regions that client registered interest in. A client only
+    // receives events for regions in its set (ALL_KEYS granularity; regex/key-list register the whole
+    // region — see docs/SUBSCRIPTIONS.md).
+    private final java.util.concurrent.ConcurrentMap<String, Set<String>> interests =
+            new ConcurrentHashMap<>();
 
     // A stable fabricated membership identity for events from this shim (used by the client only as an
     // opaque dedup/version key), plus monotonic counters for EventID sequence and entry/region versions.
@@ -73,24 +77,50 @@ public final class SubscriptionRegistry {
 
     public void addFeed(Channel channel) {
         feeds.add(channel);
-        channel.closeFuture().addListener(f -> feeds.remove(channel));
+        channel.closeFuture().addListener(f -> {
+            feeds.remove(channel);
+            // When a client's feed closes, drop its interests (a client has one feed).
+            String clientId = channel.attr(CLIENT_ID).get();
+            if (clientId != null) {
+                interests.remove(clientId);
+            }
+        });
     }
 
-    public void registerInterest(String region) {
-        if (region != null && !region.isBlank()) {
-            interestedRegions.add(region);
+    public void registerInterest(String clientId, String region) {
+        if (clientId != null && region != null && !region.isBlank()) {
+            interests.computeIfAbsent(clientId, k -> ConcurrentHashMap.newKeySet()).add(region);
         }
     }
 
-    public void unregisterInterest(String region) {
-        if (region != null) {
-            interestedRegions.remove(region);
+    public void unregisterInterest(String clientId, String region) {
+        if (clientId != null && region != null) {
+            Set<String> regions = interests.get(clientId);
+            if (regions != null) {
+                regions.remove(region);
+            }
         }
     }
 
-    /** True if any client has registered interest in this region and at least one feed is open. */
+    private boolean isInterested(String clientId, String region) {
+        if (clientId == null || region == null) {
+            return false;
+        }
+        Set<String> regions = interests.get(clientId);
+        return regions != null && regions.contains(region);
+    }
+
+    /** True if any open feed's client has registered interest in this region. */
     public boolean hasInterest(String region) {
-        return !feeds.isEmpty() && region != null && interestedRegions.contains(region);
+        if (region == null) {
+            return false;
+        }
+        for (Channel feed : feeds) {
+            if (isInterested(feed.attr(CLIENT_ID).get(), region)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Set<Channel> feeds() {
@@ -139,8 +169,13 @@ public final class SubscriptionRegistry {
             if (!channel.isActive()) {
                 continue;
             }
+            String feedClientId = channel.attr(CLIENT_ID).get();
+            // Per-client interest: only push to feeds whose client registered interest in this region.
+            if (!isInterested(feedClientId, region)) {
+                continue;
+            }
             // Self-event suppression: never echo a mutation back to the client that made it.
-            if (originClientId != null && originClientId.equals(channel.attr(CLIENT_ID).get())) {
+            if (originClientId != null && originClientId.equals(feedClientId)) {
                 continue;
             }
             // CLIENT_MARKER once per feed before its first live event (the GII boundary). Uses a

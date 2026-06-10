@@ -81,6 +81,11 @@ public final class GemResponseWriter {
         return REGISTER_INTEREST_NONE_REPLY.clone();
     }
 
+    /** UNREGISTER_INTEREST reply: a plain REPLY ack (UnregisterInterestOp.processAck accepts any REPLY). */
+    public static byte[] buildUnregisterInterestReply(int txId) {
+        return buildMessage(MessageTypes.REPLY, txId, List.of(new Part(new byte[] {0x00}, (byte) 0)));
+    }
+
     // Trailer following the chunked VersionedObjectList in a KEYS_VALUES register-interest reply
     // (a REPLY ack), captured verbatim from the real server.
     private static final byte[] REGISTER_INTEREST_REPLY_TRAILER =
