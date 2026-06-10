@@ -201,7 +201,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   writes (no per-op expiry in Couchbase transactions); transactional putIfAbsent/replace/remove(k,v)
   buffer as plain put/remove (no in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and
   tx failover are not handled.
-- [ ] **Continuous Queries (CQ)** — registration + event delivery (needs the subscription channel).
+- [~] **Continuous Queries (CQ)** — registration + event delivery. **P1 DONE**: EXECUTECQ (42)
+  compiles the OQL with the shim's own `OqlQuery` and registers it per client; matching PUT/REMOVE
+  push CQ events (LOCAL_CREATE/UPDATE/DESTROY with the `[numCqElems, cqName, cqOp]` section) to the
+  client's feed, so a real Geode 1.15 client's `CqListener` fires for create/update/destroy filtered
+  by the predicate (`ProtoGemCouchCqIntegrationTest`); STOPCQ/CLOSECQ deregister. Built on the
+  subscription feed + OQL engine; `geode-cq` is a test-only dependency (the shim needs no CQ engine).
+  See `docs/CONTINUOUS_QUERIES.md`. **Remaining (P2):** executeWithInitialResults, stops-matching on
+  update → CQ DESTROY (prior-match tracking), multiple CQs per event, PDX-field CQ predicates.
 - [~] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners). **P1 + P2 DONE** (server→client push
   works end-to-end), validated against a real Geode 1.15 client by 8 gates in

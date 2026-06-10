@@ -163,7 +163,9 @@ public class PutHandler implements OperationHandler {
                 // when subscriptions are active for this region.
                 boolean existed = subscriptions.hasInterest(region) && repository.containsKey(docId);
                 repository.put(docId, value);
-                subscriptions.publishWrite(region, key, value, existed, SubscriptionRegistry.clientId(ctx));
+                String originClientId = SubscriptionRegistry.clientId(ctx);
+                subscriptions.publishWrite(region, key, value, existed, originClientId);
+                subscriptions.publishCqEvent(region, key, value, existed, originClientId);
                 response = GemResponseWriter.buildPutResponse(txId);
                 logRouted("put", region, key, docId, value, txId, "ok");
             }

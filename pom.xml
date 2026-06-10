@@ -47,6 +47,18 @@
       <version>${geode.version}</version>
     </dependency>
 
+    <!--
+      Client-side Continuous Query engine. The shim does NOT use this (it matches with its own
+      OqlQuery and speaks the CQ wire protocol directly); it is test-scoped so the integration test
+      client can register CQs (QueryService.newCq needs CqServiceImpl at runtime, which lives here).
+    -->
+    <dependency>
+      <groupId>org.apache.geode</groupId>
+      <artifactId>geode-cq</artifactId>
+      <version>${geode.version}</version>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-all</artifactId>

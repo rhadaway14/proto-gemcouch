@@ -644,6 +644,84 @@ public final class GemResponseWriter {
         return buildLocalKeyEvent(MessageTypes.LOCAL_DESTROY, region, key, versionTag, eventId);
     }
 
+    /**
+     * A CQ create/update notification (12 parts, captured from the real server): the standard event
+     * parts, then {@code hasCqs=true}, then the CQ section {@code [numCqElems, cqName, cqOp]} (one CQ
+     * = 2 elements: name + op), then the EventID. The client routes it to the named CQ's CqListener.
+     */
+    public static byte[] buildCqEvent(int messageType, String region, String key, StoredValue value,
+                                      byte[] versionTag, byte[] eventId, String cqName, int cqOp) {
+        return buildMessage(messageType, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(encodeStoredValueForGetAll(value), (byte) 1),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),                                  // hasCqs
+                new Part(intBytes(2), (byte) 0),                               // numCqElems (1 CQ = name+op)
+                new Part(cqName.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(intBytes(cqOp), (byte) 0),
+                new Part(eventId, (byte) 1)));
+    }
+
+    /**
+     * A CQ destroy notification (10 parts, captured from the real server): region, key, empty
+     * callback, versionTag, false, true(hasCqs), then the CQ section [numCqElems, cqName, cqOp], then
+     * the EventID. (No value/object parts, unlike the create/update CQ event.)
+     */
+    public static byte[] buildCqDestroy(String region, String key, byte[] versionTag, byte[] eventId,
+                                        String cqName, int cqOp) {
+        return buildMessage(MessageTypes.LOCAL_DESTROY, 0, List.of(
+                new Part(region.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(key.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(new byte[0], (byte) 0),
+                new Part(versionTag, (byte) 1),
+                new Part(BOOL_FALSE, (byte) 1),
+                new Part(BOOL_TRUE, (byte) 1),                                  // hasCqs
+                new Part(intBytes(2), (byte) 0),                               // numCqElems
+                new Part(cqName.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0),
+                new Part(intBytes(cqOp), (byte) 0),
+                new Part(eventId, (byte) 1)));
+    }
+
+    private static byte[] intBytes(int v) {
+        return new byte[] {(byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v};
+    }
+
+    private static final byte[] EXECUTECQ_REPLY_MESSAGE =
+            "cq created successfully.".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+
+    /**
+     * EXECUTECQ reply: a chunked REPLY (CreateCQOp.processResponse reads a ChunkedMessage) — message
+     * type REPLY, one chunk (last), one raw-string part "cq created successfully." Matches the
+     * chunked message the real Geode 1.15 server sends (the capture's other trailing REPLY messages
+     * were unrelated and must not be included).
+     */
+    public static byte[] buildExecuteCqReply() {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeInt(MessageTypes.REPLY);                       // chunked message type
+            buf.writeInt(1);                                        // numberOfParts
+            buf.writeInt(-1);                                       // txId
+            buf.writeInt(4 + 1 + EXECUTECQ_REPLY_MESSAGE.length);   // chunk length
+            buf.writeByte(0x01);                                    // last (and only) chunk
+            buf.writeInt(EXECUTECQ_REPLY_MESSAGE.length);           // part length
+            buf.writeByte(0x00);                                    // raw (not object)
+            buf.writeBytes(EXECUTECQ_REPLY_MESSAGE);
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    /** STOPCQ / CLOSECQ reply: a plain REPLY ack. */
+    public static byte[] buildCqAck(int txId) {
+        return buildMessage(MessageTypes.REPLY, txId, List.of(new Part(new byte[] {0x00}, (byte) 0)));
+    }
+
     /** LOCAL_INVALIDATE notification: same 7-part layout as LOCAL_DESTROY, captured from the server. */
     public static byte[] buildLocalInvalidate(String region, String key, byte[] versionTag, byte[] eventId) {
         return buildLocalKeyEvent(MessageTypes.LOCAL_INVALIDATE, region, key, versionTag, eventId);
