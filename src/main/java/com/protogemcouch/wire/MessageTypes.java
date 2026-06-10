@@ -61,6 +61,17 @@ public final class MessageTypes {
     public static final int CLIENT_MARKER = 54;
 
     /*
+     * Continuous Query opcodes (on the control connection). CQ events are pushed down the feed as
+     * LOCAL_CREATE/UPDATE/DESTROY notifications with an extra [numCqElems, cqName, cqOp] section.
+     * See docs/CONTINUOUS_QUERIES.md.
+     */
+    public static final int EXECUTECQ = 42;
+    public static final int EXECUTECQ_WITH_IR = 43;
+    public static final int STOPCQ = 44;
+    public static final int CLOSECQ = 45;
+    public static final int CLOSECLIENTCQS = 46;
+
+    /*
      * PDX registry request discovered from Geode client PdxInstanceFactory.
      *
      * Geode stack trace:

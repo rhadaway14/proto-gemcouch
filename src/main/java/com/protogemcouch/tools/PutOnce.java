@@ -46,6 +46,12 @@ public final class PutOnce {
             } else if ("invalidate".equalsIgnoreCase(op)) {
                 r.invalidate(key);
                 System.out.println("PutOnce: invalidated " + region + "/" + key);
+            } else if ("map".equalsIgnoreCase(op)) {
+                // Overwrite the key with a HashMap {amount: <value as int>} for CQ predicate tests.
+                java.util.HashMap<String, Object> m = new java.util.HashMap<>();
+                m.put("amount", Integer.parseInt(value));
+                r.put(key, m);
+                System.out.println("PutOnce: put map " + region + "/" + key + "={amount:" + value + "}");
             }
         } finally {
             cache.close();

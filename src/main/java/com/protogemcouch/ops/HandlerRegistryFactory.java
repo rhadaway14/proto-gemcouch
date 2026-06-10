@@ -48,6 +48,13 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.UNREGISTER_INTEREST, unregisterInterest);
         registry.register(MessageTypes.UNREGISTER_INTEREST_LIST, unregisterInterest);
 
+        ExecuteCqHandler executeCq = new ExecuteCqHandler(subscriptions);
+        registry.register(MessageTypes.EXECUTECQ, executeCq);
+        registry.register(MessageTypes.EXECUTECQ_WITH_IR, executeCq);
+        CloseCqHandler closeCq = new CloseCqHandler(subscriptions);
+        registry.register(MessageTypes.STOPCQ, closeCq);
+        registry.register(MessageTypes.CLOSECQ, closeCq);
+
         /*
          * PDX registry discovery showed Geode PdxInstanceFactory.create()
          * sends opcode 93 with one part containing a serialized

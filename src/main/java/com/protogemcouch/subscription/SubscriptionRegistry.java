@@ -1,6 +1,7 @@
 package com.protogemcouch.subscription;
 
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.GemResponseWriter;
@@ -57,6 +58,14 @@ public final class SubscriptionRegistry {
     private final java.util.concurrent.ConcurrentMap<String, Set<String>> interests =
             new ConcurrentHashMap<>();
 
+    /** A registered continuous query: the parsed OQL (its region path is the CQ's region). */
+    public record Cq(String cqName, String region, OqlQuery query) {
+    }
+
+    // Per-client continuous queries: client id -> (cqName -> Cq).
+    private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.ConcurrentMap<String, Cq>> cqs =
+            new ConcurrentHashMap<>();
+
     // A stable fabricated membership identity for events from this shim (used by the client only as an
     // opaque dedup/version key), plus monotonic counters for EventID sequence and entry/region versions.
     private final byte[] memberId = ByteUtils.hex("0a0000bc0000e29a");
@@ -79,12 +88,33 @@ public final class SubscriptionRegistry {
         feeds.add(channel);
         channel.closeFuture().addListener(f -> {
             feeds.remove(channel);
-            // When a client's feed closes, drop its interests (a client has one feed).
+            // When a client's feed closes, drop its interests and CQs (a client has one feed).
             String clientId = channel.attr(CLIENT_ID).get();
             if (clientId != null) {
                 interests.remove(clientId);
+                cqs.remove(clientId);
             }
         });
+    }
+
+    /** Register a continuous query for a client (region is the query's FROM region path). */
+    public void registerCq(String clientId, String cqName, OqlQuery query) {
+        if (clientId == null || cqName == null || query == null) {
+            return;
+        }
+        cqs.computeIfAbsent(clientId, k -> new ConcurrentHashMap<>())
+                .put(cqName, new Cq(cqName, query.regionPath(), query));
+    }
+
+    /** Stop/close a continuous query (both just deregister it in this first cut). */
+    public void closeCq(String clientId, String cqName) {
+        if (clientId == null || cqName == null) {
+            return;
+        }
+        java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(clientId);
+        if (clientCqs != null) {
+            clientCqs.remove(cqName);
+        }
     }
 
     public void registerInterest(String clientId, String region) {
@@ -163,6 +193,51 @@ public final class SubscriptionRegistry {
         pushToFeeds(message, "invalidate", region, key, originClientId);
     }
 
+    /**
+     * Evaluate registered continuous queries against a write and push a CQ event (LOCAL_CREATE/UPDATE
+     * with a CQ section) to each client whose CQ on this region matches the new value. Independent of
+     * register-interest, and self-suppressed.
+     */
+    public void publishCqEvent(String region, String key, StoredValue value, boolean update, String originClientId) {
+        if (cqs.isEmpty() || value == null) {
+            return;
+        }
+        int messageType = update ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
+        for (Channel channel : feeds) {
+            if (!channel.isActive()) {
+                continue;
+            }
+            String feedClientId = channel.attr(CLIENT_ID).get();
+            if (feedClientId == null || feedClientId.equals(originClientId)) {
+                continue; // self-suppression
+            }
+            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(feedClientId);
+            if (clientCqs == null) {
+                continue;
+            }
+            for (Cq cq : clientCqs.values()) {
+                if (region.equals(cq.region()) && cq.query().matches(value, OqlQuery.MAP_RESOLVER)) {
+                    sendMarkerIfNeeded(channel);
+                    byte[] msg = GemResponseWriter.buildCqEvent(
+                            messageType, region, key, value, nextVersionTag(), nextEventId(),
+                            cq.cqName(), messageType);
+                    channel.writeAndFlush(Unpooled.wrappedBuffer(msg));
+                    log.info(StructuredLog.event(
+                            "subscription_cq_event_pushed", "cq", cq.cqName(),
+                            "op", update ? "update" : "create", "region", region, "key", key));
+                }
+            }
+        }
+    }
+
+    private void sendMarkerIfNeeded(Channel channel) {
+        if (channel.attr(MARKER_SENT).setIfAbsent(Boolean.TRUE) == null) {
+            byte[] markerEventId = serialize(
+                    new EventID(memberId, MARKER_THREAD_ID, markerSequence.incrementAndGet()));
+            channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildClientMarker(markerEventId)));
+        }
+    }
+
     private void pushToFeeds(byte[] message, String kind, String region, String key, String originClientId) {
         int sent = 0;
         for (Channel channel : feeds) {
@@ -178,13 +253,8 @@ public final class SubscriptionRegistry {
             if (originClientId != null && originClientId.equals(feedClientId)) {
                 continue;
             }
-            // CLIENT_MARKER once per feed before its first live event (the GII boundary). Uses a
-            // distinct thread id so it does not shadow data events in the client's EventID dedup.
-            if (channel.attr(MARKER_SENT).setIfAbsent(Boolean.TRUE) == null) {
-                byte[] markerEventId = serialize(
-                        new EventID(memberId, MARKER_THREAD_ID, markerSequence.incrementAndGet()));
-                channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildClientMarker(markerEventId)));
-            }
+            // CLIENT_MARKER once per feed before its first live event (the GII boundary).
+            sendMarkerIfNeeded(channel);
             channel.writeAndFlush(Unpooled.wrappedBuffer(message.clone()));
             sent++;
         }

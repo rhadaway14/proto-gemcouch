@@ -60,9 +60,17 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
 
 ## Recommended phased plan
 
-- **P1 (bounded first cut):** CQ registry + EXECUTECQ (no IR) + push CQ CREATE/UPDATE/DESTROY for
-  mutations matching the CQ's OQL predicate, validated against a real client's `CqListener` (needs the
-  `geode-cq` test dependency). STOPCQ/CLOSECQ ack.
+- **P1 (bounded first cut) — DONE:** CQ registry (`SubscriptionRegistry`, per client
+  `cqName -> region + compiled OqlQuery`) + `ExecuteCqHandler` (EXECUTECQ/_WITH_IR: parse name +
+  query, compile with `OqlQuery`, register, reply the chunked "cq created successfully." ack) +
+  `PutHandler` calls `publishCqEvent` which, for each feed whose client has a CQ on the region that
+  `OqlQuery.matches` the new value, pushes a CQ event (`GemResponseWriter.buildCqEvent`: a LOCAL_*
+  with the `[numCqElems, cqName, cqOp]` section) — self-suppressed. `CloseCqHandler` (STOPCQ/CLOSECQ)
+  deregisters + acks. Gate `ProtoGemCouchCqIntegrationTest.cqListenerFiresOnlyForPredicateMatchingMutation`
+  (a real client's CqListener fires for a `WHERE r.amount > 10` match and not for a non-match, from a
+  separate client). **Remaining P1/P2:** CQ DESTROY events (LOCAL_DESTROY + CQ section, on REMOVE),
+  EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
+  multiple CQs per event, PDX-field CQ predicates (uses the map resolver today).
 - **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
   multiple CQs per event, CQ stats.
 - **P3:** durable CQs, monitoring, and the cross-replica story.
