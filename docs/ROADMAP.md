@@ -225,7 +225,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   regex/key-list per-key event filtering (registers the whole region today), durable clients,
   redundancy/MAKE_PRIMARY, PERIODIC_ACK draining / keepalive, and a cross-replica eventing backplane
   (single shim instance only today).
-- [ ] **Server-side functions** — `onRegion`/`onServer`/`onMembers` execution.
+- [x] **Server-side functions — graceful rejection** (validated by
+  `ProtoGemCouchFunctionIntegrationTest`). The shim has none of the user's `Function` classes, so it
+  cannot *run* functions; it now rejects them the way a real server rejects an unregistered function
+  id — `GET_FUNCTION_ATTRIBUTES` (the probe `FunctionService.onServer/onRegion.execute()` sends first)
+  and the `EXECUTE_FUNCTION` / `EXECUTE_REGION_FUNCTION` (+ single-hop) opcodes all return a
+  `REQUESTDATAERROR` carrying "The function is not registered for function id …", so the client raises
+  a clean `ServerOperationException`/`FunctionException` instead of hanging or seeing the connection
+  drop. See `docs/FUNCTIONS.md`; `tools/FunctionCapture` reproduces the capture. **Remaining:** actually
+  *executing* functions is out of scope for a stateless shim (would require loading user code).
 - [ ] **Partitioned-region metadata / single-hop** — bucket routing
   (`GET_CLIENT_PARTITION_ATTRIBUTES` is only stubbed today).
 

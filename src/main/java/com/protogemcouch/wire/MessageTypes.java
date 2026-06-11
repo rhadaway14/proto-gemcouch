@@ -99,6 +99,27 @@ public final class MessageTypes {
     public static final int REPLY = 6;
     /** Chunked response from the primary server (used by the register-interest KEYS_VALUES reply). */
     public static final int RESPONSE_FROM_PRIMARY = 32;
+    /**
+     * Generic request-data error carrying a message string; a real server returns it (raising a
+     * client ServerOperationException) e.g. for an unregistered function. The shim uses it to reject
+     * server-side function execution it cannot perform.
+     */
+    public static final int REQUESTDATAERROR = 3;
+
+    /*
+     * Server-side function execution (org.apache.geode...MessageType). The shim cannot run user
+     * Function code (no user classes), so it rejects these gracefully with REQUESTDATAERROR instead of
+     * crashing/hanging the client. See FunctionHandler.
+     */
+    public static final int EXECUTE_REGION_FUNCTION = 59;
+    public static final int EXECUTE_FUNCTION = 62;
+    public static final int EXECUTE_REGION_FUNCTION_SINGLE_HOP = 79;
+    /**
+     * Function-attributes probe a client sends before executing a function (part[0] = function id). A
+     * real server returns REQUESTDATAERROR for an unknown id; FunctionService.onServer/onRegion send
+     * this first, so rejecting it here makes {@code execute()} fail cleanly before EXECUTE_FUNCTION.
+     */
+    public static final int GET_FUNCTION_ATTRIBUTES = 91;
 
     /**
      * Geode server-side exception response. The client deserializes part 0 into a Throwable and
