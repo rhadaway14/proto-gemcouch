@@ -2,7 +2,9 @@ version: "3.8"
 
 services:
   geode:
-    image: apachegeode/geode:latest
+    # Pinned to match the geode client jar (pom geode.version); a 1.15.0 client could not connect to
+    # an unpinned :latest that floated to 1.15.1, so keep image and client version in lockstep.
+    image: apachegeode/geode:1.15.1
     container_name: geode-server
     hostname: geode-server
     ports:
