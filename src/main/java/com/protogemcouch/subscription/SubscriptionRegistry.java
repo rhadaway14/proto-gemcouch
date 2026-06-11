@@ -78,6 +78,19 @@ public final class SubscriptionRegistry {
     private final AtomicInteger entryVersion = new AtomicInteger(0);
     private final AtomicLong regionVersion = new AtomicLong(0);
 
+    // Resolves CQ-predicate fields against stored values. Defaults to map-typed resolution; the handler
+    // factory swaps in a PDX-aware resolver so CQ predicates match PDX object fields exactly as the
+    // QUERY path does (set once at startup, hence volatile rather than synchronized).
+    private volatile OqlQuery.FieldResolver cqFieldResolver = OqlQuery.MAP_RESOLVER;
+
+    /**
+     * Installs the resolver CQ predicates use to read fields from stored values (e.g. a PDX-aware
+     * resolver so {@code r.status = 'active'} matches PDX objects). Defaults to {@code MAP_RESOLVER}.
+     */
+    public void setCqFieldResolver(OqlQuery.FieldResolver resolver) {
+        this.cqFieldResolver = resolver == null ? OqlQuery.MAP_RESOLVER : resolver;
+    }
+
     /** Null-safe origin client id for a request's channel (null when there is no channel, e.g. tests). */
     public static String clientId(io.netty.channel.ChannelHandlerContext ctx) {
         Channel channel = ctx == null ? null : ctx.channel();
@@ -225,8 +238,8 @@ public final class SubscriptionRegistry {
                 if (!region.equals(cq.region())) {
                     continue;
                 }
-                boolean newMatches = cq.query().matches(value, OqlQuery.MAP_RESOLVER);
-                boolean priorMatches = priorValue != null && cq.query().matches(priorValue, OqlQuery.MAP_RESOLVER);
+                boolean newMatches = cq.query().matches(value, cqFieldResolver);
+                boolean priorMatches = priorValue != null && cq.query().matches(priorValue, cqFieldResolver);
                 if (newMatches) {
                     int op = priorMatches ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
                     sendMarkerIfNeeded(channel);
@@ -286,7 +299,7 @@ public final class SubscriptionRegistry {
                 continue;
             }
             for (Cq cq : clientCqs.values()) {
-                if (region.equals(cq.region()) && cq.query().matches(priorValue, OqlQuery.MAP_RESOLVER)) {
+                if (region.equals(cq.region()) && cq.query().matches(priorValue, cqFieldResolver)) {
                     sendMarkerIfNeeded(channel);
                     byte[] msg = GemResponseWriter.buildCqDestroy(
                             region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY);

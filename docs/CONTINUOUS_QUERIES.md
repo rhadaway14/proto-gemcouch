@@ -82,6 +82,13 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   CQ CREATE, new+prior match → CQ UPDATE, new-doesn't-match+prior-matched → CQ DESTROY (the entry
   leaves the result set). `PutHandler` reads the prior value when a CQ exists on the region. Gate
   `cqListenerFiresDestroyWhenUpdatedValueStopsMatching`.
+- **PDX-field CQ predicates — DONE.** CQ matching now uses the same PDX-aware field resolver as the
+  QUERY path (`PdxAwareFieldResolver`, installed via `SubscriptionRegistry.setCqFieldResolver`), so a
+  predicate like `WHERE r.amount > 10` matches PDX objects, not just maps. Because the listening client
+  is a *different* client than the writer, it fetches the unknown `PdxType` from the shim via the new
+  **reverse lookup** GET_PDX_TYPE_BY_ID (opcode 92, `GetPdxTypeByIdHandler`) before it can deliver the
+  pushed PDX event value — without that the event never reaches the `CqListener`. Gate
+  `cqListenerFiresForPredicateMatchingPdxObject`.
 - **executeWithInitialResults — decoded, deferred (deep serialization).** Captured (`tools/CqCapture`
   with `WITH_IR=1`): the `EXECUTECQ_WITH_IR (43)` reply is **three messages** — a leading REPLY ack, a
   chunked `RESPONSE` carrying the current matching set, and a trailing REPLY. The RESPONSE has
@@ -93,8 +100,8 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   three-message framing (with the same leading-byte nuance as the GII VOL). A bounded but
   multi-iteration build; the shim returns the no-IR ack for `execute()` today, so CQs already work —
   this only adds the initial snapshot for `executeWithInitialResults()`.
-- **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking),
-  multiple CQs per event, CQ stats.
+- **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking,
+  done), PDX-field CQ predicates (done), multiple CQs per event, CQ stats.
 - **P3:** durable CQs, monitoring, and the cross-replica story.
 
 `tools/CqCapture` reproduces the capture (run with `geode-cq` on the classpath).

@@ -56,6 +56,14 @@ public final class PutOnce {
                     r.remove(key);
                     System.out.println("PutOnce: removed " + region + "/" + key);
                 }
+            } else if ("pdx".equalsIgnoreCase(op)) {
+                // Put a PDX object demo.Order { String status; int amount } so a CQ predicate on a PDX
+                // field (e.g. amount > 10) can be exercised end-to-end from a separate client.
+                r.put(key, cache.createPdxInstanceFactory("demo.Order")
+                        .writeString("status", "active")
+                        .writeInt("amount", Integer.parseInt(value))
+                        .create());
+                System.out.println("PutOnce: put pdx " + region + "/" + key + " {amount:" + value + "}");
             } else if ("mapstops".equalsIgnoreCase(op)) {
                 // Put a matching map {amount: value}, then update it to a non-matching {amount: 1}
                 // (stops-matching -> CQ DESTROY).

@@ -29,7 +29,11 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository, subscriptions));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
-        QueryHandler queryHandler = new QueryHandler(repository, pdxTypeRegistry);
+        // One PDX-aware field resolver shared by the QUERY path and CQ predicate matching, so an OQL
+        // predicate on a PDX object field resolves identically whether one-shot or continuous.
+        PdxAwareFieldResolver pdxFieldResolver = new PdxAwareFieldResolver(pdxTypeRegistry);
+        subscriptions.setCqFieldResolver(pdxFieldResolver);
+        QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver);
         registry.register(MessageTypes.QUERY, queryHandler);
         registry.register(MessageTypes.QUERY_WITH_PARAMETERS, queryHandler);
         registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository, transactions));
@@ -81,6 +85,13 @@ public final class HandlerRegistryFactory {
         registry.register(
                 MessageTypes.GET_PDX_ID_FOR_ENUM,
                 new PdxGetIdForEnumHandler(pdxEnumRegistry)
+        );
+
+        // Reverse PDX lookup so a client can decode a PDX value it did not write (e.g. a CQ event value
+        // pushed from another client) — serves back the type the writer registered.
+        registry.register(
+                MessageTypes.GET_PDX_TYPE_BY_ID,
+                new GetPdxTypeByIdHandler(pdxTypeRegistry)
         );
 
         return registry;

@@ -35,6 +35,14 @@ exactly correct). Validated by `PdxFieldAccessorTest` (real captured PdxType + i
 real-client PDX query test. Note: POJO (Java-serialized) field access is not feasible server-side
 (needs the domain classes); PDX is Geode's queryable serialization.
 
+The same PDX-aware resolver (`PdxAwareFieldResolver`, shared via the handler factory) also backs
+**continuous-query predicate matching**, so a CQ like `WHERE r.status = 'active'` matches PDX objects
+exactly as a one-shot query does (see `docs/CONTINUOUS_QUERIES.md`). For a *second* client to decode a
+PDX value it did not itself write (e.g. a pushed CQ/subscription event value), the shim also serves the
+**reverse PDX lookup** — GET_PDX_TYPE_BY_ID (opcode 92) returns the kept `PdxType`, stamped with its
+assigned id, as a serialized object part. Only scalar fields are queryable; OBJECT/array PDX fields are
+not.
+
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
 memory and cross-product them — acceptable only for tiny regions. The ROI does not justify the

@@ -49,6 +49,8 @@ class ProtoGemCouchCqIntegrationTest {
                 .setPoolSubscriptionEnabled(true)
                 .setPoolSubscriptionRedundancy(0)
                 .setPoolSubscriptionAckInterval(100)
+                // PDX CQ events carry serialized PdxInstances; read them as PdxInstance (no domain class).
+                .setPdxReadSerialized(true)
                 .addPoolServer(HOST, SHIM_PORT)
                 .create();
     }
@@ -99,6 +101,47 @@ class ProtoGemCouchCqIntegrationTest {
         assertTrue(matched.await(20, TimeUnit.SECONDS), "the CqListener fired for the matching mutation");
         assertEquals("high", key.get(),
                 "the CQ fired only for the predicate-matching entry (not the non-matching 'low')");
+    }
+
+    @Test
+    void cqListenerFiresForPredicateMatchingPdxObject() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch matched = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                key.set(event.getKey());
+                matched.countDown();
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        // Predicate on a PDX object field — matching must use PDX-aware field resolution, not the
+        // map resolver, to see r.amount inside the stored PdxInstance.
+        CqQuery cq = qs.newCq("itCqPdx", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", caf.create());
+        cq.execute();
+
+        // From a separate client: a non-matching PDX object (amount 5) then a matching one (amount 20).
+        runPutMap(regionName, "plow", 5, "pdx");
+        runPutMap(regionName, "phigh", 20, "pdx");
+
+        assertTrue(matched.await(20, TimeUnit.SECONDS),
+                "the CqListener fired for the PDX object matching the predicate");
+        assertEquals("phigh", key.get(),
+                "the CQ fired only for the predicate-matching PDX object (not the non-matching 'plow')");
     }
 
     @Test
