@@ -240,8 +240,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 ### 3b. Value-type / serialization parity
 
 - [ ] `DataSerializable` (custom).
-- [ ] Full PDX registry discovery + schema evolution + PDX field querying (currently opaque
-  round-trip only).
+- [x] **PDX field querying** — OQL `WHERE` / projection / `ORDER BY` on PDX object fields (validated:
+  `ProtoGemCouchQueryIntegrationTest.queryPdxByFieldAndProject`), **continuous-query predicates on PDX
+  fields** (validated: `ProtoGemCouchCqIntegrationTest.cqListenerFiresForPredicateMatchingPdxObject`),
+  and the **reverse PDX lookup** (GET_PDX_TYPE_BY_ID, opcode 92) so a second client can decode a PDX
+  value it did not write (e.g. a CQ/subscription event value). One shared PDX-aware field resolver
+  backs both the QUERY and CQ paths. See `docs/OQL.md` / `docs/CONTINUOUS_QUERIES.md`. **Remaining:**
+  PDX fields whose type is OBJECT/array (only scalars are queryable), and PDX schema evolution.
+- [ ] Full PDX registry discovery + schema evolution.
 - [ ] Nested complex types inside `HashMap<String,Object>` (`Object[]`, POJOs, `ArrayList<Object>`,
   wrapper/utility arrays, PDX) — top-level works, nested does not.
 - [ ] Arbitrary object graphs; complete DataSerializer marker coverage.

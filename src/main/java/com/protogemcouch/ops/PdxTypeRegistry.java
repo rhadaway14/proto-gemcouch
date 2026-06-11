@@ -4,7 +4,9 @@ import org.apache.geode.DataSerializer;
 import org.apache.geode.pdx.internal.PdxType;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -33,9 +35,11 @@ public class PdxTypeRegistry {
                 fingerprint, ignored -> nextTypeId.getAndIncrement());
 
         // Keep the parsed type so query field access can read instance fields by name (best-effort:
-        // if the PdxType cannot be deserialized, field access for that type simply degrades).
+        // if the PdxType cannot be deserialized, field access for that type simply degrades). Stamp it
+        // with the assigned id so it round-trips correctly when served back via GET_PDX_TYPE_BY_ID.
         PdxType parsed = deserialize(encodedPdxType);
         if (parsed != null) {
+            parsed.setTypeId(typeId);
             typesById.putIfAbsent(typeId, parsed);
         }
         return typeId;
@@ -44,6 +48,24 @@ public class PdxTypeRegistry {
     /** The PdxType registered for an id, or {@code null} if unknown / not parseable. */
     public PdxType getPdxType(int typeId) {
         return typesById.get(typeId);
+    }
+
+    /**
+     * The kept {@link PdxType} for {@code typeId} re-serialized in DataSerializer form (for the
+     * GET_PDX_TYPE_BY_ID reply), or {@code null} when the id is unknown / cannot be serialized.
+     */
+    public byte[] serializedPdxType(int typeId) {
+        PdxType type = typesById.get(typeId);
+        if (type == null) {
+            return null;
+        }
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataSerializer.writeObject(type, new DataOutputStream(bytes));
+            return bytes.toByteArray();
+        } catch (Exception | LinkageError e) {
+            return null;
+        }
     }
 
     public int size() {

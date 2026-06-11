@@ -30,16 +30,10 @@ public class QueryHandler implements OperationHandler {
     private final Repository repository;
     private final OqlQuery.FieldResolver fieldResolver;
 
-    public QueryHandler(Repository repository, PdxTypeRegistry pdxTypeRegistry) {
+    public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver) {
         this.repository = repository;
-        // Resolve query fields on PDX instances via the kept PdxType; fall back to map-typed values.
-        this.fieldResolver = (value, field) -> {
-            if (value.type() == StoredValue.Type.PDX_INSTANCE) {
-                Object resolved = PdxFieldAccessor.read(value.asPdxInstanceValue(), pdxTypeRegistry, field);
-                return resolved == null ? OqlQuery.ABSENT : resolved;
-            }
-            return OqlQuery.MAP_RESOLVER.resolve(value, field);
-        };
+        // PDX-aware resolver (shared with CQ matching): reads PDX object fields, else map-typed values.
+        this.fieldResolver = fieldResolver;
     }
 
     @Override

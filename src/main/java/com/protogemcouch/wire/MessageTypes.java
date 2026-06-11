@@ -91,6 +91,13 @@ public final class MessageTypes {
      */
     public static final int GET_PDX_ID_FOR_TYPE = 93;
     public static final int GET_PDX_ID_FOR_ENUM = 97;
+    /**
+     * Reverse PDX lookup: a client that reads a PDX value it did not write (e.g. a CQ/subscription
+     * event value, or a get from a different client) sends this with part[0] = the int type id and
+     * expects the serialized {@code PdxType} back so it can decode the instance's fields. Without it a
+     * second client cannot deserialize PDX values the shim pushes/returns. See GetPdxTypeByIdHandler.
+     */
+    public static final int GET_PDX_TYPE_BY_ID = 92;
 
     public static final int GET_ALL_70 = 100;
 

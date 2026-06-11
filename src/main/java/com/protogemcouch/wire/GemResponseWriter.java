@@ -508,6 +508,19 @@ public final class GemResponseWriter {
         );
     }
 
+    /**
+     * GET_PDX_TYPE_BY_ID reply: a RESPONSE carrying the serialized {@code PdxType} as a single object
+     * part, which the client reads via {@code Part.getObject()} (the inverse of the
+     * DataSerializer-serialized form the registration request delivered). Lets a client decode a PDX
+     * value it did not itself write.
+     */
+    public static byte[] buildPdxTypeByIdResponse(int txId, byte[] serializedPdxType) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(serializedPdxType, (byte) 1)));
+    }
+
     public static byte[] buildPdxTypeIdResponse(int txId, int typeId) {
         /*
          * GetPDXIdForTypeOp expects a raw BYTE part and calls Part.getInt().
