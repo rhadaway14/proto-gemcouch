@@ -722,6 +722,16 @@ public final class GemResponseWriter {
         return buildMessage(MessageTypes.REPLY, txId, List.of(new Part(new byte[] {0x00}, (byte) 0)));
     }
 
+    /**
+     * Reject a server-side function execution with a REQUESTDATAERROR carrying {@code message} (the
+     * client raises a {@code ServerOperationException}). Mirrors the message shape a real server
+     * returns for an unregistered function — the shim cannot run user Function code.
+     */
+    public static byte[] buildFunctionErrorReply(int txId, String message) {
+        return buildMessage(MessageTypes.REQUESTDATAERROR, txId, List.of(
+                new Part(message.getBytes(java.nio.charset.StandardCharsets.UTF_8), (byte) 0)));
+    }
+
     /** LOCAL_INVALIDATE notification: same 7-part layout as LOCAL_DESTROY, captured from the server. */
     public static byte[] buildLocalInvalidate(String region, String key, byte[] versionTag, byte[] eventId) {
         return buildLocalKeyEvent(MessageTypes.LOCAL_INVALIDATE, region, key, versionTag, eventId);

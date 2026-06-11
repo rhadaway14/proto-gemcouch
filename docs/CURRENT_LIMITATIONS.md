@@ -33,7 +33,8 @@ Not yet validated or implemented:
 - transactions
 - continuous queries
 - interest registration
-- server-side functions
+- server-side function *execution* (the shim cannot run user `Function` code; it rejects function
+  calls gracefully so clients get a clean exception — see `docs/FUNCTIONS.md`)
 - full partitioned-region metadata behavior
 - listener/callback/event semantics
 - full distributed-region semantics

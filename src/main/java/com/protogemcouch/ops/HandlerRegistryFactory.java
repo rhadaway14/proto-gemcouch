@@ -57,6 +57,14 @@ public final class HandlerRegistryFactory {
         // Subscription/CQ clients periodically ack received events; drain without a reply.
         registry.register(MessageTypes.PERIODIC_ACK, new PeriodicAckHandler());
 
+        // The shim cannot run user Function code; reject function execution gracefully so a real
+        // client raises a clean ServerOperationException instead of crashing/hanging.
+        FunctionHandler functionHandler = new FunctionHandler();
+        registry.register(MessageTypes.GET_FUNCTION_ATTRIBUTES, functionHandler);
+        registry.register(MessageTypes.EXECUTE_FUNCTION, functionHandler);
+        registry.register(MessageTypes.EXECUTE_REGION_FUNCTION, functionHandler);
+        registry.register(MessageTypes.EXECUTE_REGION_FUNCTION_SINGLE_HOP, functionHandler);
+
         /*
          * PDX registry discovery showed Geode PdxInstanceFactory.create()
          * sends opcode 93 with one part containing a serialized
