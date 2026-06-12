@@ -52,7 +52,7 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.UNREGISTER_INTEREST, unregisterInterest);
         registry.register(MessageTypes.UNREGISTER_INTEREST_LIST, unregisterInterest);
 
-        ExecuteCqHandler executeCq = new ExecuteCqHandler(subscriptions);
+        ExecuteCqHandler executeCq = new ExecuteCqHandler(subscriptions, repository, pdxFieldResolver);
         registry.register(MessageTypes.EXECUTECQ, executeCq);
         registry.register(MessageTypes.EXECUTECQ_WITH_IR, executeCq);
         CloseCqHandler closeCq = new CloseCqHandler(subscriptions);
