@@ -931,6 +931,80 @@ public final class GemResponseWriter {
         }
     }
 
+    // CQ executeWithInitialResults result type: a CollectionType wrapping a Struct with fields named
+    // "key" and "value" (each java.lang.Object), under a java.util.Collection wrapper. Fixed for every
+    // CQ initial-result set. Captured from a real Geode 1.15.1 server (tools/CqCapture WITH_IR=1).
+    private static final byte[] CQ_STRUCT_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b5700146a6176612e7574696c2e436f6c6c656374696f6e"          // java.util.Collection
+                    + "01c42b5700236f72672e6170616368652e67656f64652e63616368652e71756572792e537472756374" // .query.Struct
+                    + "025700036b657957000576616c7565"                       // fields: "key", "value"
+                    + "022b57002d6f72672e6170616368652e67656f64652e63616368652e71756572792e74797065732e4f626a65637454797065" // ObjectType[]
+                    + "01c32b5700106a6176612e6c616e672e4f626a656374"         // java.lang.Object (key)
+                    + "01c32b5700106a6176612e6c616e672e4f626a656374");       // java.lang.Object (value)
+
+    /**
+     * Build the chunked response for CQ {@code executeWithInitialResults} (EXECUTECQ_WITH_IR, opcode
+     * 43). The client parses it exactly like a query response — {@code CreateCQWithIROpImpl} extends
+     * {@code QueryOpImpl} — so it is the same two-part chunked shape: part[0] is the fixed
+     * {@code Struct{key,value}} CollectionType; part[1] is the result list, an ObjectPartList whose
+     * elements are the matching entries, each a nested {@code Struct} (an ObjectPartList[key, value]).
+     * The empty set uses the same empty-result form as a query. Matches the captured real-server bytes.
+     */
+    public static byte[] buildExecuteCqWithIrReply(int txId, List<Map.Entry<String, StoredValue>> entries) {
+        List<Map.Entry<String, StoredValue>> safe = entries == null ? List.of() : entries;
+        List<List<Part>> chunks = new ArrayList<>();
+        if (safe.isEmpty()) {
+            chunks.add(List.of(
+                    new Part(CQ_STRUCT_COLLECTION_TYPE, (byte) 1),
+                    new Part(QUERY_EMPTY_RESULT, (byte) 1)));
+        } else {
+            // Page like a query: each chunk repeats the CollectionType and carries its batch's structs;
+            // the client accumulates across chunks until the lastChunk flag.
+            for (int start = 0; start < safe.size(); start += QUERY_PAGE_SIZE) {
+                List<Map.Entry<String, StoredValue>> batch =
+                        safe.subList(start, Math.min(start + QUERY_PAGE_SIZE, safe.size()));
+                chunks.add(List.of(
+                        new Part(CQ_STRUCT_COLLECTION_TYPE, (byte) 1),
+                        new Part(buildCqStructResultList(batch), (byte) 1)));
+            }
+        }
+        return buildMultiChunkResponse(txId, 2, chunks);
+    }
+
+    /** One chunk's CQ result list: an ObjectPartList whose elements are {@code Struct{key,value}}. */
+    private static byte[] buildCqStructResultList(List<Map.Entry<String, StoredValue>> entries) {
+        ByteBuf body = Unpooled.buffer();
+        try {
+            body.writeBytes(QUERY_RESULT_LIST_HEADER);
+            writeGeodeArrayLength(body, entries.size());
+            for (Map.Entry<String, StoredValue> entry : entries) {
+                body.writeByte(0x00);                       // element: a serialized object follows
+                body.writeBytes(buildCqStruct(entry.getKey(), entry.getValue()));
+            }
+            return toByteArrayAndRelease(body);
+        } catch (RuntimeException e) {
+            body.release();
+            throw e;
+        }
+    }
+
+    /** A CQ result struct — a nested ObjectPartList[key, value] (the entry key as a string). */
+    private static byte[] buildCqStruct(String key, StoredValue value) {
+        ByteBuf body = Unpooled.buffer();
+        try {
+            body.writeBytes(QUERY_RESULT_LIST_HEADER);
+            writeGeodeArrayLength(body, 2);
+            body.writeByte(0x00);
+            body.writeBytes(encodeStoredValueForGetAll(StoredValue.stringValue(key)));
+            body.writeByte(0x00);
+            body.writeBytes(encodeStoredValueForGetAll(value));
+            return toByteArrayAndRelease(body);
+        } catch (RuntimeException e) {
+            body.release();
+            throw e;
+        }
+    }
+
     // Struct (multi-field) projection templates, also captured from the real Geode server.
     // The CollectionType is a StructType: ResultsCollectionType wrapping Struct with N field$i names
     // and N ObjectType field types. Results are a nested Object[] (0x34): an outer array of structs,

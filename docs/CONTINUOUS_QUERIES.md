@@ -89,19 +89,20 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   **reverse lookup** GET_PDX_TYPE_BY_ID (opcode 92, `GetPdxTypeByIdHandler`) before it can deliver the
   pushed PDX event value — without that the event never reaches the `CqListener`. Gate
   `cqListenerFiresForPredicateMatchingPdxObject`.
-- **executeWithInitialResults — decoded, deferred (deep serialization).** Captured (`tools/CqCapture`
-  with `WITH_IR=1`): the `EXECUTECQ_WITH_IR (43)` reply is **three messages** — a leading REPLY ack, a
-  chunked `RESPONSE` carrying the current matching set, and a trailing REPLY. The RESPONSE has
-  part[0] = a CollectionType (`java.util.Collection` wrapping a `Struct` with named fields
-  `key`,`value`, each `ObjectType`) and part[1] = the results as an **ObjectPartList of Structs**,
-  where each Struct is itself an `ObjectPartList[key, value]` (header `01 19 00000000` + count, each
-  element `00` + `encodeStoredValueForGetAll`). Building it = bake the (static) CollectionType + emit
-  the nested-struct result via the existing ObjectPartList/value encoders + reproduce the
-  three-message framing (with the same leading-byte nuance as the GII VOL). A bounded but
-  multi-iteration build; the shim returns the no-IR ack for `execute()` today, so CQs already work —
-  this only adds the initial snapshot for `executeWithInitialResults()`.
-- **P2:** EXECUTECQ_WITH_IR initial result set, "stops-matching" → CQ DESTROY (prior-match tracking,
-  done), PDX-field CQ predicates (done), multiple CQs per event, CQ stats.
+- **executeWithInitialResults — DONE.** Re-captured against Geode 1.15.1 (`tools/CqCapture WITH_IR=1`):
+  the earlier "three messages" reading was wrong. The client op `CreateCQWithIROpImpl` **extends
+  `QueryOpImpl`**, so it parses the reply *exactly like a query response* — a single chunked `RESPONSE`
+  (no leading/trailing REPLY): part[0] = a CollectionType (`java.util.Collection` wrapping a `Struct`
+  with fields `key`,`value`, each `java.lang.Object`); part[1] = an ObjectPartList of the matching
+  entries, each a nested `Struct` = `ObjectPartList[key, value]` (header `01 19 00000000` + count, each
+  field `00` + `encodeStoredValueForGetAll`). The empty set uses the query empty-result form
+  (`34 00 …`). `GemResponseWriter.buildExecuteCqWithIrReply` builds it (the {key,value} CollectionType
+  is a fixed captured constant), reusing the query ObjectPartList/value encoders; `ExecuteCqHandler`
+  snapshots the region's current matching entries (via the PDX-aware resolver) for opcode 43. Byte-for-
+  byte golden test `CqWithIrResponseShapeTest` (empty + 2 entries) + integration gate
+  `executeWithInitialResultsReturnsCurrentMatchingEntries`.
+- **P2:** EXECUTECQ_WITH_IR initial result set (done), "stops-matching" → CQ DESTROY (prior-match
+  tracking, done), PDX-field CQ predicates (done), multiple CQs per event, CQ stats.
 - **P3:** durable CQs, monitoring, and the cross-replica story.
 
 `tools/CqCapture` reproduces the capture (run with `geode-cq` on the classpath).

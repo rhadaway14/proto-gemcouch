@@ -7,7 +7,9 @@ import org.apache.geode.cache.query.CqAttributesFactory;
 import org.apache.geode.cache.query.CqEvent;
 import org.apache.geode.cache.query.CqListener;
 import org.apache.geode.cache.query.CqQuery;
+import org.apache.geode.cache.query.CqResults;
 import org.apache.geode.cache.query.QueryService;
+import org.apache.geode.cache.query.Struct;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -17,6 +19,10 @@ import java.io.File;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -101,6 +107,46 @@ class ProtoGemCouchCqIntegrationTest {
         assertTrue(matched.await(20, TimeUnit.SECONDS), "the CqListener fired for the matching mutation");
         assertEquals("high", key.get(),
                 "the CQ fired only for the predicate-matching entry (not the non-matching 'low')");
+    }
+
+    @Test
+    void executeWithInitialResultsReturnsCurrentMatchingEntries() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        var region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .create(regionName);
+        Thread.sleep(3000);
+
+        // Seed entries BEFORE registering the CQ: two match the predicate (amount > 10), one does not.
+        region.put("low", new HashMap<>(Map.of("amount", 5)));
+        region.put("hi1", new HashMap<>(Map.of("amount", 20)));
+        region.put("hi2", new HashMap<>(Map.of("amount", 30)));
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        CqQuery cq = qs.newCq("itCqIr", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", caf.create());
+
+        CqResults<?> results = cq.executeWithInitialResults();
+
+        // The initial result set is a CqResults of Struct{key, value}; collect the keys.
+        Set<Object> keys = new HashSet<>();
+        for (Object row : results.asList()) {
+            keys.add(((Struct) row).get("key"));
+        }
+        assertEquals(Set.of("hi1", "hi2"), keys,
+                "executeWithInitialResults returns exactly the entries matching the predicate");
     }
 
     @Test
