@@ -57,6 +57,11 @@ Optional:
     PUT_ALL server error naming the failed keys (rather than silently dropping or rolling back).
   - When a region has a TTL, `size`/`keySet` verify which keys still exist and evict expired ones
     from the keyset metadata, so they stay correct (at the cost of an existence check per key).
+- `CB_MAX_VALUE_BYTES` default `20971520` (max encoded value-document size; Couchbase's hard
+  per-document ceiling is 20 MiB). A value whose encoded document exceeds this is rejected up front,
+  before any backend write, with a clean `ServerOperationException` — so an oversized value never
+  reaches Couchbase and never updates the region's keyset. In a `putAll` it is a per-key failure (the
+  under-limit entries still persist). Set `0` to disable the check and rely on the backend to reject.
 - `CONNECTION_IDLE_TIMEOUT_SECONDS` default `300` (close a connection with no read/write activity
   for this long; `0` disables idle reaping)
 - `MAX_CONNECTIONS` default `0` (max concurrent client connections; new connections beyond this

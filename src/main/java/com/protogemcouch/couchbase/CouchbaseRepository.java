@@ -101,6 +101,12 @@ public class CouchbaseRepository implements Repository {
     // (the default / fastest); higher levels require a suitably-replicated cluster.
     private DurabilityLevel writeDurability = DurabilityLevel.NONE;
 
+    // Couchbase's hard per-document ceiling is 20 MiB; a value whose encoded document exceeds it is
+    // rejected by the server in an opaque way (and could leave the keyset inconsistent). Reject such
+    // writes up front (CB_MAX_VALUE_BYTES) with a clean ServerOperationException instead.
+    static final long DEFAULT_MAX_VALUE_BYTES = 20L * 1024 * 1024;
+    private long maxValueBytes = DEFAULT_MAX_VALUE_BYTES;
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -127,6 +133,10 @@ public class CouchbaseRepository implements Repository {
 
         this.writeDurability = parseDurability(System.getenv("CB_DURABILITY"));
         log.info(StructuredLog.event("repository_durability_configured", "level", writeDurability.name()));
+
+        this.maxValueBytes = parseMaxValueBytes(System.getenv("CB_MAX_VALUE_BYTES"));
+        log.info(StructuredLog.event("repository_max_value_bytes_configured",
+                "maxValueBytes", maxValueBytes, "enabled", maxValueBytes > 0));
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -289,6 +299,40 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    /**
+     * Parse CB_MAX_VALUE_BYTES into a max encoded-document size. Unset/blank/unparseable falls back to
+     * {@link #DEFAULT_MAX_VALUE_BYTES} (Couchbase's 20 MiB ceiling); {@code 0} (or negative) disables
+     * the limit (writes then rely on the backend to reject oversized documents).
+     */
+    static long parseMaxValueBytes(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_MAX_VALUE_BYTES;
+        }
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return parsed <= 0 ? 0L : parsed;
+        } catch (NumberFormatException e) {
+            return DEFAULT_MAX_VALUE_BYTES;
+        }
+    }
+
+    /**
+     * Encode {@code value} for storage and enforce the configured max value size, throwing a
+     * {@link ValueTooLargeException} (surfaced to the client as a {@code ServerOperationException})
+     * before any backend write when the encoded document would exceed the limit — so an oversized
+     * value never reaches Couchbase and never updates the region's keyset.
+     */
+    private JsonObject encodeValueChecked(StoredValue value) {
+        JsonObject body = encodeStoredValue(value);
+        if (maxValueBytes > 0) {
+            long size = body.toString().getBytes(StandardCharsets.UTF_8).length;
+            if (size > maxValueBytes) {
+                throw new ValueTooLargeException(size, maxValueBytes);
+            }
+        }
+        return body;
+    }
+
     /** The region embedded in a value docId ({@code region::key}), or null if unparseable. */
     private static String regionOf(String docId) {
         ParsedDocumentKey parsed = parseDocumentKey(docId);
@@ -361,7 +405,7 @@ public class CouchbaseRepository implements Repository {
             return;
         }
 
-        JsonObject body = encodeStoredValue(value);
+        JsonObject body = encodeValueChecked(value);
 
         try {
             collection.upsert(docId, body, upsertOptions(regionOf(docId)));
@@ -428,7 +472,7 @@ public class CouchbaseRepository implements Repository {
                             // Nothing to remove; the net keyset removal below still applies.
                         }
                     } else if (op.value() != null) {
-                        JsonObject body = encodeStoredValue(op.value());
+                        JsonObject body = encodeValueChecked(op.value());
                         try {
                             ctx.replace(ctx.get(collection, op.docId()), body);
                         } catch (DocumentNotFoundException absent) {
@@ -514,12 +558,15 @@ public class CouchbaseRepository implements Repository {
             }
 
             String docId = DocumentKeyUtil.docId(region, entry.getKey());
-            JsonObject body = encodeStoredValue(value);
             storedKeys.add(entry.getKey());
             try {
+                // Encode (incl. the max-value-size check) inside the try so an oversized entry is a
+                // per-key failure recorded below, not an abort of the whole batch.
+                JsonObject body = encodeValueChecked(value);
                 upserts.add(collection.async().upsert(docId, body, upsertOptions(region)));
             } catch (RuntimeException submitError) {
-                // A synchronous failure (e.g. an invalid/over-long key) is recorded per key too.
+                // A synchronous failure (e.g. an oversized value or an invalid/over-long key) is
+                // recorded per key too.
                 CompletableFuture<Object> failed = new CompletableFuture<>();
                 failed.completeExceptionally(submitError);
                 upserts.add(failed);
@@ -664,7 +711,7 @@ public class CouchbaseRepository implements Repository {
         if (value == null) {
             return get(docId);
         }
-        JsonObject body = encodeStoredValue(value);
+        JsonObject body = encodeValueChecked(value);
         try {
             collection.insert(docId, body, insertOptions(regionOf(docId)));
             updateKeySetMetadataForDocId(docId, true);
@@ -692,7 +739,7 @@ public class CouchbaseRepository implements Repository {
         if (value == null) {
             return get(docId);
         }
-        JsonObject body = encodeStoredValue(value);
+        JsonObject body = encodeValueChecked(value);
         for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
             try {
                 GetResult existing;
@@ -730,7 +777,7 @@ public class CouchbaseRepository implements Repository {
         if (newValue == null) {
             return false;
         }
-        JsonObject body = encodeStoredValue(newValue);
+        JsonObject body = encodeValueChecked(newValue);
         for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
             try {
                 GetResult existing;
