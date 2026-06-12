@@ -51,7 +51,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   existence and prune expired keys from the keyset metadata, keeping them correct post-expiry). All
   validated end-to-end (`ProtoGemCouchTtlIntegrationTest`, `ProtoGemCouchTtlIdleIntegrationTest`)
   plus `TtlConfig` unit tests.
-- [ ] **Large-value limits** — enforce a max value size and define oversized-value behavior.
+- [x] **Large-value limits** — `CB_MAX_VALUE_BYTES` (default Couchbase's 20 MiB document ceiling)
+  caps the encoded value-document size. An oversized value is rejected up front, before any backend
+  write, with a clean `ServerOperationException`, so it never reaches Couchbase and never updates the
+  region's keyset; in a `putAll` it is a per-key failure (under-limit entries still persist). Set `0`
+  to disable. Validated by `ProtoGemCouchLargeValueIntegrationTest` (dedicated low-limit shim) +
+  `MaxValueBytesConfigTest`. Enforced at the single `encodeStoredValue` chokepoint, so it covers
+  put / putAll / putIfAbsent / replace / transactional commit.
 
 ### 2b. Deployment hardening
 
