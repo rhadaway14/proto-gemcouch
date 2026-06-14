@@ -114,7 +114,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 - [ ] Decoder fuzz/negative tests.
 - [ ] Property/round-trip tests across all value types at scale.
-- [ ] Chaos tests (Couchbase kill/restart, shim restart mid-op).
+- [x] Chaos tests (`ProtoGemCouchChaosIntegrationTest`): a real **Couchbase container stop/start under
+  concurrent load** — in-flight writes fail promptly and cleanly (recorded as errors, no hang), the
+  shim process stays up (metrics keep serving), and on recovery the keyset/size reflect **exactly** the
+  acknowledged writes (a write that failed mid-outage leaves no phantom key); and a **shim container
+  restart mid-flight** — the stateless shim loses no data (acknowledged entries remain readable) and
+  the client reconnects and resumes writing. The class runs early and fully restores both shared
+  containers, so the rest of the suite is unaffected.
 - [ ] Coverage measurement + gate.
 
 ---
