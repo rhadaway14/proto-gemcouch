@@ -87,7 +87,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   `CB_PASSWORD_FILE` (Kubernetes Secret volumes / Docker secrets) instead of env vars; the Helm
   chart mounts a chart-managed or external (`existingSecret`) Secret as files, so secrets stay out
   of the process environment. Vault / external-secrets integrate via `existingSecret`.
-- [ ] **Vulnerability-scan enforcement** — make CodeQL/dependency findings gating; triage SLA.
+- [x] **Vulnerability-scan enforcement** — CodeQL runs the broader `security-and-quality` suite;
+  code-scanning + dependency alerts are release-gating via branch protection (alongside the existing
+  in-workflow hard gate on fixable CRITICAL OS-package CVEs); a documented **triage SLA** (severity →
+  triage/remediate timelines) and a tracked `.trivyignore` exception file (CVE + justification +
+  expiry, re-reviewed on expiry) keep the signal clean. Jar/library CVEs from Geode's un-upgradeable
+  transitive tree stay outside the hard gate by design (see `docs/SECURITY.md`).
 - [x] **TLS policy** — the inbound TLS listener (and the health HTTPS endpoint) pin an explicit,
   auditable protocol/cipher policy instead of relying on JVM defaults: `TLS_PROTOCOLS` (default
   `TLSv1.3,TLSv1.2`; legacy SSLv3/TLS 1.0/1.1 excluded) and an optional `TLS_CIPHERS` allowlist.

@@ -294,6 +294,31 @@ GitHub Actions now provides automated scanning coverage through:
 - update vulnerable dependencies intentionally and retest
 - treat CI scan failures or alerts as release blockers when severity justifies it
 
+### Vulnerability triage SLA
+
+Findings are gated and triaged on a fixed timeline rather than left advisory:
+
+- **Enforcement (gating).** Two layers gate releases:
+  1. *In-workflow hard gate* — a fixable **CRITICAL OS-package** CVE fails the image build (and thus
+     the publish) directly (`docker-image.yml`).
+  2. *Branch-protection gate* — the `CodeQL`, `Code scanning results`, and dependency-scan checks are
+     required on the protected branches, so an unresolved code-scanning alert or a new Dependabot
+     dependency alert at or above the threshold below blocks merge. CodeQL runs the broader
+     `security-and-quality` suite.
+- **Triage timelines** (from when an alert appears, to a fix or a recorded, time-boxed acceptance):
+  | Severity | Triage within | Remediate/accept within |
+  |---|---|---|
+  | Critical | 2 business days | 7 days |
+  | High | 5 business days | 30 days |
+  | Medium | 10 business days | 90 days |
+  | Low | best effort | next dependency refresh |
+- **Accepted exceptions** are recorded in `.trivyignore` (CVE id + component + justification + expiry),
+  and re-reviewed on expiry. Only CVEs that are not remediable on our side (e.g. Apache Geode pinned
+  transitive dependencies) or not reachable in the shim's usage are accepted; fixable CVEs in our own
+  direct dependencies are fixed, not ignored. Library/jar CVEs from Geode's transitive tree remain
+  outside the in-workflow hard gate (gating on them would block every release on un-upgradeable Geode
+  dependencies) — they are surfaced to the Security tab and handled via this SLA + the exception file.
+
 ---
 
 ## Operational security checklist

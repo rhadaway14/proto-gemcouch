@@ -89,6 +89,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: table
+          trivyignores: .trivyignore
 
       # Report HIGH+CRITICAL findings to the GitHub Security tab regardless of the gate result.
       - name: Scan image and report to code scanning (non-blocking)
@@ -102,6 +103,7 @@ jobs:
           exit-code: '0'
           format: sarif
           output: trivy-results.sarif
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF to code scanning
         if: always()
