@@ -163,6 +163,36 @@ presenting a certificate trusted by the shim's truststore can connect. This is t
 client-auth model for the shim (it does not implement the Geode application-level security
 handshake).
 
+### Certificate rotation
+
+The shim reads its keystore/truststore once at startup, so rotation is a **rolling restart**, not a
+hot reload. Because the shim is stateless and runs multiple replicas, that restart is **zero-downtime**:
+a `RollingUpdate` replaces pods one at a time and the PodDisruptionBudget keeps `minAvailable` serving
+throughout (data lives in Couchbase, validated by `ProtoGemCouchChaosIntegrationTest`).
+
+**Standalone / Docker.** Replace the keystore (and truststore) file the container mounts, then restart
+the container. Run more than one instance behind a load balancer to avoid a connectivity gap.
+
+**Kubernetes (Helm).** The chart mounts the keystore/truststore from a Secret you manage
+(`tls.enabled=true`, `tls.existingSecret`); see `charts/protogemcouch/values.yaml`. To rotate:
+1. Update the Secret (e.g. via cert-manager, Vault, or `kubectl create secret ... --dry-run | kubectl apply`).
+2. Roll the Deployment. On the next `helm upgrade` the `checksum/tls-secret` pod annotation (the
+   Secret's `resourceVersion`) changes and triggers the rollout automatically; for an out-of-band
+   Secret update, run `kubectl rollout restart deploy/<release>-protogemcouch` or use a Secret-watching
+   controller (e.g. Stakater Reloader). RollingUpdate + PDB make this seamless.
+
+**Server-certificate rotation** (same CA): issue the new cert from a CA the clients already trust, then
+roll the shim — clients keep validating against the unchanged CA, so there is no client-side change.
+
+**CA rotation** (for mTLS, ordered to avoid an outage):
+1. Add the **new CA** to client truststores *before* switching the server cert (so clients will trust
+   the new server cert), and add the new CA to the shim truststore *before* clients present new client
+   certs (so the shim accepts either CA during migration).
+2. Roll out the new server cert (shim) and new client certs (clients) in any order — both CAs are
+   trusted on both sides during the overlap.
+3. Once every party is on the new CA, remove the old CA from the shim truststore and client truststores
+   and roll once more.
+
 ### Health/admin endpoint
 
 The health/admin server (`/live`, `/ready`, `/metrics`, `/metrics/json`) defaults to plain HTTP on

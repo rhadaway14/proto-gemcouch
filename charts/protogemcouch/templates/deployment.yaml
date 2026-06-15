@@ -18,6 +18,15 @@ spec:
       annotations:
         # Roll pods when the non-secret config changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.tls.enabled }}
+        {{- $tlsSecret := (lookup "v1" "Secret" .Release.Namespace .Values.tls.existingSecret) }}
+        {{- if $tlsSecret }}
+        # Roll pods when the mounted TLS Secret changes (cert rotation) on the next helm upgrade. For
+        # an out-of-band Secret update, `kubectl rollout restart` (or a Secret-watching controller such
+        # as Stakater Reloader) triggers the same zero-downtime rolling restart.
+        checksum/tls-secret: {{ $tlsSecret.metadata.resourceVersion | quote }}
+        {{- end }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -35,14 +44,47 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "protogemcouch.fullname" . }}
-          {{- with .Values.extraEnv }}
+          {{- if or .Values.tls.enabled .Values.extraEnv }}
           env:
+            {{- if .Values.tls.enabled }}
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_KEYSTORE_PATH
+              value: "{{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreFile }}"
+            {{- if .Values.tls.keystorePassword }}
+            - name: TLS_KEYSTORE_PASSWORD
+              value: {{ .Values.tls.keystorePassword | quote }}
+            {{- end }}
+            - name: TLS_PROTOCOLS
+              value: {{ .Values.tls.protocols | quote }}
+            {{- if .Values.tls.ciphers }}
+            - name: TLS_CIPHERS
+              value: {{ .Values.tls.ciphers | quote }}
+            {{- end }}
+            {{- if .Values.tls.truststoreFile }}
+            - name: TLS_CLIENT_AUTH
+              value: {{ .Values.tls.clientAuth | quote }}
+            - name: TLS_TRUSTSTORE_PATH
+              value: "{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreFile }}"
+            {{- if .Values.tls.truststorePassword }}
+            - name: TLS_TRUSTSTORE_PASSWORD
+              value: {{ .Values.tls.truststorePassword | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           volumeMounts:
             - name: couchbase-credentials
               mountPath: /etc/protogemcouch/secrets
               readOnly: true
+            {{- if .Values.tls.enabled }}
+            - name: tls-certs
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            {{- end }}
           # Give the shim time to connect to Couchbase before liveness/readiness take over.
           startupProbe:
             httpGet:
@@ -68,6 +110,11 @@ spec:
         - name: couchbase-credentials
           secret:
             secretName: {{ include "protogemcouch.secretName" . }}
+        {{- if .Values.tls.enabled }}
+        - name: tls-certs
+          secret:
+            secretName: {{ required "tls.existingSecret is required when tls.enabled=true" .Values.tls.existingSecret }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

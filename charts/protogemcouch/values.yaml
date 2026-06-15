@@ -33,6 +33,24 @@ shim:
 
 extraEnv: []   # e.g. [{ name: HANDLER_MAX_PENDING_TASKS, value: "10000" }]
 
+# Inbound TLS for the Geode listener. When enabled, the keystore — and, for mutual TLS, the
+# truststore — are mounted read-only from a Secret you manage (e.g. cert-manager / Vault). Rotate by
+# updating that Secret and rolling the Deployment; see docs/SECURITY.md "Certificate rotation".
+tls:
+  enabled: false
+  # Secret holding the PKCS12 keystore (and truststore for mTLS). Required when tls.enabled.
+  existingSecret: ""
+  keystoreFile: "keystore.p12"
+  truststoreFile: ""          # set this (and clientAuth: require) to enable mutual TLS
+  mountPath: "/etc/protogemcouch/tls"
+  protocols: "TLSv1.3,TLSv1.2"
+  ciphers: ""                 # optional cipher allowlist; empty = provider strong defaults
+  clientAuth: "none"          # "require" enables mutual TLS (client-certificate auth)
+  # Keystore/truststore passwords. For production, prefer injecting these from a Secret via extraEnv
+  # valueFrom (TLS_KEYSTORE_PASSWORD / TLS_TRUSTSTORE_PASSWORD) rather than inline plaintext here.
+  keystorePassword: ""
+  truststorePassword: ""
+
 resources:
   requests:
     cpu: 250m
