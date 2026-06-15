@@ -7,6 +7,7 @@ import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.couchbase.RepositoryFactory;
 import com.protogemcouch.health.HealthHttpServer;
 import com.protogemcouch.health.HealthState;
+import com.protogemcouch.observability.AuditLog;
 import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.observability.OperationNames;
 import com.protogemcouch.observability.StructuredLog;
@@ -105,12 +106,12 @@ public class RawShimServer {
                 @Override
                 public void onConnectionRejected(SocketAddress remote, int maxConnections) {
                     metrics.recordConnectionRejected();
-                    log.warn(StructuredLog.event(
+                    AuditLog.event(
                             "connection_rejected",
                             "reason", "max_connections_exceeded",
                             "maxConnections", maxConnections,
                             "remote", remote
-                    ));
+                    );
                 }
             };
 
@@ -435,11 +436,12 @@ public class RawShimServer {
         if (metrics != null) {
             metrics.recordFirstRequestTimeout();
         }
-        log.warn(StructuredLog.event(
+        AuditLog.event(
                 "connection_first_request_timeout",
+                "reason", "slowloris_first_request_deadline",
                 "remote", remote,
                 "firstRequestTimeoutSeconds", connectionLimits == null ? -1 : connectionLimits.firstRequestTimeoutSeconds()
-        ));
+        );
     }
 
     /**
@@ -461,12 +463,12 @@ public class RawShimServer {
         if (metrics != null) {
             metrics.recordMalformedFrame();
         }
-        log.warn(StructuredLog.event(
+        AuditLog.event(
                 "malformed_frame",
                 "reason", reason,
                 "remote", remote,
                 "offendingValue", offendingValue
-        ));
+        );
     }
 
     static class HandshakeThenFrameHandler extends ChannelInboundHandlerAdapter {
@@ -543,13 +545,41 @@ public class RawShimServer {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            log.error(StructuredLog.event(
-                    "handshake_handler_error",
-                    "remote", ctx.channel().remoteAddress(),
-                    "error", cause.getMessage()
-            ), cause);
+            if (isTlsHandshakeFailure(cause)) {
+                // A rejected TLS/mTLS handshake (e.g. an untrusted or missing client cert under
+                // TLS_CLIENT_AUTH=require) is a security event -> the audit stream.
+                AuditLog.event(
+                        "tls_handshake_rejected",
+                        "reason", rootCause(cause).getClass().getSimpleName(),
+                        "remote", ctx.channel().remoteAddress(),
+                        "error", cause.getMessage());
+            } else {
+                log.error(StructuredLog.event(
+                        "handshake_handler_error",
+                        "remote", ctx.channel().remoteAddress(),
+                        "error", cause.getMessage()
+                ), cause);
+            }
             ctx.close();
         }
+    }
+
+    /** True if the failure is (or is caused by) a TLS handshake failure — an auditable security event. */
+    private static boolean isTlsHandshakeFailure(Throwable cause) {
+        for (Throwable t = cause; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof javax.net.ssl.SSLException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Throwable rootCause(Throwable cause) {
+        Throwable t = cause;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        return t;
     }
 
     static class GemRequestHandler extends SimpleChannelInboundHandler<GemFrame> {
