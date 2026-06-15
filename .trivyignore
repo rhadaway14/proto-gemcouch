@@ -1,0 +1,19 @@
+# Accepted vulnerability exceptions for Trivy scans (honored by the CI image scan in
+# .github/workflows/docker-image.yml). This file is the single, auditable record of CVEs we have
+# triaged and consciously accepted — it keeps the GitHub Security tab signal clean so genuinely new,
+# actionable findings stand out.
+#
+# Policy (see docs/SECURITY.md "Vulnerability triage SLA"):
+#   * Every entry MUST carry: the CVE id, the affected component, WHY it is accepted, and an expiry
+#     date (YYYY-MM-DD). Entries are re-reviewed on/after expiry.
+#   * Only accept a CVE here when it is not remediable on our side (e.g. it originates in Apache
+#     Geode's pinned transitive dependencies and upgrading would break Geode compatibility), or it is
+#     not reachable in how the shim uses the component. Fixable CVEs in our own direct dependencies
+#     must be fixed, not ignored.
+#   * Do not add blanket suppressions; pin to specific CVE ids.
+
+# CVE-2022-40664 — Apache Shiro authentication bypass. Pulled in transitively by Apache Geode
+# (geode-core). The shim does not use Shiro for authentication (transport-level TLS/mTLS only), and
+# the version cannot be bumped without breaking Geode. Re-review with each Geode upgrade.
+# expires: 2026-12-31
+CVE-2022-40664
