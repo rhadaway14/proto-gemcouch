@@ -1,12 +1,46 @@
 # ProtoGemCouch Compatibility Matrix
 
-## Current Milestone
+This is the shim's **compatibility contract**: the Geode client surface it supports, the value types
+it round-trips, and its explicit non-goals. Per-feature details and byte encodings follow; the
+narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGELOG.md`.
 
+## Compatibility contract (as of 0.2.0)
+
+**Client / runtime.** Apache Geode (and GemFire-compatible) **Java clients on the 1.15.x line**,
+validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
+client/server protocol over the shim's Geode port (TLS / mutual TLS optional).
+
+**Supported client surface** (all validated end-to-end against a real Geode client):
 ```text
-pdx-and-large-collection-boundary-support-complete
+core entry ops:        get, put, remove, containsKey, containsValueForKey, getEntry
+bulk ops:              getAll, putAll (partial-failure aware)
+region metadata:       size, keySet (cross-process, contention-free keyset)
+region ops:            invalidate, clear
+atomic ops:            putIfAbsent, replace(k,v), replace(k,old,new), remove(k,v)
+OQL:                   SELECT (*|field|field,…) FROM /region [alias] [WHERE …] [ORDER BY …],
+                       parameterized ($1..$N), struct projections + ORDER BY, paged results,
+                       field access over map values and PDX object fields
+transactions:          begin → put/get/remove → commit / rollback
+subscriptions:         register-interest + server→client events (CacheListener fires)
+continuous queries:    register + events (create/update/destroy, stops-matching), PDX-field
+                       predicates, executeWithInitialResults
+entry TTL:             default + per-region, time-to-live and idle modes, keyset eviction
 ```
 
-ProtoGemCouch now has validated end-to-end support for the current scoped Geode client compatibility profile, including:
+**Explicit non-goals / not supported.** A real Geode client receives a clean, structured error (not a
+crash or hang) for these:
+```text
+server-side function EXECUTION (the shim has no user Function classes; calls are rejected cleanly)
+region lifecycle over the wire (dynamic create/destroy-region opcodes)
+single-hop / partitioned-region bucket metadata
+custom DataSerializable value types
+full PDX registry discovery + schema evolution (PDX round-trip + field querying ARE supported)
+nested complex types inside HashMap<String,Object> (top-level works; see below)
+OQL joins
+the Geode application-level security handshake (use transport TLS / mutual TLS instead)
+```
+
+## Validated profile
 
 ```text
 core CRUD-style operations
@@ -19,7 +53,7 @@ standalone utility values
 Serializable POJOs
 Object[]
 ArrayList<Object>
-PDX / PdxInstance round-tripping
+PDX / PdxInstance round-tripping + object-field querying
 large key-set and bulk collection boundary handling
 ```
 
@@ -34,31 +68,24 @@ putAll followed by getAll with more than 127 entries
 putAll followed by getAll with more than 252 entries
 ```
 
-## Latest Verification
+## Verification
 
-Latest Docker-backed integration result:
+Every supported item above is validated end-to-end against a real Geode 1.15.1 client. As of 0.2.0:
 
 ```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-
-ProtoGemCouchPdxRegistryDiscoveryIntegrationTest
-Tests run: 3, Failures: 0, Errors: 0, Skipped: 3
-
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 135, Failures: 0, Errors: 0, Skipped: 0
-
-Total:
-Tests run: 145, Failures: 0, Errors: 0, Skipped: 3
-
-BUILD SUCCESS
+~500 unit / shape / golden-wire tests (mvn -o test)
+full Docker-backed integration suite green (mvn verify): 20+ classes covering CRUD, atomic ops,
+  OQL (incl. query/PDX-field/parameterized), transactions, subscriptions, continuous queries,
+  server-side-function rejection, large-value limits, TTL (time-to-live + idle), multi-replica,
+  chaos (backend outage + shim restart), TLS / mutual TLS / TLS-policy, audit logging, and 135
+  serialization value-shape cases
 ```
 
-Recommended verification commands:
+Verification commands:
 
 ```powershell
-mvn -Dtest=GemResponseWriterTest test
-mvn clean verify
+mvn -o test                      # unit + shape + golden-wire
+mvn verify                       # full Docker-backed integration suite (real Geode client)
 ```
 
 ## Supported Operations
@@ -72,11 +99,19 @@ mvn clean verify
 | `putAll` | Supported | Supports batch typed values and large-entry boundary coverage. |
 | `getAll` | Supported | Uses a VersionedObjectList-compatible response payload with unsigned variable-length counts. |
 | `remove` | Supported | Removes mapped Couchbase document. |
+| `getEntry` | Supported | Returns an `EntrySnapshot`-compatible response. |
+| `invalidate` / `clear` | Supported | `invalidate` keeps the key, drops the value; `clear` empties the region. |
 | `containsKey` / `containsKeyOnServer` | Supported | Repository-backed existence check. |
 | `containsValueForKey` | Supported | Repository-backed value-present check. |
 | `sizeOnServer` | Supported | Region document count. |
 | `keySetOnServer` | Supported | Returns region keys using Geode list/array length encoding. |
-| PDX type-id lookup | Partially supported | PDX round-trip is supported; full registry discovery semantics remain scoped/limited. |
+| atomic ops | Supported | `putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`, `remove(k,v)` — CAS-backed, Geode-accurate returns. |
+| OQL query | Supported | `SELECT`/`WHERE`/`ORDER BY`, parameterized, struct projections, paged; map + PDX field access. Unsupported shapes return a clean server error. |
+| transactions | Supported | `begin → put/get/remove → commit`/`rollback` (commit returns a `TXCommitMessage`). |
+| register-interest / subscriptions | Supported | Server→client event feed; a `CacheListener` fires for create/update/destroy/invalidate. |
+| continuous queries | Supported | Register + events (create/update/destroy, stops-matching), PDX-field predicates, `executeWithInitialResults`. |
+| server-side functions | Rejected cleanly | The shim cannot run user `Function` code; `EXECUTE_FUNCTION` / `GET_FUNCTION_ATTRIBUTES` return a clean `ServerOperationException`. |
+| PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. Full registry discovery / schema evolution remains scoped. |
 | unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
 
 ## Supported Value Types
@@ -300,39 +335,23 @@ Top-level `Object[]`, top-level wrapper/utility arrays, top-level `ArrayList<Obj
 
 ## Known Limitations
 
-```text
-Nested Object[] inside structured Map<String,Object>
-Nested Serializable POJO inside structured Map<String,Object>
-Nested ArrayList<Object> inside structured Map<String,Object>
-Nested PDX / PdxInstance inside structured Map<String,Object>
-Nested wrapper / utility arrays inside structured Map<String,Object>
-Nested opaque standalone utility values inside structured Map<String,Object>
-DataSerializable
-Expiration / TTL behavior
-Transactions
-Queries
-Continuous queries
-Interest registration
-Partitioned region metadata behavior
-Server-side function execution
-High-concurrency load and soak testing against the current PDX/boundary baseline
-```
-
-## Recommended Next Target
+These are the current non-goals (see the contract at the top). Transactions, queries, continuous
+queries, interest registration/subscriptions, and entry TTL — listed here in earlier releases — are
+now supported and have moved up to the contract.
 
 ```text
-observability hardening
+Nested complex types inside structured Map<String,Object>: Object[], Serializable POJO,
+  ArrayList<Object>, PDX/PdxInstance, wrapper/utility arrays, opaque standalone utility values
+  (top-level forms of all of these ARE supported)
+custom DataSerializable value types
+server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
+region lifecycle over the wire (dynamic create/destroy-region)
+single-hop / partitioned-region bucket metadata
+full PDX registry discovery + schema evolution (PDX round-trip + object-field querying ARE supported)
+OQL joins
 ```
 
-Recommended observability targets:
+## Roadmap
 
-```text
-operation counters
-success/error counters
-latency tracking
-response byte-size tracking
-/metrics/json endpoint
-Prometheus-format /metrics endpoint
-connection close reason logging
-serialization error diagnostics
-```
+The prioritized backlog (next parity and production-readiness targets) lives in `docs/ROADMAP.md`;
+release history is in `CHANGELOG.md`.

@@ -5,6 +5,64 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 [semantic versioning](https://semver.org/). Pre-1.0 releases may still change behavior between
 minor versions as parity expands.
 
+## [0.2.0] - 2026-06-15
+
+A large parity + production-hardening release. Everything listed under 0.1.0's "Known limitations"
+for transactions, continuous queries / subscriptions, server-side functions, `getEntry`, parameterized
+queries, struct `ORDER BY`, result paging, configurable durability, and `putAll` partial failures is
+now implemented and validated against a real Geode 1.15 client. Published as a scanned, SBOM-attested,
+cosign-signed image at `docker.io/rhadaway14/protogemcouch:0.2.0` (and `latest`).
+
+### Added
+- **Transactions:** client transactions (`begin → put/get/remove → commit`/`rollback`); commit returns
+  a real `TXCommitMessage`, rollback discards buffered writes.
+- **Register-interest / subscriptions:** the server→client event feed (mode-101 feed + mode-107
+  control). A real `CacheListener` fires for create / update / destroy / invalidate by another client,
+  with `KEYS_VALUES` initial image (GII), per-client interest, create/update distinction, self-event
+  suppression, and `UNREGISTER`.
+- **Continuous Queries:** register a CQ + `CqListener`; matching mutations push CQ
+  create/update/destroy events (incl. "stops-matching" → DESTROY); **CQ predicates over PDX object
+  fields**; `executeWithInitialResults` returns the current matching set; `STOPCQ`/`CLOSECQ`;
+  `PERIODIC_ACK` draining.
+- **Server-side functions:** graceful rejection — `GET_FUNCTION_ATTRIBUTES` /
+  `EXECUTE_FUNCTION` / `EXECUTE_REGION_FUNCTION` return a clean `ServerOperationException` (the shim
+  cannot run user function code) instead of hanging or dropping the connection.
+- **OQL:** parameterized queries (`$1..$N`, opcode 80); `ORDER BY` on struct/multi-field projections;
+  result paging (chunked, large result sets); `getEntry` (opcode 89).
+- **PDX:** reverse type lookup (`GET_PDX_TYPE_BY_ID`, opcode 92) so a second client can decode a PDX
+  value it did not write (e.g. a pushed CQ/subscription event value).
+- **Large-value limits:** `CB_MAX_VALUE_BYTES` (default Couchbase's 20 MiB ceiling) rejects oversized
+  values up front with a clean error, before any backend write, leaving size/keyset untouched.
+- **Durability & partial failures:** configurable Couchbase write durability (`CB_DURABILITY`);
+  `putAll` is partial-failure aware (successful entries persist and are counted; failures are named).
+- **Resilience tests:** chaos suite — a real Couchbase container stop/start under concurrent load
+  (clean prompt failures, automatic recovery, exact keyset/size) and a stateless shim restart.
+
+### Changed
+- **Geode client pinned to 1.15.1** (matched to the capture server; the chart/compose image is pinned
+  in lockstep). Validated on 1.15.1.
+- **Keyset add path is now contention-free:** single-key adds use an atomic server-side sub-document
+  `arrayAddUnique` instead of a CAS read-modify-write; removes keep CAS with jittered backoff.
+
+### Fixed
+- **Keyset lost update under high concurrency:** the CAS add path could exhaust its retry budget under
+  heavy single-document contention and silently drop a key (`size` 119/120). The contention-free
+  sub-document add eliminates it (validated by repeated 120-way concurrent-put runs).
+
+### Security
+- **TLS protocol/cipher policy:** the Geode listener and health HTTPS endpoint pin an explicit,
+  auditable allowlist — `TLS_PROTOCOLS` (default `TLSv1.3,TLSv1.2`; legacy SSLv3/TLS 1.0/1.1 excluded)
+  and optional `TLS_CIPHERS` — instead of JVM defaults.
+- **Audit logging:** security events (connection rejections, slowloris timeouts, malformed frames,
+  TLS/mTLS handshake rejections) go to a dedicated `protogemcouch.audit` stream with an `audit=true`
+  marker, routable to its own sink.
+- **Vulnerability-scan enforcement:** CodeQL `security-and-quality` suite; documented triage SLA;
+  `.trivyignore` exception file (CVE + justification + expiry); two-layer gating model.
+- **Certificate rotation:** the Helm chart mounts the inbound-TLS keystore/truststore from a Secret and
+  rolls pods on change; zero-downtime rolling-restart rotation + mTLS CA-rotation ordering documented.
+
+[0.2.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-06-05
 
 First tagged release of the Apache Geode / GemFire → Couchbase protocol shim: a Netty server that
