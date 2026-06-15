@@ -209,6 +209,40 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # TLS-policy shim instance pinned to TLS 1.3 only (TLS_PROTOCOLS), for validating that the shim
+  # enforces its configured protocol policy and rejects an older-protocol client.
+  protogemcouch-tls13:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-tls13
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40413:40405"
+      - "8089:8089"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8089"
+      TLS_ENABLED: "true"
+      TLS_KEYSTORE_PATH: "/certs/server-keystore.p12"
+      TLS_KEYSTORE_PASSWORD: "changeit"
+      TLS_KEYSTORE_TYPE: "PKCS12"
+      TLS_PROTOCOLS: "TLSv1.3"
+    volumes:
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8089/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # Mutual-TLS shim instance: requires clients to present a certificate trusted by the server
   # truststore (transport-level client authentication). Validated by ProtoGemCouchMutualTlsIntegrationTest.
   protogemcouch-mtls:

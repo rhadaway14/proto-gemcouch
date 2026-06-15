@@ -88,7 +88,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   chart mounts a chart-managed or external (`existingSecret`) Secret as files, so secrets stay out
   of the process environment. Vault / external-secrets integrate via `existingSecret`.
 - [ ] **Vulnerability-scan enforcement** — make CodeQL/dependency findings gating; triage SLA.
-- [ ] **TLS policy** — pin TLS 1.2/1.3 and cipher suites; certificate rotation story.
+- [x] **TLS policy** — the inbound TLS listener (and the health HTTPS endpoint) pin an explicit,
+  auditable protocol/cipher policy instead of relying on JVM defaults: `TLS_PROTOCOLS` (default
+  `TLSv1.3,TLSv1.2`; legacy SSLv3/TLS 1.0/1.1 excluded) and an optional `TLS_CIPHERS` allowlist.
+  Validated by `ProtoGemCouchTlsPolicyIntegrationTest` (a TLS 1.2 client is rejected by a TLS-1.3-pinned
+  instance; a TLS 1.3 client negotiates) + `TlsConfigTest`. **Remaining:** a documented certificate
+  rotation story.
 - [ ] **Audit logging** — distinct stream for auth failures / rejected connections.
 
 ### 2d. Scale & capacity qualification
