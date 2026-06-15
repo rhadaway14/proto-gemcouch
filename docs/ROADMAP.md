@@ -126,9 +126,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2f. Release management & supportability
 
-- [ ] **Versioned, tagged release builds** + **published Docker images**.
-- [ ] **CHANGELOG** + semantic versioning + a support/compatibility contract.
-- [ ] **Release gate** — `verify` + security scan + perf-regression check before tagging.
+- [x] **Versioned, tagged release builds** + **published Docker images** — `v*` tags build and publish
+  a scanned, SBOM-attested, cosign-signed image (`docker-image.yml`); the release jar is attached by
+  `release-candidate.yml`.
+- [x] **CHANGELOG** + semantic versioning + a support/compatibility contract — `CHANGELOG.md` (Keep a
+  Changelog + semver; `0.2.0` consolidates the parity + hardening work) and the
+  `docs/COMPATABILITY_MATRIX.md` contract (supported Geode 1.15.x surface + explicit non-goals).
+- [x] **Release gate** — a `v*` tag runs the full Docker-backed `mvn verify` integration suite
+  (`release-candidate.yml`) plus the Trivy image scan + cosign signing (`docker-image.yml`) before
+  publish; `docs/RELEASE_CHECKLIST.md` ties it together. **Remaining:** an automated perf-regression
+  check (today the soak/bench is a documented manual gate via `scripts/soak.sh`).
 
 ### 2g. Testing/quality (broaden)
 

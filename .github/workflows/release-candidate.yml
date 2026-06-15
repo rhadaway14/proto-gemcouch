@@ -8,6 +8,7 @@ on:
 jobs:
   release-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -20,11 +21,21 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Run tests
-        run: mvn -B clean test
+      - name: Show Docker / Compose versions
+        run: |
+          docker version
+          docker compose version
 
-      - name: Build package
-        run: mvn -B package -DskipTests
+      # Release gate: a tag must pass the FULL Docker-backed integration suite (real Geode client ->
+      # shim -> Couchbase), not just unit tests — tag pushes do not trigger the branch-scoped
+      # integration workflow. `verify` also packages the shaded jar. The image published by
+      # docker-image.yml on the same tag is additionally Trivy-scanned and cosign-signed.
+      - name: Run full verify (unit + integration gate)
+        run: mvn -B verify
+
+      - name: Dump shim logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 400 || true
 
       - name: Upload release jar artifact
         uses: actions/upload-artifact@v4
