@@ -27,10 +27,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 ### 2a. Data correctness & high availability — highest priority
 
 - [x] **Keyset-metadata concurrency.** `size`/`keySet` are backed by a single per-region metadata
-  document; it was updated via a non-atomic read-modify-write that lost updates under concurrent
-  writers (or multiple shim replicas). **Fixed** with compare-and-swap + bounded retries
-  (insert-when-absent / replace-with-CAS, re-read on conflict). Validated by
-  `ProtoGemCouchKeysetConcurrencyIntegrationTest` (120 concurrent puts → exact `size`/`keySet`).
+  document. A first pass used compare-and-swap with bounded retries, but under heavy single-doc
+  contention (120-way concurrent puts) lockstep retries could exhaust the budget and silently drop a
+  key — an occasional `size 119/120`. **Fixed** by making the hot add path **contention-free**: a
+  server-side sub-document `arrayAddUnique` (atomic, no read-modify-write CAS) for single-key adds, so
+  concurrent adds can never lose an update. Removes (no sub-document by-value equivalent) keep the CAS
+  path, now with jittered backoff so they don't retry in lockstep. Validated by
+  `ProtoGemCouchKeysetConcurrencyIntegrationTest` (120 concurrent puts → exact `size`/`keySet`), run
+  repeatedly with no flake.
 - [x] **Multi-replica validation** — `ProtoGemCouchMultiReplicaIntegrationTest` runs two shim
   replicas (`protogemcouch-replica`) sharing one Couchbase, drives concurrent puts across both via a
   multi-server Geode pool, and asserts `size`/`keySet` reflect every key (cross-process CAS) while

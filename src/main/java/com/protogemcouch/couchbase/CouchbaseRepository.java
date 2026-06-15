@@ -3,6 +3,7 @@ package com.protogemcouch.couchbase;
 import com.couchbase.client.core.error.CasMismatchException;
 import com.couchbase.client.core.error.DocumentExistsException;
 import com.couchbase.client.core.error.DocumentNotFoundException;
+import com.couchbase.client.core.error.subdoc.PathExistsException;
 import com.couchbase.client.core.msg.kv.DurabilityLevel;
 import com.couchbase.client.java.Bucket;
 import com.couchbase.client.java.Cluster;
@@ -14,8 +15,11 @@ import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.ExistsResult;
 import com.couchbase.client.java.kv.GetResult;
 import com.couchbase.client.java.kv.InsertOptions;
+import com.couchbase.client.java.kv.MutateInOptions;
+import com.couchbase.client.java.kv.MutateInSpec;
 import com.couchbase.client.java.kv.RemoveOptions;
 import com.couchbase.client.java.kv.ReplaceOptions;
+import com.couchbase.client.java.kv.StoreSemantics;
 import com.couchbase.client.java.kv.UpsertOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
@@ -1028,16 +1032,49 @@ public class CouchbaseRepository implements Repository {
     }
 
     private void updateKeySetMetadata(String region, String key, boolean add) {
-        mutateKeySetMetadata(
-                region,
-                current -> {
-                    if (add) {
-                        current.add(key);
-                    } else {
-                        current.remove(key);
-                    }
-                },
-                (add ? "add:" : "remove:") + key);
+        if (add) {
+            // Contention-free add: a server-side sub-document arrayAddUnique applies atomically without
+            // a read-modify-write CAS, so concurrent single-key puts (the hot path) can never lose a
+            // keyset update by exhausting the CAS retry budget. Removes have no sub-document
+            // by-value equivalent, so they stay on the CAS path below.
+            addKeyToKeySetMetadata(region, key);
+            return;
+        }
+        mutateKeySetMetadata(region, current -> current.remove(key), "remove:" + key);
+    }
+
+    /**
+     * Add {@code key} to the region's keyset metadata via an atomic sub-document {@code arrayAddUnique}
+     * (creating the document/array if absent), which the server applies without CAS — so concurrent
+     * adds do not conflict and none is lost. {@code keySet}/{@code size} read the {@code keys} array, so
+     * the informational {@code length} field is intentionally not maintained here (the CAS remove path
+     * rewrites it). Falls back to the CAS read-modify-write on any unexpected sub-document failure.
+     */
+    private void addKeyToKeySetMetadata(String region, String key) {
+        String metadataDocId = keySetMetadataDocId(region);
+        try {
+            collection.mutateIn(metadataDocId,
+                    java.util.List.of(
+                            MutateInSpec.arrayAddUnique(FIELD_KEYS, key).createPath(),
+                            MutateInSpec.upsert(FIELD_TYPE, "keySetMetadata"),
+                            MutateInSpec.upsert("region", region)),
+                    mutateInOptions());
+        } catch (PathExistsException alreadyPresent) {
+            // The key is already in the set (e.g. re-putting an existing key) — nothing to do.
+        } catch (RuntimeException e) {
+            log.warn(StructuredLog.event(
+                    "repository_key_set_subdoc_add_fallback",
+                    "region", region, "key", key, "error", e.getMessage()));
+            mutateKeySetMetadata(region, current -> current.add(key), "add:" + key);
+        }
+    }
+
+    private MutateInOptions mutateInOptions() {
+        MutateInOptions options = MutateInOptions.mutateInOptions().storeSemantics(StoreSemantics.UPSERT);
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
+        return options;
     }
 
     /**
@@ -1054,7 +1091,7 @@ public class CouchbaseRepository implements Repository {
      */
     private void mutateKeySetMetadata(String region, Consumer<TreeSet<String>> mutation, String description) {
         String metadataDocId = keySetMetadataDocId(region);
-        int maxAttempts = 32;
+        int maxAttempts = CAS_MAX_ATTEMPTS;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -1107,7 +1144,9 @@ public class CouchbaseRepository implements Repository {
                 ));
                 return;
             } catch (CasMismatchException | DocumentExistsException conflict) {
-                // A concurrent writer changed the document; re-read and re-apply.
+                // A concurrent writer changed the document; re-read and re-apply after a short
+                // randomized backoff so colliding writers don't keep retrying in lockstep (which is
+                // what let a writer exhaust its retry budget and silently drop a keyset update).
                 if (attempt == maxAttempts) {
                     log.warn(StructuredLog.event(
                             "repository_key_set_metadata_cas_exhausted",
@@ -1118,6 +1157,7 @@ public class CouchbaseRepository implements Repository {
                     ));
                     return;
                 }
+                backoffBeforeRetry(attempt);
             } catch (Exception e) {
                 // Keyset metadata is a best-effort secondary index; never fail the primary op for it.
                 log.warn(StructuredLog.event(
@@ -1129,6 +1169,17 @@ public class CouchbaseRepository implements Repository {
                 ), e);
                 return;
             }
+        }
+    }
+
+    /** Capped, jittered backoff between CAS retries to break up lockstep contention on the keyset doc. */
+    private static void backoffBeforeRetry(int attempt) {
+        long capMillis = Math.min(50L, (1L << Math.min(attempt, 6)));   // 2,4,8,16,32,50,50...
+        long sleepMillis = java.util.concurrent.ThreadLocalRandom.current().nextLong(1, capMillis + 1);
+        try {
+            Thread.sleep(sleepMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
