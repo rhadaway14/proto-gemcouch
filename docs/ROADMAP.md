@@ -139,7 +139,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2g. Testing/quality (broaden)
 
-- [ ] Decoder fuzz/negative tests.
+- [x] Decoder fuzz/negative tests (`GemFrameDecoderFuzzTest`): 25k random + 4k hostile-header inputs,
+  every truncation prefix, byte-by-byte fragmentation, pipelined frames, and boundary cases all uphold
+  the invariant — the decoder never throws/hangs/over-allocates and emits only self-consistent frames.
+  Hardened the decoder while at it: parts are now parsed from a slice bounded by the declared
+  `payloadLength`, so a hostile part length can no longer over-read past its frame into a pipelined one
+  (stream desync); the decoder always consumes exactly the header + declared payload.
 - [ ] Property/round-trip tests across all value types at scale.
 - [x] Chaos tests (`ProtoGemCouchChaosIntegrationTest`): a real **Couchbase container stop/start under
   concurrent load** — in-flight writes fail promptly and cleanly (recorded as errors, no hang), the

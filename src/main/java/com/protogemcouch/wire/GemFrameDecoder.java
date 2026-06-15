@@ -64,6 +64,13 @@ public class GemFrameDecoder extends ByteToMessageDecoder {
             return;
         }
 
+        // Parse parts from EXACTLY the declared payload window. Reading parts from a slice bounded by
+        // payloadLength (rather than the whole accumulated buffer) means a hostile part length can
+        // never read past this frame into the bytes of a following, pipelined frame — which would
+        // desync the stream. Either the parts fit the declared payload, or the frame is rejected; and
+        // the decoder always consumes exactly HEADER_SIZE + payloadLength bytes for an accepted frame.
+        ByteBuf payload = in.readSlice(payloadLength);
+
         GemFrame frame = new GemFrame();
         frame.setMessageType(messageType);
         frame.setPayloadLength(payloadLength);
@@ -72,24 +79,22 @@ public class GemFrameDecoder extends ByteToMessageDecoder {
         frame.setFlags(flags);
 
         for (int i = 0; i < numberOfParts; i++) {
-            if (in.readableBytes() < PART_HEADER_SIZE) {
+            if (payload.readableBytes() < PART_HEADER_SIZE) {
                 rejectMalformed(ctx, in, "truncated_part_header", i);
                 return;
             }
 
-            int partLength = in.readInt();
-            byte typeCode = in.readByte();
+            int partLength = payload.readInt();
+            byte typeCode = payload.readByte();
 
-            if (partLength < 0
-                    || partLength > limits.maxFrameBytes()
-                    || partLength > in.readableBytes()) {
+            if (partLength < 0 || partLength > payload.readableBytes()) {
                 rejectMalformed(ctx, in, "part_length_out_of_bounds", partLength);
                 return;
             }
 
-            byte[] payload = new byte[partLength];
-            in.readBytes(payload);
-            frame.addPart(new GemPart(partLength, typeCode, payload));
+            byte[] partBytes = new byte[partLength];
+            payload.readBytes(partBytes);
+            frame.addPart(new GemPart(partLength, typeCode, partBytes));
         }
 
         out.add(frame);
