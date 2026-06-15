@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * TLS configuration for the inbound Geode listener.
@@ -30,6 +32,12 @@ import java.security.KeyStore;
  */
 public final class TlsConfig {
 
+    /**
+     * Default enabled TLS protocols: modern TLS only. Weak/legacy protocols (SSLv3, TLS 1.0, TLS 1.1)
+     * are excluded by default; operators can narrow further (e.g. {@code TLSv1.3}) via TLS_PROTOCOLS.
+     */
+    static final List<String> DEFAULT_PROTOCOLS = List.of("TLSv1.3", "TLSv1.2");
+
     private final boolean enabled;
     private final boolean healthTlsEnabled;
     private final String keystorePath;
@@ -39,6 +47,8 @@ public final class TlsConfig {
     private final String truststorePath;
     private final String truststorePassword;
     private final String truststoreType;
+    private final List<String> protocols;
+    private final List<String> cipherSuites;
 
     public TlsConfig(boolean enabled,
                      String keystorePath, String keystorePassword, String keystoreType,
@@ -52,6 +62,16 @@ public final class TlsConfig {
                      String keystorePath, String keystorePassword, String keystoreType,
                      boolean requireClientAuth,
                      String truststorePath, String truststorePassword, String truststoreType) {
+        this(enabled, healthTlsEnabled, keystorePath, keystorePassword, keystoreType,
+                requireClientAuth, truststorePath, truststorePassword, truststoreType,
+                DEFAULT_PROTOCOLS, List.of());
+    }
+
+    public TlsConfig(boolean enabled, boolean healthTlsEnabled,
+                     String keystorePath, String keystorePassword, String keystoreType,
+                     boolean requireClientAuth,
+                     String truststorePath, String truststorePassword, String truststoreType,
+                     List<String> protocols, List<String> cipherSuites) {
         this.enabled = enabled;
         this.healthTlsEnabled = healthTlsEnabled;
         this.keystorePath = keystorePath;
@@ -61,6 +81,8 @@ public final class TlsConfig {
         this.truststorePath = truststorePath;
         this.truststorePassword = truststorePassword;
         this.truststoreType = (truststoreType == null || truststoreType.isBlank()) ? "PKCS12" : truststoreType;
+        this.protocols = (protocols == null || protocols.isEmpty()) ? DEFAULT_PROTOCOLS : List.copyOf(protocols);
+        this.cipherSuites = cipherSuites == null ? List.of() : List.copyOf(cipherSuites);
     }
 
     public static TlsConfig fromEnv() {
@@ -76,7 +98,30 @@ public final class TlsConfig {
                 requireClientAuth,
                 System.getenv("TLS_TRUSTSTORE_PATH"),
                 System.getenv("TLS_TRUSTSTORE_PASSWORD"),
-                System.getenv("TLS_TRUSTSTORE_TYPE"));
+                System.getenv("TLS_TRUSTSTORE_TYPE"),
+                parseList(System.getenv("TLS_PROTOCOLS")),
+                parseList(System.getenv("TLS_CIPHERS")));
+    }
+
+    /** Parse a comma-separated list into trimmed, non-empty entries (null/blank -> empty list). */
+    static List<String> parseList(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
+    /** The enabled TLS protocols (never empty; defaults to {@link #DEFAULT_PROTOCOLS}). */
+    public String[] enabledProtocols() {
+        return protocols.toArray(new String[0]);
+    }
+
+    /** The enabled cipher suites, or {@code null} to use the provider's defaults (none configured). */
+    public String[] enabledCipherSuites() {
+        return cipherSuites.isEmpty() ? null : cipherSuites.toArray(new String[0]);
     }
 
     public boolean enabled() {
@@ -114,6 +159,13 @@ public final class TlsConfig {
         kmf.init(keyStore, keystorePass);
 
         SslContextBuilder builder = SslContextBuilder.forServer(kmf).sslProvider(SslProvider.JDK);
+
+        // Pin the protocol set (modern TLS only) and, when configured, the cipher allowlist, instead of
+        // relying on the JVM defaults — an explicit, auditable, operator-controllable policy.
+        builder.protocols(enabledProtocols());
+        if (!cipherSuites.isEmpty()) {
+            builder.ciphers(cipherSuites);
+        }
 
         if (requireClientAuth) {
             if (truststorePath == null || truststorePath.isBlank()) {
@@ -163,6 +215,8 @@ public final class TlsConfig {
     public String toString() {
         return "TlsConfig{enabled=" + enabled
                 + ", keystoreType=" + keystoreType
-                + ", requireClientAuth=" + requireClientAuth + '}';
+                + ", requireClientAuth=" + requireClientAuth
+                + ", protocols=" + protocols
+                + ", cipherSuites=" + (cipherSuites.isEmpty() ? "<provider-default>" : cipherSuites) + '}';
     }
 }

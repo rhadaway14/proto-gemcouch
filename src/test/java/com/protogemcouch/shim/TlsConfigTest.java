@@ -5,9 +5,13 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -61,5 +65,36 @@ class TlsConfigTest {
         assertNotNull(context);
         assertTrue(context.isServer());
         assertTrue(config.requireClientAuth());
+    }
+
+    @Test
+    void defaultsToModernProtocolsAndProviderDefaultCiphers() {
+        TlsConfig config = new TlsConfig(true, KEYSTORE, PASS, "PKCS12", false, null, null, null);
+        assertArrayEquals(new String[] {"TLSv1.3", "TLSv1.2"}, config.enabledProtocols(),
+                "weak/legacy protocols are excluded by default");
+        assertNull(config.enabledCipherSuites(), "no cipher restriction unless configured");
+    }
+
+    @Test
+    void honorsConfiguredProtocolsAndCiphers() {
+        TlsConfig config = new TlsConfig(true, false, KEYSTORE, PASS, "PKCS12", false, null, null, null,
+                List.of("TLSv1.3"), List.of("TLS_AES_256_GCM_SHA384"));
+        assertArrayEquals(new String[] {"TLSv1.3"}, config.enabledProtocols());
+        assertArrayEquals(new String[] {"TLS_AES_256_GCM_SHA384"}, config.enabledCipherSuites());
+    }
+
+    @Test
+    void parseListTrimsAndDropsBlanks() {
+        assertEquals(List.of(), TlsConfig.parseList(null));
+        assertEquals(List.of(), TlsConfig.parseList("  "));
+        assertEquals(List.of("TLSv1.3", "TLSv1.2"), TlsConfig.parseList(" TLSv1.3 , ,TLSv1.2 "));
+    }
+
+    @Test
+    void blankProtocolsFallBackToDefault() {
+        TlsConfig config = new TlsConfig(true, false, KEYSTORE, PASS, "PKCS12", false, null, null, null,
+                List.of(), null);
+        assertArrayEquals(new String[] {"TLSv1.3", "TLSv1.2"}, config.enabledProtocols());
+        assertNull(config.enabledCipherSuites());
     }
 }

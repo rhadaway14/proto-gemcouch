@@ -127,6 +127,13 @@ crosses an untrusted network.
 | `TLS_KEYSTORE_TYPE` | `PKCS12` | Keystore type. |
 | `TLS_CLIENT_AUTH` | `none` | `require` enables mutual TLS (client-certificate authentication). |
 | `TLS_TRUSTSTORE_PATH` / `_PASSWORD` / `_TYPE` | — | Truststore for verifying client certs (required when client auth is `require`). |
+| `TLS_PROTOCOLS` | `TLSv1.3,TLSv1.2` | Comma-separated enabled-protocol allowlist; legacy SSLv3 / TLS 1.0 / 1.1 are excluded. Narrow to `TLSv1.3` to require TLS 1.3. |
+| `TLS_CIPHERS` | — | Optional comma-separated cipher-suite allowlist; unset uses the provider's strong defaults. |
+
+The shim pins this protocol/cipher policy explicitly (rather than relying on JVM defaults) on both the
+Geode listener and — when `HEALTH_TLS_ENABLED` — the health HTTPS endpoint, so the accepted TLS
+versions are auditable and operator-controllable. `ProtoGemCouchTlsPolicyIntegrationTest` proves the
+policy is enforced server-side: a TLS-1.3-pinned instance rejects a TLS 1.2 client at the handshake.
 
 Geode clients connect with `ssl-enabled-components=server` and a truststore trusting the shim's
 certificate. See `docs/RUNBOOK.md` for the full variable list and `docker-compose.yml`

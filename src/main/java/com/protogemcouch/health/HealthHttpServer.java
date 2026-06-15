@@ -5,11 +5,13 @@ import com.protogemcouch.observability.StructuredLog;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -25,6 +27,8 @@ public class HealthHttpServer {
     private final MetricsRegistry metricsRegistry;
     private final String bindAddress;
     private final SSLContext sslContext;
+    private final String[] tlsProtocols;
+    private final String[] tlsCipherSuites;
     private HttpServer server;
 
     public HealthHttpServer(int port, HealthState healthState) {
@@ -41,11 +45,23 @@ public class HealthHttpServer {
      */
     public HealthHttpServer(int port, HealthState healthState, MetricsRegistry metricsRegistry,
                             String bindAddress, SSLContext sslContext) {
+        this(port, healthState, metricsRegistry, bindAddress, sslContext, null, null);
+    }
+
+    /**
+     * @param tlsProtocols    enabled TLS protocols for the HTTPS endpoint ({@code null} = provider default)
+     * @param tlsCipherSuites enabled cipher suites ({@code null} = provider default)
+     */
+    public HealthHttpServer(int port, HealthState healthState, MetricsRegistry metricsRegistry,
+                            String bindAddress, SSLContext sslContext,
+                            String[] tlsProtocols, String[] tlsCipherSuites) {
         this.port = port;
         this.healthState = healthState;
         this.metricsRegistry = metricsRegistry;
         this.bindAddress = bindAddress;
         this.sslContext = sslContext;
+        this.tlsProtocols = tlsProtocols == null ? null : tlsProtocols.clone();
+        this.tlsCipherSuites = tlsCipherSuites == null ? null : tlsCipherSuites.clone();
     }
 
     public void start() throws IOException {
@@ -55,7 +71,21 @@ public class HealthHttpServer {
 
         if (sslContext != null) {
             HttpsServer https = HttpsServer.create(address, 0);
-            https.setHttpsConfigurator(new HttpsConfigurator(sslContext));
+            // Pin the HTTPS endpoint's protocols/ciphers to the same policy as the Geode listener
+            // (instead of the JDK defaults the bare HttpsConfigurator would use).
+            https.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(HttpsParameters params) {
+                    SSLParameters sslParameters = sslContext.getDefaultSSLParameters();
+                    if (tlsProtocols != null) {
+                        sslParameters.setProtocols(tlsProtocols);
+                    }
+                    if (tlsCipherSuites != null) {
+                        sslParameters.setCipherSuites(tlsCipherSuites);
+                    }
+                    params.setSSLParameters(sslParameters);
+                }
+            });
             server = https;
         } else {
             server = HttpServer.create(address, 0);

@@ -191,7 +191,9 @@ public class RawShimServer {
                     tlsConfig.healthTlsEnabled() ? tlsConfig.buildJdkSslContext() : null;
             healthHttpServer = new HealthHttpServer(
                     config.getHealthPort(), healthState, metrics,
-                    System.getenv("HEALTH_BIND_ADDRESS"), healthSslContext);
+                    System.getenv("HEALTH_BIND_ADDRESS"), healthSslContext,
+                    healthSslContext == null ? null : tlsConfig.enabledProtocols(),
+                    healthSslContext == null ? null : tlsConfig.enabledCipherSuites());
             healthHttpServer.start();
 
             repository = createRepository(config);

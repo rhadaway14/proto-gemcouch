@@ -78,6 +78,10 @@ Optional:
 - `TLS_CLIENT_AUTH` default `none` (`require` enables mutual TLS / client-certificate auth)
 - `TLS_TRUSTSTORE_PATH` / `TLS_TRUSTSTORE_PASSWORD` / `TLS_TRUSTSTORE_TYPE` (truststore for verifying
   client certs; required when `TLS_CLIENT_AUTH=require`)
+- `TLS_PROTOCOLS` default `TLSv1.3,TLSv1.2` (comma-separated enabled-protocol allowlist for the Geode
+  listener + health HTTPS; legacy SSLv3 / TLS 1.0 / 1.1 excluded; narrow to `TLSv1.3` to require 1.3)
+- `TLS_CIPHERS` default unset (optional comma-separated cipher-suite allowlist; unset = provider strong
+  defaults)
 - `CB_TLS_ENABLED` default `false` (TLS to Couchbase; also implied by a `couchbases://` connstr)
 - `CB_TLS_CERT_PATH` (PEM cert to trust for the Couchbase connection)
 - `CB_TLS_VERIFY_HOSTNAME` default `true` (verify the Couchbase host against its cert; disable only
