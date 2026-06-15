@@ -65,6 +65,25 @@ Operational rule:
 - never log secrets
 - never paste real credentials into tickets or shared docs
 
+### Audit logging
+
+Security-relevant events are emitted on a **dedicated audit stream** — the SLF4J logger
+`protogemcouch.audit` — at WARN, separate from operational logs, so they can be routed to their own
+sink (file / SIEM) by logger name. Every audit line carries an `audit=true` marker (for filtering even
+when streams are merged), the remote peer, and a reason, in the standard `key=value` format. Audited
+events:
+
+| Event | When |
+|---|---|
+| `connection_rejected` | a connection is refused because the `MAX_CONNECTIONS` cap is reached |
+| `connection_first_request_timeout` | a connection is closed for not completing its first request in time (slowloris guard) |
+| `malformed_frame` | an inbound frame is rejected as malformed/oversized and the connection closed |
+| `tls_handshake_rejected` | a TLS/mTLS handshake fails (e.g. an untrusted or missing client cert under `TLS_CLIENT_AUTH=require`) |
+
+Validated by `AuditLogTest` (format/marker) and `ProtoGemCouchAuditLogIntegrationTest` (a malformed
+frame emits the audit event in the container log). To ship the audit trail separately in production,
+route the `protogemcouch.audit` logger to its own appender.
+
 ---
 
 ## Health endpoint security

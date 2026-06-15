@@ -94,7 +94,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   Validated by `ProtoGemCouchTlsPolicyIntegrationTest` (a TLS 1.2 client is rejected by a TLS-1.3-pinned
   instance; a TLS 1.3 client negotiates) + `TlsConfigTest`. **Remaining:** a documented certificate
   rotation story.
-- [ ] **Audit logging** — distinct stream for auth failures / rejected connections.
+- [x] **Audit logging** — security events (max-connections rejections, slowloris/first-request
+  timeouts, malformed frames, TLS/mTLS handshake rejections) are emitted on a dedicated `protogemcouch.audit`
+  logger at WARN with an `audit=true` marker, separate from operational logs and routable to its own
+  sink. `AuditLog` + `AuditLogTest`; end-to-end `ProtoGemCouchAuditLogIntegrationTest`. See
+  `docs/SECURITY.md`.
 
 ### 2d. Scale & capacity qualification
 
