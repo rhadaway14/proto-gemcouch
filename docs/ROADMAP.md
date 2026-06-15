@@ -97,8 +97,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   auditable protocol/cipher policy instead of relying on JVM defaults: `TLS_PROTOCOLS` (default
   `TLSv1.3,TLSv1.2`; legacy SSLv3/TLS 1.0/1.1 excluded) and an optional `TLS_CIPHERS` allowlist.
   Validated by `ProtoGemCouchTlsPolicyIntegrationTest` (a TLS 1.2 client is rejected by a TLS-1.3-pinned
-  instance; a TLS 1.3 client negotiates) + `TlsConfigTest`. **Remaining:** a documented certificate
-  rotation story.
+  instance; a TLS 1.3 client negotiates) + `TlsConfigTest`. **Certificate rotation** is documented and
+  chart-supported: the Helm chart mounts the keystore/truststore from a Secret (`tls.existingSecret`)
+  and rolls pods on change (`checksum/tls-secret`); rotation is a zero-downtime rolling restart
+  (stateless + PDB), with the CA-rotation ordering for mTLS written up in `docs/SECURITY.md`.
 - [x] **Audit logging** — security events (max-connections rejections, slowloris/first-request
   timeouts, malformed frames, TLS/mTLS handshake rejections) are emitted on a dedicated `protogemcouch.audit`
   logger at WARN with an `audit=true` marker, separate from operational logs and routable to its own
