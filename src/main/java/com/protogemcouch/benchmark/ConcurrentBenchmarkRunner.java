@@ -48,6 +48,7 @@ public class ConcurrentBenchmarkRunner {
             System.out.println("Starting measured run...");
             BenchmarkResult measured = runPhase(region, config, config.getDuration(), "measured", true);
             printSummary(config, measured);
+            printMachineSummary(measured);
         } finally {
             if (cache != null) {
                 cache.close();
@@ -226,6 +227,23 @@ public class ConcurrentBenchmarkRunner {
                 result.totalErrors(),
                 result.opsPerSecond()
         );
+    }
+
+    /**
+     * One machine-readable line for the automated perf-regression gate (scripts/perf-gate.sh) to
+     * parse — total ops, error count, throughput, and the worst per-operation p99 (ms). Kept stable
+     * and grep-friendly; do not reformat without updating the gate parser.
+     */
+    private static void printMachineSummary(BenchmarkResult result) {
+        double maxP99Millis = 0.0;
+        for (LatencyStats s : result.getPerOperation().values()) {
+            if (s.getTotalCount() > 0) {
+                maxP99Millis = Math.max(maxP99Millis, nanosToMillis(s.percentile(99)));
+            }
+        }
+        System.out.printf(
+                "PERF_RESULT ops_per_sec=%.2f total=%d errors=%d max_p99_ms=%.3f%n",
+                result.opsPerSecond(), result.totalOperations(), result.totalErrors(), maxP99Millis);
     }
 
     private static void printSummary(BenchmarkConfig config, BenchmarkResult result) {

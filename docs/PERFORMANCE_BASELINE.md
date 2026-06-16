@@ -48,6 +48,29 @@ Use the two documents this way:
 
 ---
 
+## Automated regression gate
+
+`scripts/perf-gate.sh` is the automated companion to this runbook. Against a running shim + Couchbase
+it runs the concurrency benchmark (`com.protogemcouch.benchmark.ConcurrentBenchmarkRunner`, which now
+emits a machine-readable `PERF_RESULT ops_per_sec=… errors=… max_p99_ms=…` line) and **fails** if
+throughput, worst-operation p99, or error count cross the thresholds in `scripts/perf-baseline.env`.
+
+```bash
+docker compose up -d --build protogemcouch   # shim + Couchbase
+mvn -DskipTests package                       # build the jar the benchmark client uses
+./scripts/perf-gate.sh                        # exit 0 = pass, 1 = regression, 2 = setup error
+```
+
+The thresholds are **conservative gross-regression guards**, not tight SLOs — they catch a large
+regression (a bottleneck that tanks throughput or blows up tail latency) while tolerating the wide
+run-to-run variance of shared CI runners. The gate runs in CI via `.github/workflows/perf-gate.yml` on
+release `v*` tags (part of the release gate), weekly, and on demand — not per-PR, where runner variance
+would make it flaky. To make it a true regression detector (vs. a gross-regression guard), re-run this
+runbook on a dedicated, representative environment, record results in `PERFORMANCE_RESULTS.md`, and
+tighten `perf-baseline.env` accordingly.
+
+---
+
 ## Current baseline milestone
 
 Current target milestone:

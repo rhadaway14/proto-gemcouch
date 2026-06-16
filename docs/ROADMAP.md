@@ -140,9 +140,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   Changelog + semver; `0.2.0` consolidates the parity + hardening work) and the
   `docs/COMPATABILITY_MATRIX.md` contract (supported Geode 1.15.x surface + explicit non-goals).
 - [x] **Release gate** — a `v*` tag runs the full Docker-backed `mvn verify` integration suite
-  (`release-candidate.yml`) plus the Trivy image scan + cosign signing (`docker-image.yml`) before
-  publish; `docs/RELEASE_CHECKLIST.md` ties it together. **Remaining:** an automated perf-regression
-  check (today the soak/bench is a documented manual gate via `scripts/soak.sh`).
+  (`release-candidate.yml`), the Trivy image scan + cosign signing (`docker-image.yml`), and an
+  automated **perf-regression gate** (`perf-gate.yml` → `scripts/perf-gate.sh`): the concurrency
+  benchmark runs against a real shim + Couchbase and fails the build on a gross throughput / tail-latency
+  / error regression vs the conservative thresholds in `scripts/perf-baseline.env`. The perf gate also
+  runs weekly and on demand (kept off per-PR to avoid shared-runner variance). `docs/RELEASE_CHECKLIST.md`
+  ties it together. **Remaining:** tighten the perf thresholds against a dedicated, representative
+  environment (today they are gross-regression guards tuned to tolerate CI variance).
 
 ### 2g. Testing/quality (broaden)
 
