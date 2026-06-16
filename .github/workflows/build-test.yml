@@ -26,8 +26,20 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Run unit tests
+      # Unit tests run under the JaCoCo agent; the jacoco:check bound to the test phase
+      # fails the build if line coverage of the unit-testable surface drops below the floor
+      # in pom.xml (jacoco.line.coverage.min). See docs/TEST_STRATEGY.md.
+      - name: Run unit tests (with coverage gate)
         run: mvn -B clean test
+
+      # Always publish the coverage report, even when the gate fails, so a regression is diagnosable.
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: target/site/jacoco/
+          if-no-files-found: warn
 
       - name: Package application
         run: mvn -B package -DskipTests

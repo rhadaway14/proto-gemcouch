@@ -22,6 +22,16 @@
     <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
     <maven.shade.plugin.version>3.5.2</maven.shade.plugin.version>
     <exec.maven.plugin.version>3.2.0</exec.maven.plugin.version>
+    <!-- 0.8.13 supports Java 23+ class files / runtime (build + CI run on JDK 17–23). -->
+    <jacoco.plugin.version>0.8.13</jacoco.plugin.version>
+    <!--
+      Unit-test line-coverage floor for production code (a ratchet, not a target). Scoped to the
+      unit-testable surface: dev-only packages (tools/probe/benchmark/samples) are excluded, and the
+      wire/handler paths that are only exercised by the Docker-backed integration suite are NOT
+      counted here (JaCoCo on the test JVM cannot see the shim running in its container). Raise this
+      as coverage improves; never lower it without a written reason. See docs/TEST_STRATEGY.md.
+    -->
+    <jacoco.line.coverage.min>0.60</jacoco.line.coverage.min>
 
     <slf4j.version>2.0.9</slf4j.version>
     <log4j.version>2.17.2</log4j.version>
@@ -163,7 +173,8 @@
         <version>${maven.surefire.plugin.version}</version>
         <configuration>
           <useModulePath>false</useModulePath>
-          <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+          <!-- @{argLine} carries the JaCoCo agent set by jacoco:prepare-agent (else just our flag). -->
+          <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
 
           <!-- Exclude JUnit 5 @Tag("integration") tests from mvn test. -->
           <excludedGroups>integration</excludedGroups>
@@ -177,6 +188,76 @@
             <exclude>**/*IntegrationTest.java</exclude>
           </excludes>
         </configuration>
+      </plugin>
+
+      <!--
+        Code-coverage measurement + gate (unit tests / surefire only). prepare-agent injects the
+        JaCoCo agent into the surefire JVM via @{argLine}; report writes target/site/jacoco; check
+        enforces the line-coverage floor on production code. Dev-only packages and the wire/handler
+        paths that only the Docker-backed integration suite exercises are excluded — see the
+        jacoco.line.coverage.min property note and docs/TEST_STRATEGY.md.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.plugin.version}</version>
+        <configuration>
+          <excludes>
+            <!-- Dev/ops tooling, not shipped request-path code. -->
+            <exclude>com/protogemcouch/tools/**</exclude>
+            <exclude>com/protogemcouch/probe/**</exclude>
+            <exclude>com/protogemcouch/benchmark/**</exclude>
+            <exclude>com/protogemcouch/samples/**</exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <execution>
+            <id>jacoco-prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <phase>test</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <!--
+                The gate measures the unit-testable surface. CouchbaseRepository is the live-Couchbase
+                backend implementation: it is exercised end-to-end by the Docker-backed integration
+                suite (mvn verify), but that runs against the shim inside its container, so JaCoCo on
+                the surefire JVM cannot observe it (~1,600 lines that would otherwise be counted as
+                "missed" forever). It is excluded from the gate but kept in target/site/jacoco so the
+                gap stays visible. combine.children=append keeps the dev-only plugin-level excludes too.
+              -->
+              <excludes combine.children="append">
+                <exclude>com/protogemcouch/couchbase/CouchbaseRepository.class</exclude>
+                <exclude>com/protogemcouch/couchbase/CouchbaseRepository$*.class</exclude>
+              </excludes>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.line.coverage.min}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
 
       <!-- Build the runnable shaded jar before Docker Compose starts. -->

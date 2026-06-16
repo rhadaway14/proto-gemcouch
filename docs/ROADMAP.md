@@ -187,7 +187,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   restart mid-flight** — the stateless shim loses no data (acknowledged entries remain readable) and
   the client reconnects and resumes writing. The class runs early and fully restores both shared
   containers, so the rest of the suite is unaffected.
-- [ ] Coverage measurement + gate.
+- [x] **Coverage measurement + gate** — JaCoCo measures unit-test line coverage (`target/site/jacoco`)
+  and `jacoco:check` (bound to the `test` phase, so `mvn test` and CI's `build-test.yml` both enforce
+  it) fails the build below the floor in `pom.xml` (`jacoco.line.coverage.min`, currently 0.60 vs ~0.62
+  measured — a ratchet). The gate scopes to the unit-testable surface: dev-only packages
+  (`tools`/`probe`/`benchmark`/`samples`) and the live-backend `CouchbaseRepository` are excluded
+  (the latter is integration-only — the Docker suite exercises it inside its container where JaCoCo
+  on the test JVM can't see it — but it's kept in the report so the gap stays visible). CI publishes
+  the report as an artifact. See `docs/TEST_STRATEGY.md`.
 
 ---
 
