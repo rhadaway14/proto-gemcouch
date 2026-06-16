@@ -2,6 +2,11 @@ global:
   scrape_interval: 5s
   evaluation_interval: 5s
 
+# ProtoGemCouch alerting rules (availability, error rate, latency SLO, saturation, abuse).
+# Add an `alerting:` block with an Alertmanager target to route these in a real deployment.
+rule_files:
+  - protogemcouch-alerts.rules.yml
+
 scrape_configs:
   # Scrape the ProtoGemCouch shim's Prometheus endpoint.
   # The shim exposes metrics at /metrics on its health/admin port (HEALTH_PORT, default 8081).

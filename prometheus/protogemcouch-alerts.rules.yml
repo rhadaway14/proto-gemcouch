@@ -1,0 +1,93 @@
+# Prometheus alerting rules for ProtoGemCouch. Derived from the PromQL in docs/OBSERVABILITY.md and
+# the failure modes the shim is built to handle (backend outage, saturation, abuse). Thresholds are
+# sensible defaults — tune them to your SLO and capacity. Validated with `promtool check rules` and
+# the unit tests in protogemcouch-alerts_test.yml.
+groups:
+  - name: protogemcouch-availability
+    rules:
+      - alert: ProtoGemCouchDown
+        expr: up{job="protogemcouch"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ProtoGemCouch shim is down (instance {{ $labels.instance }})"
+          description: "Prometheus has not been able to scrape the shim's /metrics endpoint for over 1m; the process or its health port is unreachable."
+
+  - name: protogemcouch-errors
+    rules:
+      # Operation-level error ratio. NaN (no traffic) does not satisfy `> 0.05`, so an idle shim
+      # never fires this.
+      - alert: ProtoGemCouchHighErrorRate
+        expr: |
+          sum(rate(protogemcouch_operation_errors_total[5m]))
+            / sum(rate(protogemcouch_operation_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch operation error rate above 5%"
+          description: "More than 5% of operations have failed over the last 5m."
+
+      # Sustained request errors point at the backend (e.g. Couchbase unreachable) — the chaos suite
+      # shows this counter climb during an outage.
+      - alert: ProtoGemCouchBackendErrors
+        expr: rate(protogemcouch_request_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ProtoGemCouch sustained request errors (possible backend outage)"
+          description: "protogemcouch_request_errors_total has been increasing for 5m — operations are failing at the backend (e.g. Couchbase unreachable)."
+
+  - name: protogemcouch-latency
+    rules:
+      - alert: ProtoGemCouchHighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(protogemcouch_operation_latency_seconds_bucket[5m]))) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch p99 latency above 250ms"
+          description: "Aggregate p99 operation latency has exceeded the 250ms SLO for 10m. Adjust the threshold to your SLO."
+
+  - name: protogemcouch-saturation
+    rules:
+      - alert: ProtoGemCouchConnectionsRejected
+        expr: rate(protogemcouch_connections_rejected_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch is rejecting connections (MAX_CONNECTIONS reached)"
+          description: "New client connections are being refused because the MAX_CONNECTIONS cap is reached. Scale out or raise the cap."
+
+      - alert: ProtoGemCouchRequestsShed
+        expr: rate(protogemcouch_requests_shed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch is shedding requests (handler queue saturated)"
+          description: "The handler queue is full and requests are being shed. Raise HANDLER_THREADS / HANDLER_MAX_PENDING_TASKS, or scale out."
+
+  - name: protogemcouch-security
+    rules:
+      - alert: ProtoGemCouchMalformedFrameSpike
+        expr: increase(protogemcouch_malformed_frames_total[10m]) > 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch malformed-frame spike"
+          description: "More than 10 malformed/oversized frames were rejected in 10m — a misbehaving client or probing/abuse. Cross-check the protogemcouch.audit stream."
+
+      - alert: ProtoGemCouchFirstRequestTimeouts
+        expr: rate(protogemcouch_connections_first_request_timeout_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "ProtoGemCouch slowloris first-request timeouts"
+          description: "Connections are being closed for not completing their first request in time (slowloris guard)."
