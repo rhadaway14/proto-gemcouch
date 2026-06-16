@@ -21,3 +21,21 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
+
+  # Jaeger traces. The Jaeger backend only runs with the tracing overlay (docker-compose.tracing.yml),
+  # so this datasource is unreachable on the default stack and live once the overlay is up — then
+  # traces appear in Grafana's Explore next to metrics and logs. "Logs for this span" jumps to Loki
+  # around the span's time window (the Geode protocol carries no trace context, so it's time-based).
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-2m'
+        spanEndTimeShift: '2m'
+        filterByTraceID: false
+        filterBySpanID: false

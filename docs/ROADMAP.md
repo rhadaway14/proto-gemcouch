@@ -132,7 +132,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   A span per Geode operation (`geode.<OPERATION>`) with the Couchbase backend call nested under it
   (`couchbase.<op>`, via the `TracingRepository` decorator), exported over OTLP; errors recorded on the
   span. Validated end-to-end against Jaeger (operation + backend spans paired 1:1). Opt-in overlay
-  `docker-compose.tracing.yml`. Spans are shim-rooted (the Geode protocol carries no trace context).
+  `docker-compose.tracing.yml` (Jaeger backend + a provisioned Grafana Jaeger datasource, so traces sit
+  beside metrics + logs in Grafana). Spans are shim-rooted (the Geode protocol carries no trace context).
 - [x] **Log aggregation (Loki)** — the shim's structured logfmt logs (incl. the `protogemcouch.audit`
   stream) are shipped to **Loki** by **Promtail** (Docker-socket discovery) and queryable in **Grafana**
   via a provisioned Loki datasource; Promtail lifts `level`/`logger` to labels and stores the logfmt

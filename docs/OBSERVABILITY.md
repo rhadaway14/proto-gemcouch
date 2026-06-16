@@ -421,14 +421,18 @@ trace context, so spans are rooted at the shim (per-request), not continued from
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (4317) or `http/protobuf` (4318) |
 | `OTEL_SDK_DISABLED` | `true` forces tracing off regardless of the above |
 
-Try it with the opt-in overlay (adds a Jaeger backend and turns on export, without changing the default
-trace-free stack):
+Try it with the opt-in overlay (adds a Jaeger backend, turns on export, and provisions a Jaeger
+datasource in Grafana — without changing the default trace-free stack):
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.tracing.yml up -d --build
-# drive traffic, then open the Jaeger UI:
-#   http://localhost:16686  (service "protogemcouch")
+# drive traffic, then view traces either in:
+#   the Jaeger UI         -> http://localhost:16686   (service "protogemcouch")
+#   Grafana (Explore)     -> http://localhost:3000    (Jaeger datasource, alongside Prometheus + Loki)
 ```
+
+With the overlay up, traces sit next to metrics and logs in Grafana; "Logs for this span" jumps to the
+Loki logs around that span's time window.
 
 ---
 
