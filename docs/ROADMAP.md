@@ -83,7 +83,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   to the Security tab; hard gate on fixable CRITICAL OS-package CVEs — jar CVEs from Geode's
   transitive deps are triaged, not gated) and signs every published image with keyless cosign
   (GitHub OIDC + Rekor). Remaining: periodic base-digest bumps and a documented `.trivyignore`.
-- [ ] **Resource sizing guidance** tied to capacity tests.
+- [ ] **Resource sizing guidance** tied to capacity tests (methodology documented in
+  `docs/SOAK_RESULTS.md`; the sizing numbers themselves need the dedicated-infra capacity runs).
 
 ### 2c. Security (remaining)
 
@@ -113,10 +114,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2d. Scale & capacity qualification
 
+- [x] **Endurance soak** via `scripts/soak.sh` — sustained mixed-load runs (incl. a 1-hour run; a
+  connection-accounting leak was caught and fixed by an earlier soak, see `docs/SOAK_RESULTS.md`). The
+  script now renders an automated **stability verdict** (hard-gating errors, shedding, memory-leak, and
+  connection-leak; throughput trend reported, gated only on dedicated infra via
+  `SOAK_FAIL_ON_THROUGHPUT`) with a machine-readable `SOAK_VERDICT` line + exit code, so the soak can
+  gate rather than be eyeballed.
 - [ ] **Multi-host capacity ceiling** — dedicated Couchbase + separate load generators (all current
-  numbers are single-host/relative).
-- [ ] **Endurance soak** (hours) via `scripts/soak.sh`.
-- [ ] **Failure injection at scale** — backend latency, partial outages, partitions under load.
+  numbers are single-host/relative). Methodology documented in `docs/SOAK_RESULTS.md`; needs a
+  dedicated rig to produce absolute capacity/sizing numbers.
+- [ ] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
+  chaos suite covers single-node backend outage + shim restart today).
 
 ### 2e. Operability
 
