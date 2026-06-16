@@ -120,7 +120,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 2e. Operability
 
-- [ ] **Alerting rules** deployed (Alertmanager rules from the PromQL in `OBSERVABILITY.md`).
+- [x] **Alerting rules** — `prometheus/protogemcouch-alerts.rules.yml` (8 alerts: shim-down, backend
+  errors, high error rate, p99-latency SLO, connections-rejected, requests-shed, malformed-frame spike,
+  slowloris timeouts), loaded by the bundled Prometheus and validated with `promtool check rules` +
+  unit tests (`protogemcouch-alerts_test.yml`). Wire an Alertmanager target to route them. See
+  `docs/OBSERVABILITY.md`. **Remaining:** ship an Alertmanager instance + routing in the chart/stack.
 - [ ] **Log aggregation** (structured JSON → ELK/Loki) and **distributed tracing** (OpenTelemetry).
 - [ ] **Runbook completeness** — incident playbooks; formal support handoff.
 

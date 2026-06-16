@@ -1,0 +1,67 @@
+# promtool unit tests for the ProtoGemCouch alerting rules.
+# Run: promtool test rules protogemcouch-alerts_test.yml
+rule_files:
+  - protogemcouch-alerts.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # The shim is unreachable: `up == 0` sustained past the 1m `for:` fires ProtoGemCouchDown.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="protogemcouch", instance="protogemcouch:8081", service="protogemcouch"}'
+        values: "0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ProtoGemCouchDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: protogemcouch
+              instance: protogemcouch:8081
+              service: protogemcouch
+            exp_annotations:
+              summary: "ProtoGemCouch shim is down (instance protogemcouch:8081)"
+              description: "Prometheus has not been able to scrape the shim's /metrics endpoint for over 1m; the process or its health port is unreachable."
+
+  # The handler queue is shedding: a rising counter gives a positive rate, firing ProtoGemCouchRequestsShed.
+  - interval: 1m
+    input_series:
+      - series: 'protogemcouch_requests_shed_total{job="protogemcouch", instance="protogemcouch:8081"}'
+        values: "0+5x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ProtoGemCouchRequestsShed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: protogemcouch
+              instance: protogemcouch:8081
+            exp_annotations:
+              summary: "ProtoGemCouch is shedding requests (handler queue saturated)"
+              description: "The handler queue is full and requests are being shed. Raise HANDLER_THREADS / HANDLER_MAX_PENDING_TASKS, or scale out."
+
+  # Healthy shim: up, serving traffic, no errors, no shedding -> none of these alerts fire.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="protogemcouch", instance="protogemcouch:8081"}'
+        values: "1x10"
+      - series: 'protogemcouch_operation_requests_total{job="protogemcouch", operation="GET", opcode="0"}'
+        values: "0+100x10"
+      - series: 'protogemcouch_request_errors_total{job="protogemcouch"}'
+        values: "0x10"
+      - series: 'protogemcouch_requests_shed_total{job="protogemcouch"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ProtoGemCouchDown
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ProtoGemCouchHighErrorRate
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ProtoGemCouchBackendErrors
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ProtoGemCouchRequestsShed
+        exp_alerts: []

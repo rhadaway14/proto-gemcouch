@@ -301,7 +301,26 @@ increase(protogemcouch_unknown_opcodes_total[15m])
 
 ---
 
-## Suggested alerts
+## Alerting rules
+
+A ready-to-use Prometheus alerting ruleset ships at `prometheus/protogemcouch-alerts.rules.yml` and is
+loaded by the bundled Prometheus (`rule_files:` in `prometheus/prometheus.yml`; mounted by the Compose
+`prometheus` service). Wire an `alerting:` / Alertmanager target to route them in a real deployment.
+
+| Alert | Fires when | Severity |
+|---|---|---|
+| `ProtoGemCouchDown` | `up{job="protogemcouch"} == 0` for 1m (shim unreachable) | critical |
+| `ProtoGemCouchBackendErrors` | sustained `protogemcouch_request_errors_total` rate (e.g. Couchbase outage) | critical |
+| `ProtoGemCouchHighErrorRate` | operation error ratio > 5% for 5m | warning |
+| `ProtoGemCouchHighP99Latency` | aggregate p99 > 250ms (SLO) for 10m | warning |
+| `ProtoGemCouchConnectionsRejected` | connections refused — `MAX_CONNECTIONS` reached | warning |
+| `ProtoGemCouchRequestsShed` | handler queue saturated, requests shed | warning |
+| `ProtoGemCouchMalformedFrameSpike` | > 10 malformed frames in 10m (probing/abuse) | warning |
+| `ProtoGemCouchFirstRequestTimeouts` | slowloris first-request timeouts | info |
+
+Thresholds are sensible defaults — tune to your SLO/capacity. The rules are validated in CI-style with
+`promtool check rules` and unit tests in `prometheus/protogemcouch-alerts_test.yml`
+(`promtool test rules`). The raw PromQL building blocks for custom alerts:
 
 ### Any request errors
 
