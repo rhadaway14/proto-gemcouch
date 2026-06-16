@@ -25,6 +25,7 @@
 
     <slf4j.version>2.0.9</slf4j.version>
     <log4j.version>2.17.2</log4j.version>
+    <opentelemetry.version>1.43.0</opentelemetry.version>
     <couchbase.java.client.version>3.7.8</couchbase.java.client.version>
     <!--
       Latest 1.15.x that is a clean drop-in. To move up within 1.15, bump this one property (the
@@ -44,11 +45,46 @@
     <skipDockerCompose>false</skipDockerCompose>
   </properties>
 
+  <dependencyManagement>
+    <dependencies>
+      <!-- Align all OpenTelemetry artifacts to one version. -->
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom</artifactId>
+        <version>${opentelemetry.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
     <dependency>
       <groupId>com.couchbase.client</groupId>
       <artifactId>java-client</artifactId>
       <version>${couchbase.java.client.version}</version>
+    </dependency>
+
+    <!--
+      Distributed tracing (off by default). The API is used for manual operation / backend spans; the
+      SDK + OTLP exporter + autoconfigure are initialized from OTEL_* env at startup (no endpoint ->
+      a no-op tracer, zero overhead). See com.protogemcouch.observability.Tracing.
+    -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-extension-autoconfigure</artifactId>
     </dependency>
 
     <dependency>

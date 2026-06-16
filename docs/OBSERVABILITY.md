@@ -374,6 +374,37 @@ Use carefully in low-traffic environments.
 
 ---
 
+## Distributed tracing
+
+The shim emits OpenTelemetry traces: a span per Geode operation (`geode.<OPERATION>`, e.g. `geode.PUT`,
+`geode.QUERY`) with the Couchbase backend call nested under it (`couchbase.<op>` — `couchbase.get`,
+`couchbase.putAll`, …). A trace therefore shows how much of an operation's latency was the shim vs. the
+backend — the breakdown that metrics alone don't give. Failed operations record the exception and set
+the span status to ERROR.
+
+**Off by default.** Tracing is only initialized when configured via the standard `OTEL_*` environment;
+otherwise the tracer is a no-op with no measurable overhead. Note: the Geode wire protocol carries no
+trace context, so spans are rooted at the shim (per-request), not continued from the client.
+
+| Env var | Purpose |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (e.g. `http://jaeger:4317`); setting it turns tracing on |
+| `OTEL_TRACES_EXPORTER` | `otlp` (default when an endpoint is set), or `none` to disable |
+| `OTEL_SERVICE_NAME` | service name in the tracing backend (e.g. `protogemcouch`) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (4317) or `http/protobuf` (4318) |
+| `OTEL_SDK_DISABLED` | `true` forces tracing off regardless of the above |
+
+Try it with the opt-in overlay (adds a Jaeger backend and turns on export, without changing the default
+trace-free stack):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tracing.yml up -d --build
+# drive traffic, then open the Jaeger UI:
+#   http://localhost:16686  (service "protogemcouch")
+```
+
+---
+
 ## Docker Compose validation
 
 Start the stack:

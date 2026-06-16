@@ -11,6 +11,11 @@ import com.protogemcouch.observability.AuditLog;
 import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.observability.OperationNames;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.observability.Tracing;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Scope;
 import com.protogemcouch.ops.HandlerRegistryFactory;
 import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
@@ -197,7 +202,14 @@ public class RawShimServer {
                     healthSslContext == null ? null : tlsConfig.enabledCipherSuites());
             healthHttpServer.start();
 
+            // Distributed tracing (off unless OTEL_* is configured). Initialize before the repository
+            // so a TracingRepository decorator can wrap it for backend spans when tracing is on.
+            Tracing.initFromEnv();
+
             repository = createRepository(config);
+            if (Tracing.enabled()) {
+                repository = new com.protogemcouch.couchbase.TracingRepository(repository, Tracing.tracer());
+            }
             healthState.markRepositoryConnected();
 
             subscriptions = new com.protogemcouch.subscription.SubscriptionRegistry();
@@ -634,6 +646,16 @@ public class RawShimServer {
 
             OperationHandler handler = opcodeRegistry.get(opcode);
 
+            // Per-operation span. No-op (zero cost) unless tracing is enabled. Making it current for
+            // the handler means the TracingRepository's backend spans nest under this operation.
+            Span span = Tracing.tracer().spanBuilder("geode." + operation)
+                    .setSpanKind(SpanKind.SERVER)
+                    .setAttribute("geode.opcode", (long) opcode)
+                    .setAttribute("geode.operation", operation)
+                    .setAttribute("geode.tx_id", (long) frame.getTransactionId())
+                    .setAttribute("geode.parts", (long) frame.getNumberOfParts())
+                    .startSpan();
+            Scope tracingScope = span.makeCurrent();
             try {
                 if (handler != null) {
                     handler.handle(ctx, frame);
@@ -677,6 +699,9 @@ public class RawShimServer {
                         "error", e.getMessage()
                 ), e);
 
+                span.recordException(e);
+                span.setStatus(StatusCode.ERROR);
+
                 /*
                  * Centralized failure seam: the metric and structured log are recorded above, then
                  * the configured policy decides the client-facing response (close by default, or a
@@ -684,6 +709,9 @@ public class RawShimServer {
                  * place that owns post-decode operation-failure behavior.
                  */
                 errorResponsePolicy.onFailure(ctx, opcode, frame.getTransactionId(), e);
+            } finally {
+                tracingScope.close();
+                span.end();
             }
         }
 
