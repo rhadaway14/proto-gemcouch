@@ -128,12 +128,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   to it (`alerting:` block) and it routes them by severity with an inhibit rule for `ProtoGemCouchDown`;
   shipped receivers are integration-free sinks operators fill in. Validated with `amtool check-config`
   and a live Prometheus→Alertmanager discovery smoke. See `docs/OBSERVABILITY.md`.
-- [~] **Distributed tracing** — OpenTelemetry, off by default (initialized only from `OTEL_*` env).
+- [x] **Distributed tracing** — OpenTelemetry, off by default (initialized only from `OTEL_*` env).
   A span per Geode operation (`geode.<OPERATION>`) with the Couchbase backend call nested under it
   (`couchbase.<op>`, via the `TracingRepository` decorator), exported over OTLP; errors recorded on the
   span. Validated end-to-end against Jaeger (operation + backend spans paired 1:1). Opt-in overlay
   `docker-compose.tracing.yml`. Spans are shim-rooted (the Geode protocol carries no trace context).
-  See `docs/OBSERVABILITY.md`. **Remaining:** structured-JSON log aggregation (ELK/Loki).
+- [x] **Log aggregation (Loki)** — the shim's structured logfmt logs (incl. the `protogemcouch.audit`
+  stream) are shipped to **Loki** by **Promtail** (Docker-socket discovery) and queryable in **Grafana**
+  via a provisioned Loki datasource; Promtail lifts `level`/`logger` to labels and stores the logfmt
+  body so LogQL `| logfmt` parses the fields. Validated end-to-end (LogQL field filters return the
+  expected operations). See `docs/OBSERVABILITY.md`.
 - [ ] **Runbook completeness** — incident playbooks; formal support handoff.
 
 ### 2f. Release management & supportability

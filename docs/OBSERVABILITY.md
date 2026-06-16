@@ -374,6 +374,33 @@ Use carefully in low-traffic environments.
 
 ---
 
+## Log aggregation (Loki)
+
+The shim's logs are structured **logfmt** (`event=… key=value …`), including the dedicated
+`protogemcouch.audit` security stream. The observability stack ships them to **Loki** via **Promtail**
+(which discovers the shim/Couchbase containers over the Docker socket and tails their output), and
+**Grafana** has a provisioned **Loki** datasource — so logs and metrics/traces sit side by side.
+
+Promtail lifts the SLF4J `level` and `logger` to labels and stores the logfmt body as the line, so
+LogQL can parse the fields directly:
+
+```logql
+{container="protogemcouch-shim"}                                  # all shim logs
+{container="protogemcouch-shim"} | logfmt | event="request_completed"   # completed ops
+{container="protogemcouch-shim"} | logfmt | event="request_failed"      # failures (with error=…)
+{logger="protogemcouch.audit"}                                     # the security audit stream
+{logger="protogemcouch.audit"} | logfmt | event="malformed_frame"  # rejected frames
+sum by (operation) (count_over_time(
+  {container="protogemcouch-shim"} | logfmt | event="request_completed" [5m]))  # ops by operation
+{container="protogemcouch-shim", level="ERROR"}                    # errors only
+```
+
+It comes up with the rest of the stack (`docker compose up -d` / `scripts/observability-up.sh`); Loki
+is at `http://localhost:3100` and is queryable from Grafana (`http://localhost:3000`). Configs:
+`loki/loki-config.yml`, `loki/promtail-config.yml`.
+
+---
+
 ## Distributed tracing
 
 The shim emits OpenTelemetry traces: a span per Geode operation (`geode.<OPERATION>`, e.g. `geode.PUT`,

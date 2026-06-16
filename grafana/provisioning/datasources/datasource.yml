@@ -12,3 +12,12 @@ datasources:
     jsonData:
       timeInterval: 5s
       httpMethod: POST
+
+  # Loki for log aggregation (shim logs shipped by Promtail). Query with LogQL, e.g.
+  #   {container="protogemcouch-shim"} | logfmt | event="malformed_frame"
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
