@@ -139,7 +139,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   via a provisioned Loki datasource; Promtail lifts `level`/`logger` to labels and stores the logfmt
   body so LogQL `| logfmt` parses the fields. Validated end-to-end (LogQL field filters return the
   expected operations). See `docs/OBSERVABILITY.md`.
-- [ ] **Runbook completeness** — incident playbooks; formal support handoff.
+- [x] **Runbook completeness** — `docs/RUNBOOK.md` now has incident response (severity tiers +
+  first-response triage + rollback), a **per-alert playbook** for each of the 8 Alertmanager alerts
+  (likely cause → diagnose via the metrics/logs/traces stack → remediate via the real env levers),
+  common procedures (rolling restart, scale, cert rotation), and a support-handoff checklist (what to
+  capture + doc references). Also corrected the stale `ERROR_RESPONSE_MODE` default (EXCEPTION frame is
+  the validated default).
 
 ### 2f. Release management & supportability
 
