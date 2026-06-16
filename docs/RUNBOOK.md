@@ -129,12 +129,114 @@ like a cache that genuinely has no data, which can cause incorrect application d
 - Per-operation error counters rise: `protogemcouch_operation_errors_total` and
   `protogemcouch_request_errors_total` (visible on the Grafana dashboard and `/metrics`).
 - Structured `repository_*_error` logs are emitted with the cause.
-- Affected client connections are closed by default (`ERROR_RESPONSE_MODE=close`). Clients
-  should reconnect/retry. An opt-in `ERROR_RESPONSE_MODE=exception` mode instead replies with a
-  Geode EXCEPTION frame and keeps the connection open, but is pending live-client validation.
+- By default the shim replies with a Geode **EXCEPTION** frame and keeps the connection open
+  (validated against a live Geode client), so the client raises a `ServerOperationException` and can
+  retry on the same connection. Set `ERROR_RESPONSE_MODE=close` to instead drop the connection on
+  failure (the client then reconnects/retries).
 
 ### Operator actions
 
 1. Confirm Couchbase health (cluster up, bucket reachable, credentials valid).
 2. Check shim logs for `repository_*_error` events to identify the failing operation and cause.
 3. Once Couchbase recovers, error rates should return to zero with no shim restart required.
+
+---
+
+## Incident response
+
+### Severity
+
+| Sev | Examples | Page? |
+|---|---|---|
+| **SEV1** | `ProtoGemCouchDown` (all replicas), `ProtoGemCouchBackendErrors` (Couchbase outage) — clients failing | yes, immediately |
+| **SEV2** | `ProtoGemCouchHighErrorRate`, `ProtoGemCouchHighP99Latency`, `ProtoGemCouchRequestsShed`, `ProtoGemCouchConnectionsRejected` — degraded but serving | yes |
+| **SEV3** | `ProtoGemCouchMalformedFrameSpike`, `ProtoGemCouchFirstRequestTimeouts` — abuse/misconfig, no user-facing impact | triage, no page |
+
+### First response (any alert)
+
+1. **Scope it.** Open the **ProtoGemCouch Observability** dashboard (Grafana): is it one replica or all? one operation or all? Confirm with `/ready` and `/live` per pod.
+2. **Classify failure vs. miss.** Backend failures raise `protogemcouch_request_errors_total`; a genuine empty result does not (see "Backend failure behavior" above).
+3. **Read the logs.** Grafana **Logs & Traces** dashboard (Loki), or `{container="protogemcouch-shim"} | logfmt | event="request_failed"` and the audit stream `{logger="protogemcouch.audit"}`.
+4. **Read a trace** (if the tracing overlay/OTLP is on): a slow/failed operation's trace shows whether time/errors are in the shim or the `couchbase.*` backend span.
+5. **Decide.** Stabilize first (scale out, shed, fail over Couchbase), then root-cause. The shim is stateless — a rolling restart is safe and loses no data (chaos-validated).
+
+### Where to look
+
+- **Metrics:** `/metrics` (Prometheus) and the Observability dashboard.
+- **Logs:** Loki / `docker compose logs protogemcouch`; security events on the `protogemcouch.audit` stream.
+- **Traces:** Jaeger / Grafana Explore (with the tracing overlay or an OTLP endpoint configured).
+- **Health:** `GET /ready` (serving) and `/live` (process up) on the health port.
+
+### Rollback
+
+The image is pinned by tag/digest. To roll back, redeploy the previous good tag
+(`docker.io/rhadaway14/protogemcouch:<prev>` — every release is tagged `vX.Y.Z`; see `CHANGELOG.md`)
+and roll the Deployment. The shim is stateless, so rollback is a plain image swap + rolling restart.
+
+---
+
+## Incident playbooks
+
+One per alert (`prometheus/protogemcouch-alerts.rules.yml`). Each: likely cause → diagnose → remediate.
+
+### ProtoGemCouchDown — `up == 0` (SEV1)
+- **Causes:** process crashed / OOM-killed, health port unreachable, image won't start, all replicas down.
+- **Diagnose:** pod status / `docker ps`; `/live`; container logs for a startup `ConfigException` or stack trace; `kubectl describe`/`docker inspect` for OOMKilled.
+- **Remediate:** restart the pod/container; if a config error, fix the env/secret and redeploy; if OOM, raise the memory limit; if it won't start, roll back to the last good image. Multi-replica + PDB should keep ≥1 serving during a rolling fix.
+
+### ProtoGemCouchBackendErrors — sustained `request_errors` (SEV1)
+- **Cause:** Couchbase unreachable / unhealthy / auth rejected / KV timeouts. See **Backend (Couchbase) failure behavior** above.
+- **Diagnose:** Couchbase cluster health + bucket; shim `repository_*_error` logs for the cause; `CB_*` config (connstr, creds, TLS).
+- **Remediate:** restore Couchbase (failover/rebalance/restart); fix credentials/TLS if rejected. Recovery is automatic — error rate returns to zero with **no shim restart** (chaos-validated). If timeouts persist under load, review `CB_KV_TIMEOUT_MS` and Couchbase capacity.
+
+### ProtoGemCouchHighErrorRate — operation errors > 5% (SEV2)
+- **Causes:** partial backend trouble, a specific failing operation, oversized values, or unsupported requests.
+- **Diagnose:** dashboard error rate **by operation**; logs `event="request_failed"` for the error and opcode; check `ValueTooLargeException` (oversized values) and `protogemcouch_malformed_frames_total`.
+- **Remediate:** address the dominant failing operation. Oversized values → confirm `CB_MAX_VALUE_BYTES` is intentional and the client isn't sending too-large values. Unsupported ops → check the compatibility contract (`docs/COMPATABILITY_MATRIX.md`).
+
+### ProtoGemCouchHighP99Latency — p99 > 250ms (SEV2)
+- **Causes:** Couchbase latency, handler-thread saturation, GC pressure, oversized payloads.
+- **Diagnose:** a slow operation's **trace** (shim vs. `couchbase.*` span split); `protogemcouch_requests_shed_total` (queue saturation); JVM/GC and Couchbase latency.
+- **Remediate:** if the backend span dominates → Couchbase capacity/indexing. If the shim dominates → raise `HANDLER_THREADS`, scale out replicas, or raise memory. Re-check against your SLO (tune the alert threshold to it).
+
+### ProtoGemCouchConnectionsRejected — `MAX_CONNECTIONS` reached (SEV2)
+- **Cause:** more concurrent client connections than the cap.
+- **Diagnose:** `protogemcouch_connections_rejected_total` and current connections; audit stream `event="connection_rejected"`.
+- **Remediate:** scale out replicas behind the LB; raise `MAX_CONNECTIONS` if the instance has headroom (watch memory). Confirm it isn't a client connection leak.
+
+### ProtoGemCouchRequestsShed — handler queue saturated (SEV2)
+- **Cause:** sustained load beyond handler-thread capacity (queue full → load shedding).
+- **Diagnose:** `protogemcouch_requests_shed_total`; correlate with throughput and p99.
+- **Remediate:** scale out; raise `HANDLER_THREADS` and/or `HANDLER_MAX_PENDING_TASKS` if the host has CPU headroom. Shedding is intentional back-pressure — fix capacity, don't disable it.
+
+### ProtoGemCouchMalformedFrameSpike — bad frames rejected (SEV3)
+- **Causes:** a misbehaving/incompatible client, a non-Geode client hitting the port, or probing/abuse.
+- **Diagnose:** audit stream `{logger="protogemcouch.audit"} | logfmt | event="malformed_frame"` — `remote` (source) and `reason`/`offendingValue`.
+- **Remediate:** if abuse/scanning, block the source at the network layer; if a real client, check its Geode version against the compatibility contract. The decoder rejects safely (fuzz-validated) — no shim action needed beyond addressing the source.
+
+### ProtoGemCouchFirstRequestTimeouts — slowloris guard firing (SEV3)
+- **Causes:** slow/half-open clients, an LB health check that connects without sending a request, or slowloris-style abuse.
+- **Diagnose:** audit stream `event="connection_first_request_timeout"` + `remote`.
+- **Remediate:** if it's an LB/monitor, point it at `/ready` (HTTP) instead of the Geode port; if abuse, block the source; tune `FIRST_REQUEST_TIMEOUT_SECONDS` only if legitimate clients are slow to send their first request.
+
+---
+
+## Common procedures
+
+- **Restart / rolling restart.** Kubernetes: `kubectl rollout restart deploy/<release>-protogemcouch`. Compose: `docker compose restart protogemcouch`. The shim is stateless (data lives in Couchbase) and runs multiple replicas behind a PDB, so a rolling restart is zero-downtime and loses no data (chaos-validated).
+- **Scale.** Adjust `replicaCount`/HPA (Helm) or run more instances behind the load balancer; the shim scales horizontally (cross-process-safe keyset, validated multi-replica).
+- **Certificate rotation.** See `docs/SECURITY.md` → "Certificate rotation" (update the Secret + rolling restart; zero-downtime).
+- **Config change.** Env-driven; apply via the ConfigMap/Secret and roll the Deployment (the chart's config checksum triggers the rollout).
+
+---
+
+## Support handoff
+
+When escalating, capture:
+
+- **Versions:** shim image tag/digest, Geode client version, Couchbase version.
+- **Config:** the effective `CB_*` / `TLS_*` / `MAX_*` / `HANDLER_*` env (redact secrets).
+- **Signals:** the firing alert(s); a metrics snapshot (`/metrics`); the relevant log window (Loki export or `docker compose logs`), especially `request_failed` / `repository_*_error` / audit events; and a representative slow/failed **trace ID** if tracing is on.
+- **Scope:** which replicas/operations/clients are affected, and when it started.
+
+References: `docs/OBSERVABILITY.md` (dashboards, metrics, LogQL, traces), `docs/SECURITY.md` (TLS/mTLS, audit, cert rotation), `docs/COMPATABILITY_MATRIX.md` (supported surface + non-goals), `CHANGELOG.md` (release/version), `docs/PRODUCTION_READINESS_PLAN.md`.
