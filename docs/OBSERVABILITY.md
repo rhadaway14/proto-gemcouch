@@ -237,9 +237,21 @@ detecting risky operations such as GET_ALL, PUT_ALL, and keySetOnServer
 
 ---
 
+## Provisioned dashboards
+
+Grafana auto-loads two dashboards (folder **ProtoGemCouch**), from `grafana/dashboards/`:
+
+- **ProtoGemCouch Observability** — Prometheus metrics (request/error rates, latency percentiles,
+  byte sizes, connections) by operation.
+- **ProtoGemCouch Logs & Traces** — built on the Loki and Jaeger datasources: log volume by level,
+  completed operations and failed-request / malformed-frame rates derived from the logs, an audit-event
+  breakdown, live shim + audit log panels, and a recent-traces table (the traces table is populated
+  only with the tracing overlay up; click a trace to open its span tree in Explore). It has a
+  `container` variable to switch between the shim instances.
+
 ## Recommended dashboard panels
 
-Create Grafana panels for:
+For custom dashboards, useful Grafana panels include:
 
 ```text
 request rate by operation
