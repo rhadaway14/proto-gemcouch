@@ -123,8 +123,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] **Alerting rules** — `prometheus/protogemcouch-alerts.rules.yml` (8 alerts: shim-down, backend
   errors, high error rate, p99-latency SLO, connections-rejected, requests-shed, malformed-frame spike,
   slowloris timeouts), loaded by the bundled Prometheus and validated with `promtool check rules` +
-  unit tests (`protogemcouch-alerts_test.yml`). Wire an Alertmanager target to route them. See
-  `docs/OBSERVABILITY.md`. **Remaining:** ship an Alertmanager instance + routing in the chart/stack.
+  unit tests (`protogemcouch-alerts_test.yml`). The observability stack now also ships an
+  **Alertmanager** (Compose service, `alertmanager/alertmanager.yml`): Prometheus forwards fired alerts
+  to it (`alerting:` block) and it routes them by severity with an inhibit rule for `ProtoGemCouchDown`;
+  shipped receivers are integration-free sinks operators fill in. Validated with `amtool check-config`
+  and a live Prometheus→Alertmanager discovery smoke. See `docs/OBSERVABILITY.md`.
 - [ ] **Log aggregation** (structured JSON → ELK/Loki) and **distributed tracing** (OpenTelemetry).
 - [ ] **Runbook completeness** — incident playbooks; formal support handoff.
 
