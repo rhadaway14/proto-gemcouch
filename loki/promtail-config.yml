@@ -1,0 +1,46 @@
+# Promtail ships the ProtoGemCouch container logs to Loki. It discovers containers over the Docker
+# socket and tails their stdout/stderr via the Docker API (no host log-path assumptions). The shim's
+# logs are structured logfmt (event=… key=…), so query them in Grafana/Loki with `| logfmt`.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: protogemcouch-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Drop the observability tooling's own logs (avoids noise and a Promtail->Loki->Promtail loop).
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/protogemcouch-(prometheus|grafana|alertmanager|loki|promtail|couchbase-init|jaeger)'
+        action: drop
+      # Keep only the shim + Couchbase containers.
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(protogemcouch-.*)'
+        action: keep
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      - target_label: job
+        replacement: protogemcouch-logs
+    pipeline_stages:
+      # The shim uses the slf4j-simple format: "[thread] LEVEL logger - <logfmt message>".
+      # Lift LEVEL and logger to labels (e.g. filter logger="protogemcouch.audit" for the audit stream);
+      # the message body stays logfmt for query-time `| logfmt`.
+      - regex:
+          expression: '^\[(?P<thread>[^\]]+)\]\s+(?P<level>\w+)\s+(?P<logger>\S+)\s+-\s+(?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+      # Replace the stored line with just the logfmt message body (drops the slf4j prefix) so Loki's
+      # `| logfmt` parses the event=… key=… fields. Lines that don't match the regex (e.g. multi-line
+      # stack traces) are left unchanged.
+      - output:
+          source: message
