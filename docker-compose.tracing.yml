@@ -1,0 +1,35 @@
+# Opt-in distributed-tracing overlay. Adds a Jaeger backend and turns on OTLP export from the shim,
+# without touching the default (trace-free) stack. Tracing stays OFF for `docker compose up` and for
+# the integration suite; enable it explicitly with this overlay:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tracing.yml up -d --build
+#
+# Then drive some traffic and open the Jaeger UI at http://localhost:16686 (service "protogemcouch")
+# to see each Geode operation span with its Couchbase backend call nested underneath.
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: protogemcouch-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    restart: unless-stopped
+
+  protogemcouch:
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    environment:
+      OTEL_SERVICE_NAME: protogemcouch
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
