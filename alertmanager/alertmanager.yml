@@ -1,0 +1,53 @@
+# Alertmanager configuration for ProtoGemCouch. Routes the alerts defined in
+# prometheus/protogemcouch-alerts.rules.yml by severity. The shipped receivers are intentionally
+# integration-free sinks (valid, silent) so the stack runs out of the box without secrets; uncomment
+# and fill in a real integration (Slack / PagerDuty / email / webhook) per receiver to deliver
+# notifications. Validate with `amtool check-config alertmanager.yml`.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  # Group alerts so a burst (e.g. several warnings at once) is a single notification.
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: critical
+      # Re-notify critical pages more often than the default.
+      repeat_interval: 1h
+    - matchers:
+        - severity = "warning"
+      receiver: warning
+    - matchers:
+        - severity = "info"
+      receiver: info
+
+receivers:
+  - name: default
+  - name: critical
+    # Example — route critical pages to PagerDuty / Slack / a webhook:
+    # pagerduty_configs:
+    #   - routing_key: <PD_ROUTING_KEY>
+    # slack_configs:
+    #   - api_url: <SLACK_WEBHOOK_URL>
+    #     channel: "#protogemcouch-alerts"
+    # webhook_configs:
+    #   - url: https://example.internal/alerts/critical
+  - name: warning
+    # slack_configs:
+    #   - api_url: <SLACK_WEBHOOK_URL>
+    #     channel: "#protogemcouch-alerts"
+  - name: info
+
+# If the shim is down, suppress the downstream warning/info alerts it also triggers (they are
+# symptoms, not separate incidents) for the same target.
+inhibit_rules:
+  - source_matchers:
+      - alertname = "ProtoGemCouchDown"
+    target_matchers:
+      - severity =~ "warning|info"
+    equal: ["job"]

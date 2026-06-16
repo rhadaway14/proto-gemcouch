@@ -3,9 +3,15 @@ global:
   evaluation_interval: 5s
 
 # ProtoGemCouch alerting rules (availability, error rate, latency SLO, saturation, abuse).
-# Add an `alerting:` block with an Alertmanager target to route these in a real deployment.
 rule_files:
   - protogemcouch-alerts.rules.yml
+
+# Send fired alerts to Alertmanager (the Compose `alertmanager` service routes them by severity;
+# see alertmanager/alertmanager.yml).
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   # Scrape the ProtoGemCouch shim's Prometheus endpoint.

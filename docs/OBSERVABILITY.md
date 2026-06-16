@@ -303,9 +303,15 @@ increase(protogemcouch_unknown_opcodes_total[15m])
 
 ## Alerting rules
 
-A ready-to-use Prometheus alerting ruleset ships at `prometheus/protogemcouch-alerts.rules.yml` and is
-loaded by the bundled Prometheus (`rule_files:` in `prometheus/prometheus.yml`; mounted by the Compose
-`prometheus` service). Wire an `alerting:` / Alertmanager target to route them in a real deployment.
+A ready-to-use Prometheus alerting ruleset ships at `prometheus/protogemcouch-alerts.rules.yml`, loaded
+by the bundled Prometheus (`rule_files:` in `prometheus/prometheus.yml`). The stack also ships an
+**Alertmanager** (Compose `alertmanager` service, port 9093, config `alertmanager/alertmanager.yml`);
+Prometheus forwards fired alerts to it (the `alerting:` block), and it routes them **by severity**
+(`critical` → its own receiver with a shorter repeat interval, `warning`, `info`), with an inhibit rule
+that suppresses downstream warnings/info when `ProtoGemCouchDown` is firing. The shipped receivers are
+integration-free sinks so the stack runs without secrets — uncomment a Slack / PagerDuty / email /
+webhook integration per receiver to deliver notifications. Validate routing with
+`amtool check-config alertmanager/alertmanager.yml`.
 
 | Alert | Fires when | Severity |
 |---|---|---|
