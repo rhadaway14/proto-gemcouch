@@ -17,7 +17,13 @@ set -euo pipefail
 TARGET_HOST="${TARGET_HOST:-${BENCH_HOST:-${NLB_DNS:?set TARGET_HOST / BENCH_HOST, or NLB_DNS in /etc/pgc-rig.env}}}"
 IMAGE="${SHIM_IMAGE:-docker.io/rhadaway14/protogemcouch:latest}"
 
-exec docker run --rm --network host \
+# Bounded so a step whose JVM hangs on shutdown can't block the sweep forever (any PERF_RESULT already
+# printed is still captured before the kill). The uniquely named container is force-removed on exit so
+# a timed-out run leaves nothing behind. Override the cap with BENCH_TIMEOUT_SECONDS.
+NAME="pgc-bench-$$"
+trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+
+timeout --kill-after=10 "${BENCH_TIMEOUT_SECONDS:-180}" docker run --rm --name "$NAME" --network host \
   -e BENCH_HOST="$TARGET_HOST" \
   -e BENCH_PORT="${BENCH_PORT:-40405}" \
   -e BENCH_REGION="${BENCH_REGION:-helloWorld}" \
