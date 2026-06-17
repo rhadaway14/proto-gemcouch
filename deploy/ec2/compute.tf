@@ -85,9 +85,11 @@ resource "aws_lb_target_group" "shim" {
     unhealthy_threshold = 2
   }
 
-  # Connection-oriented protocol benchmark: keep clients pinned for the run.
+  # No source_ip stickiness: with a small number of load-gen hosts it would pin all of a load-gen's
+  # connections to a single shim (leaving the others idle), which defeats the horizontal-scaling
+  # measurement. Default flow-hash distribution spreads the pool's connections across all shims.
   stickiness {
-    enabled = true
+    enabled = false
     type    = "source_ip"
   }
 }
