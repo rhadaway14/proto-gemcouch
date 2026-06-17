@@ -335,8 +335,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   backs both the QUERY and CQ paths. See `docs/OQL.md` / `docs/CONTINUOUS_QUERIES.md`. **Remaining:**
   PDX fields whose type is OBJECT/array (only scalars are queryable), and PDX schema evolution.
 - [ ] Full PDX registry discovery + schema evolution.
-- [ ] Nested complex types inside `HashMap<String,Object>` (`Object[]`, POJOs, `ArrayList<Object>`,
-  wrapper/utility arrays, PDX) — top-level works, nested does not.
+- [~] Nested complex types inside `HashMap<String,Object>`. **Done:** a generic `Object[]`, an
+  `ArrayList`, a nested `Map<String,Object>` (all recursive, with supported elements), and the JDK
+  scalar extras `UUID` / `BigInteger` / `BigDecimal` / `enum` nested inside a map now decode
+  *structurally* (the map stays queryable on its top-level scalar fields and round-trips exactly,
+  equals-level) instead of collapsing to an opaque blob. One shared `NestedValueSupport` predicate +
+  deep copy backs the decode, wire re-encode, and `StoredValue` layers so they can't drift. Validated
+  by `NestedComplexTypesTest` (unit) and the Docker-backed serialization/query integration tests
+  (incl. a nested-bearing map matched by an OQL `WHERE` on its top-level field). **Deliberately still
+  opaque** (round-trips exactly, just not queryable — the shim can't load/normalize them): nested
+  Serializable POJOs, PDX instances, *typed* object arrays (`Integer[]`, `UUID[]`, …, kept type-exact),
+  `java.time` values, and non-`ArrayList` `List`s. Top-level forms of all types remain supported.
 - [ ] Arbitrary object graphs; complete DataSerializer marker coverage.
 
 ### 3c. Protocol completeness

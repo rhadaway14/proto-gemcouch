@@ -113,6 +113,42 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void whereMatchesTopLevelFieldEvenWhenMapCarriesNestedComplexValues() throws Exception {
+        // A map carrying nested complex values (Object[], nested Map, ArrayList<Object>) used to
+        // collapse to opaque Java-serialized bytes, which made even its scalar fields unqueryable.
+        // It now stays structured, so its top-level scalar fields are still matched by WHERE and the
+        // nested content survives the query round-trip.
+        HashMap<String, Object> active = new HashMap<>();
+        active.put("status", "active");
+        active.put("amount", 100);
+        active.put("tags", new Object[] {"a", 1, Boolean.TRUE});
+        active.put("nested", new HashMap<>(Map.of("city", "Austin", "zip", 78701)));
+        active.put("scores", new ArrayList<>(List.of(3, 4, 5)));
+
+        HashMap<String, Object> closed = new HashMap<>();
+        closed.put("status", "closed");
+        closed.put("amount", 50);
+        closed.put("tags", new Object[] {"x"});
+
+        region.put("a", active);
+        region.put("b", closed);
+
+        SelectResults<?> matched = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " WHERE status = 'active'").execute();
+        assertEquals(1, matched.size(), "the nested-bearing map is still matched by its top-level field");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> row = (Map<String, Object>) matched.iterator().next();
+        assertEquals("active", row.get("status"));
+        assertEquals(100, row.get("amount"));
+        assertTrue(row.get("tags") instanceof Object[], "nested Object[] survived");
+        assertEquals(3, ((Object[]) row.get("tags")).length);
+        assertTrue(row.get("nested") instanceof Map, "nested Map survived");
+        assertEquals("Austin", ((Map<?, ?>) row.get("nested")).get("city"));
+        assertEquals(List.of(3, 4, 5), row.get("scores"));
+    }
+
+    @Test
     void singleFieldProjectionReturnsFieldValues() throws Exception {
         region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
         region.put("b", new HashMap<>(Map.of("status", "closed", "amount", 50)));

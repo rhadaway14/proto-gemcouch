@@ -5,6 +5,7 @@ import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.serialization.GeodeSerialization;
+import com.protogemcouch.serialization.NestedValueSupport;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.serialization.ValueDecoding;
 import com.protogemcouch.serialization.ValueEncoding;
@@ -1001,59 +1002,11 @@ public class PutHandler implements OperationHandler {
         return out;
     }
 
+    // Inbound DataSerializer-path map classification + structured copy use the shared
+    // NestedValueSupport rules — the same gate the decode/wire/StoredValue layers use — so a map
+    // carrying nested complex values is stored structurally (queryable) instead of stringified.
     private static boolean isSupportedStringObjectMap(Map<?, ?> value) {
-        for (Map.Entry<?, ?> entry : value.entrySet()) {
-            Object key = entry.getKey();
-            Object mapValue = entry.getValue();
-
-            if (key != null && !(key instanceof String)) {
-                return false;
-            }
-
-            if (!isSupportedMapObjectValue(mapValue)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static boolean isSupportedMapObjectValue(Object value) {
-        return value == null
-                || value instanceof String
-                || value instanceof Boolean
-                || value instanceof Character
-                || value instanceof Byte
-                || value instanceof Short
-                || value instanceof Integer
-                || value instanceof Long
-                || value instanceof Float
-                || value instanceof Double
-                || value instanceof Date
-                || value instanceof byte[]
-                || value instanceof boolean[]
-                || value instanceof char[]
-                || value instanceof short[]
-                || value instanceof int[]
-                || value instanceof long[]
-                || value instanceof float[]
-                || value instanceof double[]
-                || value instanceof String[]
-                || isSupportedStringArrayListObject(value);
-    }
-
-    private static boolean isSupportedStringArrayListObject(Object value) {
-        if (!(value instanceof ArrayList<?> list)) {
-            return false;
-        }
-
-        for (Object item : list) {
-            if (item != null && !(item instanceof String)) {
-                return false;
-            }
-        }
-
-        return true;
+        return NestedValueSupport.isSupportedStringObjectMap(value);
     }
 
     private static LinkedHashMap<String, Object> toStringObjectLinkedHashMap(Map<?, ?> value) {
@@ -1061,85 +1014,12 @@ public class PutHandler implements OperationHandler {
 
         for (Map.Entry<?, ?> entry : value.entrySet()) {
             Object key = entry.getKey();
-
             out.put(
                     key == null ? null : String.valueOf(key),
-                    copySupportedMapObjectValue(entry.getValue())
+                    NestedValueSupport.copyValue(entry.getValue())
             );
         }
 
         return out;
-    }
-
-    private static Object copySupportedMapObjectValue(Object value) {
-        if (value instanceof byte[] bytes) {
-            byte[] copy = new byte[bytes.length];
-            System.arraycopy(bytes, 0, copy, 0, bytes.length);
-            return copy;
-        }
-
-        if (value instanceof boolean[] booleans) {
-            boolean[] copy = new boolean[booleans.length];
-            System.arraycopy(booleans, 0, copy, 0, booleans.length);
-            return copy;
-        }
-
-        if (value instanceof char[] chars) {
-            char[] copy = new char[chars.length];
-            System.arraycopy(chars, 0, copy, 0, chars.length);
-            return copy;
-        }
-
-        if (value instanceof short[] shorts) {
-            short[] copy = new short[shorts.length];
-            System.arraycopy(shorts, 0, copy, 0, shorts.length);
-            return copy;
-        }
-
-        if (value instanceof int[] ints) {
-            int[] copy = new int[ints.length];
-            System.arraycopy(ints, 0, copy, 0, ints.length);
-            return copy;
-        }
-
-        if (value instanceof long[] longs) {
-            long[] copy = new long[longs.length];
-            System.arraycopy(longs, 0, copy, 0, longs.length);
-            return copy;
-        }
-
-        if (value instanceof float[] floats) {
-            float[] copy = new float[floats.length];
-            System.arraycopy(floats, 0, copy, 0, floats.length);
-            return copy;
-        }
-
-        if (value instanceof double[] doubles) {
-            double[] copy = new double[doubles.length];
-            System.arraycopy(doubles, 0, copy, 0, doubles.length);
-            return copy;
-        }
-
-        if (value instanceof String[] strings) {
-            String[] copy = new String[strings.length];
-            System.arraycopy(strings, 0, copy, 0, strings.length);
-            return copy;
-        }
-
-        if (value instanceof ArrayList<?> list) {
-            ArrayList<String> copy = new ArrayList<>(list.size());
-
-            for (Object item : list) {
-                copy.add(item == null ? null : String.valueOf(item));
-            }
-
-            return copy;
-        }
-
-        if (value instanceof Date date) {
-            return new Date(date.getTime());
-        }
-
-        return value;
     }
 }

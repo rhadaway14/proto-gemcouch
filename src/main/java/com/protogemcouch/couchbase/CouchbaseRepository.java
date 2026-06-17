@@ -31,6 +31,8 @@ import com.protogemcouch.util.DocumentKeyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -42,6 +44,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -88,6 +91,17 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_FLOAT = "float";
     private static final String TYPE_DOUBLE = "double";
     private static final String TYPE_DATE = "date";
+    // Nested complex types inside a HashMap<String,Object> value (recursive, queryable). Distinct
+    // from the top-level base64 OBJECT_ARRAY / OBJECT_ARRAY_LIST tags above, which preserve opaque
+    // Geode bytes rather than a structured graph.
+    private static final String TYPE_BIG_INTEGER = "bigInteger";
+    private static final String TYPE_BIG_DECIMAL = "bigDecimal";
+    private static final String TYPE_UUID = "uuid";
+    private static final String TYPE_ENUM = "enum";
+    private static final String FIELD_ENUM_CLASS = "enumClass";
+    private static final String TYPE_NESTED_OBJECT_ARRAY = "nestedObjectArray";
+    private static final String TYPE_NESTED_LIST = "nestedList";
+    private static final String TYPE_NESTED_MAP = "nestedMap";
 
     private final ServerConfig config;
 
@@ -2638,16 +2652,73 @@ public class CouchbaseRepository implements Repository {
             return out;
         }
 
-        if (value instanceof ArrayList<?> list) {
+        if (value instanceof BigInteger bigInteger) {
+            out.put(FIELD_TYPE, TYPE_BIG_INTEGER);
+            out.put(FIELD_VALUE, bigInteger.toString());
+            return out;
+        }
+
+        if (value instanceof BigDecimal bigDecimal) {
+            out.put(FIELD_TYPE, TYPE_BIG_DECIMAL);
+            out.put(FIELD_VALUE, bigDecimal.toString());
+            return out;
+        }
+
+        if (value instanceof UUID uuid) {
+            out.put(FIELD_TYPE, TYPE_UUID);
+            out.put(FIELD_VALUE, uuid.toString());
+            return out;
+        }
+
+        if (value instanceof Enum<?> enumValue) {
+            // The enum class was loadable to reach the structured path (it came in via Java
+            // deserialization of the map), so it is loadable again on read.
+            out.put(FIELD_TYPE, TYPE_ENUM);
+            out.put(FIELD_ENUM_CLASS, enumValue.getDeclaringClass().getName());
+            out.put(FIELD_VALUE, enumValue.name());
+            return out;
+        }
+
+        // Nested containers, encoded recursively so their scalar leaves stay queryable and the graph
+        // round-trips exactly (element values + scalar runtime types preserved).
+        if (value instanceof Object[] array) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (Object item : array) {
+                jsonArray.add(encodeMapObjectValue(item));
+            }
+
+            out.put(FIELD_TYPE, TYPE_NESTED_OBJECT_ARRAY);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, array.length);
+            return out;
+        }
+
+        if (value instanceof List<?> list) {
             JsonArray jsonArray = JsonArray.create();
 
             for (Object item : list) {
-                jsonArray.add(item == null ? null : String.valueOf(item));
+                jsonArray.add(encodeMapObjectValue(item));
             }
 
-            out.put(FIELD_TYPE, TYPE_STRING_ARRAY_LIST);
+            out.put(FIELD_TYPE, TYPE_NESTED_LIST);
             out.put(FIELD_VALUE, jsonArray);
             out.put(FIELD_LENGTH, list.size());
+            return out;
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            JsonObject jsonMap = JsonObject.create();
+
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null) {
+                    jsonMap.put(String.valueOf(entry.getKey()), encodeMapObjectValue(entry.getValue()));
+                }
+            }
+
+            out.put(FIELD_TYPE, TYPE_NESTED_MAP);
+            out.put(FIELD_VALUE, jsonMap);
+            out.put(FIELD_LENGTH, map.size());
             return out;
         }
 
@@ -3105,6 +3176,121 @@ public class CouchbaseRepository implements Repository {
 
             for (Object item : rawList) {
                 decoded.add(item == null ? null : String.valueOf(item));
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_BIG_INTEGER.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return new BigInteger(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+            if (value instanceof Number number) {
+                return BigInteger.valueOf(number.longValue());
+            }
+            return null;
+        }
+
+        if (TYPE_BIG_DECIMAL.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return new BigDecimal(text);
+                } catch (NumberFormatException e) {
+                    return text;
+                }
+            }
+            if (value instanceof Number number) {
+                return BigDecimal.valueOf(number.doubleValue());
+            }
+            return null;
+        }
+
+        if (TYPE_UUID.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return UUID.fromString(text);
+                } catch (IllegalArgumentException e) {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        if (TYPE_ENUM.equalsIgnoreCase(type)) {
+            Object rawClass = typedValue.get(FIELD_ENUM_CLASS);
+
+            if (value instanceof String name && rawClass instanceof String className) {
+                try {
+                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    Object decoded = Enum.valueOf((Class<? extends Enum>) Class.forName(className), name);
+                    return decoded;
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    // Enum class not on this shim's classpath at read time: degrade to the constant name.
+                    return name;
+                }
+            }
+
+            return value == null ? null : String.valueOf(value);
+        }
+
+        if (TYPE_NESTED_OBJECT_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            Object[] decoded = new Object[rawList.size()];
+
+            for (int i = 0; i < rawList.size(); i++) {
+                decoded[i] = decodeMapObjectValue(rawList.get(i));
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_NESTED_LIST.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            ArrayList<Object> decoded = new ArrayList<>(rawList.size());
+
+            for (Object item : rawList) {
+                decoded.add(decodeMapObjectValue(item));
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_NESTED_MAP.equalsIgnoreCase(type)) {
+            JsonObject nested = null;
+
+            if (value instanceof JsonObject jsonObject) {
+                nested = jsonObject;
+            } else if (value instanceof Map<?, ?> map) {
+                nested = JsonObject.create();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() != null) {
+                        nested.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+            }
+
+            if (nested == null) {
+                return null;
+            }
+
+            LinkedHashMap<String, Object> decoded = new LinkedHashMap<>();
+
+            for (String name : nested.getNames()) {
+                decoded.put(name, decodeMapObjectValue(nested.get(name)));
             }
 
             return decoded;

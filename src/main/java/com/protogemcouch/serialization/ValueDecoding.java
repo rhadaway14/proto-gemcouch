@@ -1456,59 +1456,11 @@ public final class ValueDecoding {
         }
     }
 
+    // The structured/queryable supported-value rules (recursive over nested Map/Object[]/List plus
+    // the JDK scalar extras) and the deep defensive copy both live in NestedValueSupport, so the
+    // decode gate here and the wire re-encode gate in GemResponseWriter can never drift apart.
     private static boolean isSupportedStringObjectMap(Map<?, ?> value) {
-        for (Map.Entry<?, ?> entry : value.entrySet()) {
-            Object key = entry.getKey();
-            Object mapValue = entry.getValue();
-
-            if (key != null && !(key instanceof String)) {
-                return false;
-            }
-
-            if (!isSupportedMapObjectValue(mapValue)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static boolean isSupportedMapObjectValue(Object value) {
-        return value == null
-                || value instanceof String
-                || value instanceof Boolean
-                || value instanceof Character
-                || value instanceof Byte
-                || value instanceof Short
-                || value instanceof Integer
-                || value instanceof Long
-                || value instanceof Float
-                || value instanceof Double
-                || value instanceof Date
-                || value instanceof byte[]
-                || value instanceof boolean[]
-                || value instanceof char[]
-                || value instanceof short[]
-                || value instanceof int[]
-                || value instanceof long[]
-                || value instanceof float[]
-                || value instanceof double[]
-                || value instanceof String[]
-                || isSupportedStringArrayListObject(value);
-    }
-
-    private static boolean isSupportedStringArrayListObject(Object value) {
-        if (!(value instanceof ArrayList<?> list)) {
-            return false;
-        }
-
-        for (Object item : list) {
-            if (item != null && !(item instanceof String)) {
-                return false;
-            }
-        }
-
-        return true;
+        return NestedValueSupport.isSupportedStringObjectMap(value);
     }
 
     private static LinkedHashMap<String, Object> toStringObjectLinkedHashMap(Map<?, ?> value) {
@@ -1516,69 +1468,13 @@ public final class ValueDecoding {
 
         for (Map.Entry<?, ?> entry : value.entrySet()) {
             Object key = entry.getKey();
-            Object mapValue = entry.getValue();
-
             out.put(
                     key == null ? null : String.valueOf(key),
-                    copySupportedMapObjectValue(mapValue)
+                    NestedValueSupport.copyValue(entry.getValue())
             );
         }
 
         return out;
-    }
-
-    private static Object copySupportedMapObjectValue(Object value) {
-        if (value instanceof byte[] bytes) {
-            return Arrays.copyOf(bytes, bytes.length);
-        }
-
-        if (value instanceof boolean[] booleans) {
-            return Arrays.copyOf(booleans, booleans.length);
-        }
-
-        if (value instanceof char[] chars) {
-            return Arrays.copyOf(chars, chars.length);
-        }
-
-        if (value instanceof short[] shorts) {
-            return Arrays.copyOf(shorts, shorts.length);
-        }
-
-        if (value instanceof int[] ints) {
-            return Arrays.copyOf(ints, ints.length);
-        }
-
-        if (value instanceof long[] longs) {
-            return Arrays.copyOf(longs, longs.length);
-        }
-
-        if (value instanceof float[] floats) {
-            return Arrays.copyOf(floats, floats.length);
-        }
-
-        if (value instanceof double[] doubles) {
-            return Arrays.copyOf(doubles, doubles.length);
-        }
-
-        if (value instanceof String[] strings) {
-            return Arrays.copyOf(strings, strings.length);
-        }
-
-        if (value instanceof ArrayList<?> list) {
-            ArrayList<String> copy = new ArrayList<>(list.size());
-
-            for (Object item : list) {
-                copy.add(item == null ? null : String.valueOf(item));
-            }
-
-            return copy;
-        }
-
-        if (value instanceof Date date) {
-            return new Date(date.getTime());
-        }
-
-        return value;
     }
 
     private static boolean isStringStringMap(Map<?, ?> value) {
