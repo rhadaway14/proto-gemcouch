@@ -246,7 +246,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
     Remaining unknowns (need a docker validation pass): the `EntrySnapshot` fixed-id value, the
     leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
     `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
-- [ ] Region lifecycle over the wire (create/destroy region, attributes).
+- [~] Region lifecycle over the wire. **`destroyRegion` done** — `Region.destroyRegion()` (opcode 11,
+  `DestroyRegionHandler`) removes the region's entries + keyset metadata and acks like `clear`; the
+  schemaless shim re-materializes the region on the next write. Validated end-to-end against a real
+  Geode 1.15 client (`ProtoGemCouchRegionLifecycleIntegrationTest`). **Remaining:** dynamic
+  server-side region *creation with attributes* — a client `PROXY` region is created locally and sends
+  no server create, so there is nothing to handle today; this only matters if/when custom server-side
+  region attributes are in scope.
 - [~] **Queries (OQL)** — `SELECT * FROM /region` **done & validated** against a real Geode client.
   Reverse-engineered the chunked query response by capturing real Geode-server bytes
   (`GeodeQueryCapture` tool): a `ChunkedMessage` (12-byte header + per-chunk framing) with a fixed

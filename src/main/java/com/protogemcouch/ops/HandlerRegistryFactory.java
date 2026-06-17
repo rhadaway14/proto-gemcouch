@@ -28,6 +28,7 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.ROLLBACK, new RollbackHandler(transactions));
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository, subscriptions));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
+        registry.register(MessageTypes.DESTROY_REGION, new DestroyRegionHandler(repository));
         registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
         // One PDX-aware field resolver shared by the QUERY path and CQ predicate matching, so an OQL
         // predicate on a PDX object field resolves identically whether one-shot or continuous.
