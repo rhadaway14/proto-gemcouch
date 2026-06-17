@@ -1,0 +1,22 @@
+# Optional external NLB in front of the shim pods, for driving load from outside the cluster. The
+# in-tree `aws-load-balancer-type: nlb` annotation provisions an NLB without requiring the AWS Load
+# Balancer Controller. Selects the shim pods deployed by the Helm chart with release name "shim".
+# (For load that originates inside the cluster, the chart's ClusterIP Service `shim-protogemcouch`
+# already spreads across the shim pods via kube-proxy — see loadgen-job.yaml.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: shim-nlb
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: protogemcouch
+    app.kubernetes.io/instance: shim
+  ports:
+    - name: geode
+      port: 40405
+      targetPort: 40405
+      protocol: TCP

@@ -1,0 +1,100 @@
+# Dedicated single-node Couchbase for the rig: a headless Service `couchbase` (so the shim's
+# `couchbase://couchbase` connection string resolves to the pod), a StatefulSet with a gp3 PVC, and an
+# init Job that cluster-inits + creates the bucket. A 3-node cluster is more representative but needs
+# server-add + rebalance steps not automated here (see README).
+apiVersion: v1
+kind: Service
+metadata:
+  name: couchbase
+  labels:
+    app: couchbase
+spec:
+  clusterIP: None
+  selector:
+    app: couchbase
+  ports:
+    - { name: mgmt, port: 8091 }
+    - { name: query, port: 8093 }
+    - { name: kv, port: 11210 }
+    - { name: metrics, port: 8091, targetPort: 8091 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: couchbase
+spec:
+  serviceName: couchbase
+  replicas: 1
+  selector:
+    matchLabels:
+      app: couchbase
+  template:
+    metadata:
+      labels:
+        app: couchbase
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: couchbase
+          image: couchbase:enterprise-7.6.2
+          ports:
+            - { containerPort: 8091 }
+            - { containerPort: 8093 }
+            - { containerPort: 11210 }
+          resources:
+            requests:
+              cpu: "2"
+              memory: 6Gi
+            limits:
+              cpu: "3500m"
+              memory: 8Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/couchbase/var
+          readinessProbe:
+            httpGet:
+              path: /ui/index.html
+              port: 8091
+            initialDelaySeconds: 20
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp2
+        resources:
+          requests:
+            storage: 50Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: couchbase-init
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: couchbase:enterprise-7.6.2
+          env:
+            - { name: CB_HOST, value: "couchbase-0.couchbase" }
+            - { name: CB_USER, value: "Administrator" }
+            - { name: CB_PASS, value: "password" }
+            - { name: CB_BUCKET, value: "test" }
+            - { name: CB_BUCKET_RAM_MB, value: "4096" }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -x
+              until curl -fs "http://$CB_HOST:8091/ui/index.html" >/dev/null 2>&1; do sleep 3; done
+              couchbase-cli cluster-init -c "$CB_HOST:8091" \
+                --cluster-username "$CB_USER" --cluster-password "$CB_PASS" \
+                --services data,index,query \
+                --cluster-ramsize 4096 --cluster-index-ramsize 512 --index-storage-setting default || true
+              couchbase-cli bucket-create -c "$CB_HOST:8091" -u "$CB_USER" -p "$CB_PASS" \
+                --bucket "$CB_BUCKET" --bucket-type couchbase \
+                --bucket-ramsize "$CB_BUCKET_RAM_MB" --bucket-replica 0 --wait || true

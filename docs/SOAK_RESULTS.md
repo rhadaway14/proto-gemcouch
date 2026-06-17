@@ -74,6 +74,20 @@ infrastructure** — not a single co-located box:
 - Derive **resource sizing** (connections/CPU/memory per replica, replica count for a target QPS) from
   these runs; the single-box numbers below are a stability baseline, not a capacity ceiling.
 
+**Turnkey rigs for this live in `deploy/`:**
+
+- `deploy/ec2/` — Terraform that stands up a dedicated multi-host rig (load gens → NLB → shim hosts →
+  dedicated Couchbase + an observability host running Prometheus/Grafana). `scripts/capacity-sweep.sh`
+  steps concurrency and flags the knee; `shim_count` scales for the horizontal-scaling sweep. The
+  cleanest baseline — fewest layers, one shim per host.
+- `deploy/eks/` — the same rig on EKS, reusing the production Helm chart + kube-prometheus-stack, so
+  the measured ceiling includes the real k8s deployment path (chart, Service LB, CNI). Run it *after*
+  the EC2 baseline to quantify the k8s-path overhead.
+
+Both surface the **Host Metrics** and **Couchbase** Grafana dashboards, whose disk-write-queue / OOM /
+CPU panels attribute the knee to a specific tier (shim vs Couchbase vs network). See each directory's
+`README.md`.
+
 ---
 
 ## Executive summary
