@@ -317,6 +317,25 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Host/OS metrics (CPU, memory, network, disk, load). Primarily for the multi-host capacity rig,
+  # where each shim / Couchbase / load-generator host runs its own node_exporter; included in the local
+  # stack so the host-metrics dashboard renders against live data. On the rig, run this same exporter
+  # on every host and add each as a Prometheus target (see the deploy/ automation).
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: protogemcouch-node-exporter
+    pid: host
+    command:
+      - "--path.rootfs=/host"
+      # Exclude pseudo / container-overlay filesystems so disk panels show real volumes only.
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|securityfs|sysfs|tmpfs|tracefs)$$"
+    volumes:
+      - "/:/host:ro"
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: protogemcouch-prometheus

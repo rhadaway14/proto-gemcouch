@@ -24,6 +24,17 @@ scrape_configs:
         labels:
           service: protogemcouch
 
+  # Host/OS metrics via node_exporter (CPU, memory, network, disk, load average). Locally this is the
+  # single node-exporter container; on the multi-host capacity rig, list every host's node_exporter
+  # here (shim hosts, Couchbase hosts, load generators) so the host-metrics dashboard can attribute the
+  # capacity ceiling to a specific resource. The `instance` label (host:port) drives the dashboard's
+  # per-host template variable.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          role: local
+
   # Scrape Prometheus' own metrics so the stack is self-observable.
   - job_name: prometheus
     static_configs:
