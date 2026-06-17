@@ -1223,7 +1223,9 @@ public class CouchbaseRepository implements Repository {
     private record ParsedDocumentKey(String region, String key) {
     }
 
-    private static JsonObject encodeStoredValue(StoredValue value) {
+    // Package-private (not private) so the JSON round-trip property test can drive the persistence
+    // codec directly without a live Couchbase. Pairs with decodeStoredValue.
+    static JsonObject encodeStoredValue(StoredValue value) {
         JsonObject body = JsonObject.create();
 
         if (value.type() == StoredValue.Type.BOOLEAN) {
@@ -1508,7 +1510,8 @@ public class CouchbaseRepository implements Repository {
         return body;
     }
 
-    private static StoredValue decodeStoredValue(JsonObject content) {
+    // Package-private (not private) for the JSON round-trip property test; pairs with encodeStoredValue.
+    static StoredValue decodeStoredValue(JsonObject content) {
         if (content == null || !content.containsKey(FIELD_TYPE)) {
             if (content == null || !content.containsKey(FIELD_VALUE)) {
                 return null;

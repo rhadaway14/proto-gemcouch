@@ -179,7 +179,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   Hardened the decoder while at it: parts are now parsed from a slice bounded by the declared
   `payloadLength`, so a hostile part length can no longer over-read past its frame into a pipelined one
   (stream desync); the decoder always consumes exactly the header + declared payload.
-- [ ] Property/round-trip tests across all value types at scale.
+- [x] **Property/round-trip tests across all value types at scale** — a seeded generator
+  (`RandomValueGraphs`) produces randomized `HashMap<String,Object>` graphs spanning the full
+  structured supported matrix (scalars, wrappers, `Date`, `BigInteger`/`BigDecimal`/`UUID`, JDK enums,
+  primitive arrays, `String[]`, generic `Object[]`, `ArrayList`, nested `Map`), recursively to bounded
+  depth. Two harnesses assert equals-level fidelity: `CouchbaseRepositoryRoundTripPropertyTest` runs
+  2,000 iterations through the persistence codec across a real JSON-text boundary
+  (`encode → JsonObject.fromJson(toString()) → decode`), and `ProtoGemCouchRoundTripPropertyIntegrationTest`
+  runs 90 graphs (put/get + putAll/getAll) through a real Geode 1.15 client + live shim + Couchbase,
+  also covering the inbound DataSerializer decode and read-path wire re-encode. Each iteration is
+  seeded and prints its seed on failure for exact reproduction.
 - [x] Chaos tests (`ProtoGemCouchChaosIntegrationTest`): a real **Couchbase container stop/start under
   concurrent load** — in-flight writes fail promptly and cleanly (recorded as errors, no hang), the
   shim process stays up (metrics keep serving), and on recovery the keyset/size reflect **exactly** the
