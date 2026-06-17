@@ -1,0 +1,23 @@
+#!/bin/bash
+# Shim host: one shim process per host (so the per-replica ceiling is unambiguous), pointed at the
+# dedicated Couchbase node. Scale the host COUNT (not size) to measure horizontal scaling.
+set -euxo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+docker run -d --restart unless-stopped --name node-exporter \
+  --net=host --pid=host -v /:/host:ro \
+  prom/node-exporter:v1.8.2 --path.rootfs=/host
+
+docker run -d --restart unless-stopped --name shim \
+  -p 40405:40405 -p 8081:8081 \
+  -e CB_CONNSTR="couchbase://${couchbase_ip}" \
+  -e CB_USERNAME="${couchbase_username}" \
+  -e CB_PASSWORD="${couchbase_password}" \
+  -e CB_BUCKET="${couchbase_bucket}" \
+  -e CB_SCOPE=_default \
+  -e CB_COLLECTION=_default \
+  -e SHIM_PORT=40405 \
+  -e HEALTH_PORT=8081 \
+  ${shim_image}

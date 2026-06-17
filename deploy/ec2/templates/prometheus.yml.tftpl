@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Each shim host's /metrics (latency histograms, ops, shed, connections).
+  - job_name: protogemcouch
+    metrics_path: /metrics
+    static_configs:
+%{ for ip in shim_ips ~}
+      - targets: ["${ip}:8081"]
+        labels:
+          service: protogemcouch
+          host: "${ip}"
+%{ endfor ~}
+
+  # Couchbase backend (CB 7.x Prometheus endpoint, basic auth).
+  - job_name: couchbase
+    metrics_path: /metrics
+    basic_auth:
+      username: "${cb_user}"
+      password: "${cb_pass}"
+    static_configs:
+      - targets: ["${couchbase_ip}:8091"]
+        labels:
+          role: couchbase
+
+  # node_exporter on every rig host (shim, couchbase, load gens, observability).
+  - job_name: node
+    static_configs:
+%{ for ip in node_ips ~}
+      - targets: ["${ip}:9100"]
+        labels:
+          host: "${ip}"
+%{ endfor ~}
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,9 @@
+# Terraform working state (never commit)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+# Local variable files may contain your IP / credentials
+terraform.tfvars
+*.auto.tfvars
