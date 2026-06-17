@@ -33,7 +33,9 @@ crash or hang) for these:
 server-side function EXECUTION (the shim has no user Function classes; calls are rejected cleanly)
 server-side region creation with custom attributes (destroyRegion IS supported; a client PROXY region is created locally and sends no server create, so dynamic create is a no-op)
 single-hop / partitioned-region bucket metadata
-custom DataSerializable value types
+field-level querying of custom DataSerializable values (the objects round-trip opaquely via the
+  0x2d payload — the client gets its class back; the fields are not queryable, since DataSerializable
+  carries no schema, unlike PDX)
 full PDX registry discovery + schema evolution (PDX round-trip + field querying ARE supported)
 some nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not queryable):
   Serializable POJOs, PDX, typed object arrays, java.time values (generic Object[]/ArrayList/nested
@@ -165,7 +167,7 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | `java.time.LocalDate` | `0x2c` Java serialized | Yes | Yes | Yes |
 | `java.time.LocalDateTime` | `0x2c` Java serialized | Yes | Yes | Yes |
 | PDX / `PdxInstance` | `0x5d` opaque PDX payload | Yes | Yes | Yes |
-| DataSerializable | TBD | Not yet | Not yet | Not yet |
+| custom `DataSerializable` | `0x2d` opaque DataSerializable payload | Yes | Yes | Yes |
 
 ## Collection Response Encoding Compatibility
 
@@ -351,7 +353,7 @@ Nested complex types inside structured Map<String,Object> that stay opaque (roun
   ...), java.time / standalone utility values, non-ArrayList Lists. (Generic Object[], ArrayList,
   nested Map, UUID, BigInteger, BigDecimal, and enum constants nested inside a map ARE now decoded
   structurally; top-level forms of everything ARE supported.)
-custom DataSerializable value types
+field-level querying of custom DataSerializable values (they round-trip opaquely; not queryable)
 server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
 server-side region creation with custom attributes (destroyRegion IS supported)
 single-hop / partitioned-region bucket metadata
