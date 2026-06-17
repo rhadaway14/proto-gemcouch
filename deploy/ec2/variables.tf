@@ -108,11 +108,11 @@ variable "couchbase_bucket_ram_mb" {
 variable "git_repo" {
   description = "Repo cloned on the observability host for the Grafana dashboards + provisioning + alert rules."
   type        = string
-  default     = "https://github.com/rhadaway14/protogemcouch.git"
+  default     = "https://github.com/rhadaway14/proto-gemcouch.git"
 }
 
 variable "git_ref" {
-  description = "Branch/tag/SHA to check out on the observability host."
+  description = "Branch/tag/SHA to check out on the observability + load-gen hosts. Defaults to master (the live branch); the repo's `main` branch lags far behind."
   type        = string
-  default     = "main"
+  default     = "master"
 }
