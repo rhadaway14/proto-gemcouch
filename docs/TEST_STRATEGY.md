@@ -47,6 +47,16 @@ Command:
 mvn verify
 ```
 
+### Property-based round-trip tests
+Serialization fidelity (the shim's core contract) is also checked combinatorially, not just by
+example: a seeded generator (`com.protogemcouch.testsupport.RandomValueGraphs`) produces randomized
+`HashMap<String,Object>` graphs across the full structured supported matrix (scalars, arrays, nested
+`Object[]`/`ArrayList`/`Map`, UUID/BigInteger/BigDecimal/enum), and two harnesses assert equals-level
+fidelity — `CouchbaseRepositoryRoundTripPropertyTest` (in-process, 2,000 iterations across a real
+JSON-text persistence boundary) and `ProtoGemCouchRoundTripPropertyIntegrationTest` (put/get +
+putAll/getAll through a real client). Each iteration is seeded and prints its seed on failure for
+exact reproduction.
+
 ---
 
 ## 3. Code coverage (measurement + gate)
