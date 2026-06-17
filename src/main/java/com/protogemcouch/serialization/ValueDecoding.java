@@ -158,6 +158,19 @@ public final class ValueDecoding {
      */
     private static final int GEODE_PDX_INSTANCE_CODE = 0x5d;
 
+    /*
+     * Geode DataSerializable marker (DSCODE.DATA_SERIALIZABLE). Confirmed by capturing a real
+     * client value:
+     *
+     *   2d 2b 57 <len2> <class-name-utf8> <toData bytes...>
+     *      (0x2d DATA_SERIALIZABLE, 0x2b CLASS, 0x57 string + class name, then toData)
+     *
+     * The shim has none of the user's DataSerializable classes and the payload carries no schema, so
+     * the value is preserved opaquely (verbatim) and the client re-instantiates it via its own
+     * fromData. Field-level querying is therefore not possible (unlike PDX, which is self-describing).
+     */
+    private static final int GEODE_DATA_SERIALIZABLE_CODE = 0x2d;
+
     private ValueDecoding() {
     }
 
@@ -691,7 +704,36 @@ public final class ValueDecoding {
             return new OpaqueGeodeValue("enum", payload);
         }
 
+        if (first == GEODE_DATA_SERIALIZABLE_CODE) {
+            // Preserve the whole DataSerializable payload verbatim so the client re-instantiates it
+            // via its own fromData; the shim cannot (and need not) load the class.
+            return new OpaqueGeodeValue(dataSerializableTypeName(payload), payload);
+        }
+
         return null;
+    }
+
+    /**
+     * Best-effort class name for a DataSerializable payload (for logs/observability only — the
+     * preserved bytes are authoritative). Parses the {@code 2d 2b 57 <len2> <class-name>} prefix,
+     * falling back to {@code "dataSerializable"} for any other shape (e.g. a registered-Instantiator
+     * USER_CLASS id form, which is out of scope).
+     */
+    private static String dataSerializableTypeName(byte[] payload) {
+        try {
+            if (payload.length >= 5
+                    && (payload[1] & 0xff) == 0x2b      // DSCODE.CLASS
+                    && (payload[2] & 0xff) == GEODE_STRING_CODE) {
+                int len = ((payload[3] & 0xff) << 8) | (payload[4] & 0xff);
+                if (len > 0 && 5 + len <= payload.length) {
+                    return "dataSerializable:"
+                            + new String(payload, 5, len, java.nio.charset.StandardCharsets.UTF_8);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // fall through to the generic name
+        }
+        return "dataSerializable";
     }
 
     public static PdxInstanceValue decodePdxInstanceValue(byte[] payload) {
@@ -998,6 +1040,7 @@ public final class ValueDecoding {
                 || first == GEODE_UUID_CODE
                 || first == GEODE_ENUM_CODE
                 || first == GEODE_PDX_INSTANCE_CODE
+                || first == GEODE_DATA_SERIALIZABLE_CODE
                 || first == GEODE_STRING_CODE) {
             return null;
         }

@@ -341,7 +341,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3b. Value-type / serialization parity
 
-- [ ] `DataSerializable` (custom).
+- [x] **`DataSerializable` (custom) — opaque round-trip.** A custom `DataSerializable` value
+  (DSCODE `0x2d`: `2d 2b 57 <class-name> <toData>`) is preserved verbatim as an `OPAQUE_GEODE_VALUE`
+  and returned unchanged, so a real Geode client gets its object back via its own `fromData` — the shim
+  never needs the class. Fixes a real bug: such values were previously mis-framed as a `byte[]` (the
+  raw-byte-array catch-all) and came back to the client as `byte[]`. Validated end-to-end against a
+  real client (`ProtoGemCouchDataSerializableIntegrationTest`, put/get + putAll/getAll with a
+  client-only class) + `DataSerializableValueTest` (unit). **Not feasible:** field-level querying —
+  `DataSerializable` carries no schema (unlike PDX), so the shim cannot read fields without the class.
+  **Out of scope:** registered-`Instantiator` / `USER_CLASS` id forms (a different marker).
 - [x] **PDX field querying** — OQL `WHERE` / projection / `ORDER BY` on PDX object fields (validated:
   `ProtoGemCouchQueryIntegrationTest.queryPdxByFieldAndProject`), **continuous-query predicates on PDX
   fields** (validated: `ProtoGemCouchCqIntegrationTest.cqListenerFiresForPredicateMatchingPdxObject`),
