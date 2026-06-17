@@ -1,0 +1,182 @@
+{
+  "uid": "protogemcouch-couchbase",
+  "title": "ProtoGemCouch Couchbase",
+  "tags": ["protogemcouch", "couchbase", "backend", "capacity"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "bucket",
+        "type": "query",
+        "label": "Bucket",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(kv_mem_used_bytes, bucket)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "KV operations / sec by type",
+      "description": "rate(kv_ops) by op. The backend throughput driven by the shim's reads/writes.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (op) (rate(kv_ops{bucket=~\"$bucket\"}[$__rate_interval])) > 0",
+          "legendFormat": "{{op}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "KV command latency (p50 / p99)",
+      "description": "histogram_quantile over kv_cmd_duration_seconds. Rising p99 here vs the shim's own p99 localizes latency to the backend.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(kv_cmd_duration_seconds_bucket{bucket=~\"$bucket\"}[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kv_cmd_duration_seconds_bucket{bucket=~\"$bucket\"}[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "KV memory used",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kv_mem_used_bytes{bucket=~\"$bucket\"}",
+          "legendFormat": "{{bucket}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Current items",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kv_curr_items{bucket=~\"$bucket\"}",
+          "legendFormat": "{{bucket}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "KV connections / node CPU %",
+      "description": "kv_curr_connections (left-ish) and sys_cpu_utilization_rate for the Couchbase node.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kv_curr_connections",
+          "legendFormat": "connections"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sys_cpu_utilization_rate{category=\"system\"}",
+          "legendFormat": "node cpu %"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Disk write queue depth (saturation signal)",
+      "description": "kv_ep_diskqueue_items / kv_ep_queue_size. A sustained climb means Couchbase cannot drain writes as fast as the shim sends them — i.e. the backend, not the shim, is the ceiling.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 15 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kv_ep_diskqueue_items{bucket=~\"$bucket\"}",
+          "legendFormat": "{{bucket}} disk queue"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kv_ep_queue_size{bucket=~\"$bucket\"}",
+          "legendFormat": "{{bucket}} ep queue"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Errors, OOM & cache misses (ceiling signals)",
+      "description": "Response errors, (tmp) OOM, and bg-fetches (cache misses to disk). Any non-zero OOM or a rising error/bg-fetch rate marks the backend ceiling.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (bucket) (rate(kv_total_resp_errors{bucket=~\"$bucket\"}[$__rate_interval]))",
+          "legendFormat": "{{bucket}} resp errors/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (bucket) (kv_ep_oom_errors{bucket=~\"$bucket\"} + kv_ep_tmp_oom_errors{bucket=~\"$bucket\"})",
+          "legendFormat": "{{bucket}} OOM"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (bucket) (rate(kv_ep_bg_fetched{bucket=~\"$bucket\"}[$__rate_interval]))",
+          "legendFormat": "{{bucket}} bg fetch/s"
+        }
+      ]
+    }
+  ]
+}

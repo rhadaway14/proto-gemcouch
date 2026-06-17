@@ -35,6 +35,22 @@ scrape_configs:
         labels:
           role: local
 
+  # Couchbase Server's built-in Prometheus endpoint (CB 7.x: /metrics on 8091, basic auth). Exposes
+  # KV-engine metrics (ops, command latency, memory, items, disk-write queue, OOM/errors, connections)
+  # and per-node system metrics — the backend half of the capacity picture. The disk-write queue
+  # (kv_ep_diskqueue_items) and OOM counters are the signals that reveal when Couchbase, not the shim,
+  # is the ceiling. Credentials here are the local dev defaults (.env); on the capacity rig use a
+  # Prometheus `basic_auth` credentials file / secret and point at each Couchbase node.
+  - job_name: couchbase
+    metrics_path: /metrics
+    basic_auth:
+      username: Administrator
+      password: password
+    static_configs:
+      - targets: ["couchbase:8091"]
+        labels:
+          role: couchbase
+
   # Scrape Prometheus' own metrics so the stack is self-observable.
   - job_name: prometheus
     static_configs:
