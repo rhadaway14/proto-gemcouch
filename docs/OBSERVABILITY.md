@@ -249,6 +249,12 @@ Grafana auto-loads these dashboards (folder **ProtoGemCouch**), from `grafana/da
   multi-host capacity rig every shim / Couchbase / load-generator host runs `node_exporter` and is
   listed as a Prometheus target, so the dashboard attributes the capacity ceiling to a specific
   resource on a specific host.
+- **ProtoGemCouch Couchbase** — backend metrics from Couchbase Server's built-in Prometheus endpoint
+  (`/metrics` on 8091): KV operations/sec by type, command latency p50/p99, memory used, current
+  items, connections + node CPU, the **disk-write queue depth**, and **errors / OOM / cache-miss**
+  panels. The queue-depth and OOM panels are the signals that reveal when Couchbase (not the shim) is
+  the capacity ceiling. It has a per-`bucket` template variable. The scrape uses the local dev
+  credentials; on the capacity rig use a Prometheus `basic_auth` credentials file / secret per node.
 - **ProtoGemCouch Logs & Traces** — built on the Loki and Jaeger datasources: log volume by level,
   completed operations and failed-request / malformed-frame rates derived from the logs, an audit-event
   breakdown, live shim + audit log panels, and a recent-traces table (the traces table is populated
