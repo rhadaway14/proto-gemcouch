@@ -1,0 +1,30 @@
+#!/bin/bash
+# Load-generator host: drives the benchmark against the shim NLB by reusing the published image (the
+# ConcurrentBenchmarkRunner main lives in the same fat jar). Run the sweep from one load-gen and add
+# more hosts until total throughput stops rising.
+set -euxo pipefail
+
+dnf install -y docker git
+systemctl enable --now docker
+
+docker run -d --restart unless-stopped --name node-exporter \
+  --net=host --pid=host -v /:/host:ro \
+  prom/node-exporter:v1.8.2 --path.rootfs=/host
+
+# High-concurrency load needs lots of client sockets/fds.
+sysctl -w net.ipv4.ip_local_port_range="1024 65535" || true
+printf '* soft nofile 1048576\n* hard nofile 1048576\n' >> /etc/security/limits.conf
+
+# Rig facts the plain load-driving scripts read (kept out of the template to avoid shell-var clashes).
+mkdir -p /opt/pgc-rig
+cat >/etc/pgc-rig.env <<EOF
+NLB_DNS=${nlb_dns}
+SHIM_IMAGE=${shim_image}
+EOF
+
+# The scripts/ (run-benchmark.sh, capacity-sweep.sh) come from the repo — plain shell, no templating.
+git clone --depth 1 --branch ${git_ref} ${git_repo} /opt/pgc
+ln -sf /opt/pgc/deploy/ec2/scripts/run-benchmark.sh /opt/pgc-rig/run-benchmark.sh
+ln -sf /opt/pgc/deploy/ec2/scripts/capacity-sweep.sh /opt/pgc-rig/capacity-sweep.sh
+
+docker pull ${shim_image} || true

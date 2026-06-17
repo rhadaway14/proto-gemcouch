@@ -1,0 +1,49 @@
+#!/bin/bash
+# Observability host: Prometheus (rendered scrape config for the whole rig) + Grafana (reusing the
+# repo's provisioned datasource + dashboards, incl. the host-metrics and Couchbase dashboards) +
+# node_exporter. Grafana lands on Prometheus; the Loki/Jaeger datasources from the repo are unused on
+# the rig (no log/trace pipeline here) and their panels stay empty — harmless for capacity work.
+set -euxo pipefail
+
+dnf install -y docker git
+systemctl enable --now docker
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+git clone --depth 1 --branch ${git_ref} ${git_repo} /opt/pgc
+
+mkdir -p /opt/obs
+# Prometheus scrape config rendered by Terraform with every rig host's private IP.
+echo "${prometheus_yml_b64}" | base64 -d > /opt/obs/prometheus.yml
+
+cat >/opt/obs/docker-compose.yml <<'YAML'
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - /opt/obs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - /opt/pgc/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /opt/pgc/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+YAML
+
+cd /opt/obs && docker compose up -d

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Couchbase host: dedicated, prod-sized backend for the capacity rig. Host networking so the SDK's
+# advertised addresses are this host's private IP (no alternate-address / port-mapping headaches).
+set -euxo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+# Host metrics (scraped by the observability node).
+docker run -d --restart unless-stopped --name node-exporter \
+  --net=host --pid=host -v /:/host:ro \
+  prom/node-exporter:v1.8.2 --path.rootfs=/host
+
+docker run -d --restart unless-stopped --name couchbase --network host ${couchbase_image}
+
+# Wait for the management UI before initializing.
+until curl -fs http://127.0.0.1:8091/ui/index.html >/dev/null 2>&1; do sleep 3; done
+
+# Initialize the cluster (data,index,query) and create the bucket. Idempotent-ish: a re-run on an
+# already-initialized node is a no-op (the || true swallows the "already provisioned" error).
+docker exec couchbase couchbase-cli cluster-init -c 127.0.0.1:8091 \
+  --cluster-username "${couchbase_username}" --cluster-password "${couchbase_password}" \
+  --services data,index,query \
+  --cluster-ramsize 2048 --cluster-index-ramsize 512 --index-storage-setting default || true
+
+docker exec couchbase couchbase-cli bucket-create -c 127.0.0.1:8091 \
+  -u "${couchbase_username}" -p "${couchbase_password}" \
+  --bucket "${couchbase_bucket}" --bucket-type couchbase \
+  --bucket-ramsize "${couchbase_bucket_ram_mb}" --bucket-replica 0 --wait || true
