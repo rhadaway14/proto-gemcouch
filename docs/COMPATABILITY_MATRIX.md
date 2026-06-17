@@ -36,7 +36,8 @@ single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIE
 field-level querying of custom DataSerializable values (the objects round-trip opaquely via the
   0x2d payload — the client gets its class back; the fields are not queryable, since DataSerializable
   carries no schema, unlike PDX)
-full PDX registry discovery + schema evolution (PDX round-trip + field querying ARE supported)
+full PDX registry discovery — bulk type/enum registry sync (PDX round-trip, field querying, and
+  schema evolution across versions ARE supported)
 some nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not queryable):
   Serializable POJOs, PDX, typed object arrays, java.time values (generic Object[]/ArrayList/nested
   Map/UUID/BigInteger/BigDecimal/enum nested in a map ARE now structured; top-level works; see below)
@@ -116,7 +117,8 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | register-interest / subscriptions | Supported | Server→client event feed; a `CacheListener` fires for create/update/destroy/invalidate. |
 | continuous queries | Supported | Register + events (create/update/destroy, stops-matching), PDX-field predicates, `executeWithInitialResults`. |
 | server-side functions | Rejected cleanly | The shim cannot run user `Function` code; `EXECUTE_FUNCTION` / `GET_FUNCTION_ATTRIBUTES` return a clean `ServerOperationException`. |
-| PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. Full registry discovery / schema evolution remains scoped. |
+| PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. |
+| PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version. Bulk registry discovery remains scoped. |
 | unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
 
 ## Supported Value Types
@@ -295,7 +297,10 @@ containsKeyOnServer with PDX-backed keys
 keySetOnServer with PDX-backed keys
 ```
 
-Current PDX scope remains a compatibility profile. Full PDX registry discovery, advanced schema evolution behavior, and all native Geode PDX server semantics are not yet claimed as general-purpose replacements.
+Current PDX scope remains a compatibility profile. Schema evolution across versions (fields
+added/removed, queried per instance version) is supported and validated; full PDX *registry
+discovery* (bulk type/enum sync) and all native Geode PDX server semantics are not yet claimed as
+general-purpose replacements.
 
 ## Structured Map Nested Value Support
 
