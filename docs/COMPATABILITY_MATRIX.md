@@ -32,7 +32,7 @@ crash or hang) for these:
 ```text
 server-side function EXECUTION (the shim has no user Function classes; calls are rejected cleanly)
 server-side region creation with custom attributes (destroyRegion IS supported; a client PROXY region is created locally and sends no server create, so dynamic create is a no-op)
-single-hop / partitioned-region bucket metadata
+single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIENT_PARTITION_ATTRIBUTES is a documented graceful no-op, the client falls back to direct routing)
 field-level querying of custom DataSerializable values (the objects round-trip opaquely via the
   0x2d payload — the client gets its class back; the fields are not queryable, since DataSerializable
   carries no schema, unlike PDX)
@@ -356,7 +356,7 @@ Nested complex types inside structured Map<String,Object> that stay opaque (roun
 field-level querying of custom DataSerializable values (they round-trip opaquely; not queryable)
 server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
 server-side region creation with custom attributes (destroyRegion IS supported)
-single-hop / partitioned-region bucket metadata
+single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIENT_PARTITION_ATTRIBUTES is a documented graceful no-op, the client falls back to direct routing)
 full PDX registry discovery + schema evolution (PDX round-trip + object-field querying ARE supported)
 OQL joins
 ```

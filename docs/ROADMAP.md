@@ -336,8 +336,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   a clean `ServerOperationException`/`FunctionException` instead of hanging or seeing the connection
   drop. See `docs/FUNCTIONS.md`; `tools/FunctionCapture` reproduces the capture. **Remaining:** actually
   *executing* functions is out of scope for a stateless shim (would require loading user code).
-- [ ] **Partitioned-region metadata / single-hop** — bucket routing
-  (`GET_CLIENT_PARTITION_ATTRIBUTES` is only stubbed today).
+- [x] **Partitioned-region metadata / single-hop** — resolved as a deliberate, documented
+  graceful no-op. Single-hop is a *multi-server* optimization (route a key straight to the server
+  hosting its primary bucket); the shim is a single logical server over one Couchbase store with no
+  bucket topology, so every op already reaches the one server in a single hop — there is no second hop
+  to avoid. `GET_CLIENT_PARTITION_ATTRIBUTES` (opcode 73) now logs and returns without a reply
+  (`GetClientPartitionAttributesHandler`); a real client treats that as "no single-hop available" and
+  falls back to direct routing (already exercised, single-hop enabled, by the integration suite).
+  Empirically a client against a single-server endpoint usually does not even send the probe. The shim
+  does **not** fabricate a partition-attributes reply — with no real benefit to offer, a hand-rolled
+  response would only risk mis-parsing on the client. (`PartitionAttributesCapture` is kept as a dev
+  aid for re-checking the real-server protocol.)
 
 ### 3b. Value-type / serialization parity
 
