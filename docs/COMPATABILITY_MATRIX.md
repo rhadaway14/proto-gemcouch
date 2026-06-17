@@ -15,7 +15,7 @@ client/server protocol over the shim's Geode port (TLS / mutual TLS optional).
 core entry ops:        get, put, remove, containsKey, containsValueForKey, getEntry
 bulk ops:              getAll, putAll (partial-failure aware)
 region metadata:       size, keySet (cross-process, contention-free keyset)
-region ops:            invalidate, clear
+region ops:            invalidate, clear, destroyRegion
 atomic ops:            putIfAbsent, replace(k,v), replace(k,old,new), remove(k,v)
 OQL:                   SELECT (*|field|field,…) FROM /region [alias] [WHERE …] [ORDER BY …],
                        parameterized ($1..$N), struct projections + ORDER BY, paged results,
@@ -31,7 +31,7 @@ entry TTL:             default + per-region, time-to-live and idle modes, keyset
 crash or hang) for these:
 ```text
 server-side function EXECUTION (the shim has no user Function classes; calls are rejected cleanly)
-region lifecycle over the wire (dynamic create/destroy-region opcodes)
+server-side region creation with custom attributes (destroyRegion IS supported; a client PROXY region is created locally and sends no server create, so dynamic create is a no-op)
 single-hop / partitioned-region bucket metadata
 custom DataSerializable value types
 full PDX registry discovery + schema evolution (PDX round-trip + field querying ARE supported)
@@ -103,6 +103,7 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | `remove` | Supported | Removes mapped Couchbase document. |
 | `getEntry` | Supported | Returns an `EntrySnapshot`-compatible response. |
 | `invalidate` / `clear` | Supported | `invalidate` keeps the key, drops the value; `clear` empties the region. |
+| `destroyRegion` | Supported | `Region.destroyRegion()` (opcode 11) removes all of the region's entries + keyset metadata; the schemaless shim re-materializes the region on the next write. |
 | `containsKey` / `containsKeyOnServer` | Supported | Repository-backed existence check. |
 | `containsValueForKey` | Supported | Repository-backed value-present check. |
 | `sizeOnServer` | Supported | Region document count. |
@@ -352,7 +353,7 @@ Nested complex types inside structured Map<String,Object> that stay opaque (roun
   structurally; top-level forms of everything ARE supported.)
 custom DataSerializable value types
 server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
-region lifecycle over the wire (dynamic create/destroy-region)
+server-side region creation with custom attributes (destroyRegion IS supported)
 single-hop / partitioned-region bucket metadata
 full PDX registry discovery + schema evolution (PDX round-trip + object-field querying ARE supported)
 OQL joins

@@ -20,6 +20,7 @@ public final class MessageTypes {
      */
     public static final int QUERY_WITH_PARAMETERS = 80;
     public static final int CLEAR_REGION = 36;
+    public static final int DESTROY_REGION = 11;
     public static final int CONTROL = 18;
     public static final int CONTAINS_KEY = 38;
     public static final int KEY_SET = 40;
