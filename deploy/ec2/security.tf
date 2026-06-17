@@ -15,7 +15,7 @@ resource "aws_vpc_security_group_ingress_rule" "self_all" {
   security_group_id            = aws_security_group.rig.id
   referenced_security_group_id = aws_security_group.rig.id
   ip_protocol                  = "-1"
-  description                  = "intra-rig (scrapes, shim->couchbase, loadgen->shim)"
+  description                  = "intra-rig (scrapes, shim to couchbase, loadgen to shim)"
 }
 
 # NLB health checks + data plane originate from within the VPC (the NLB ENIs and the load-gen hosts).
