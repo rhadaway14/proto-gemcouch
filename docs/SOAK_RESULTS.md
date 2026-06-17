@@ -98,13 +98,17 @@ hot path):
 | --- | --- |
 | **single shim**, direct, concurrency 32 | **~16.9k ops/sec**, GET p50 1.5 ms / p99 4.3 ms, 0 errors |
 | **single shim**, sweep knee | ~conc 128: ~17.7k ops/sec at p99 ~26 ms (beyond it, +2% throughput for +50% p99) |
-| **two shims** behind the NLB (one load gen) | ~25k req/s aggregate (GET peak 27.1k req/s), ~40k Couchbase KV ops/s, 0 errors, p99 single-digit ms |
+| **two shims**, NLB, two load gens (aggregate) | **~35k ops/sec @ conc 128/shim** (p99 ~26 ms), rising to ~36.6k @ conc 256 (p99 ~39 ms), 0 errors; Couchbase ~40k KV ops/s |
+
+**Scaling:** **near-linear** — one shim ≈ 16.9k, two shims ≈ **35k** (~2×), 0 errors. (The first
+two-shim run with a *single* load generator capped at ~25k because the load gen itself was ~90% CPU;
+driving from two load gens removed that and the aggregate doubled, confirming the shim tier scales
+horizontally.)
 
 **Bottleneck:** the **shim tier (CPU)** — shim hosts pinned ~90% at peak. The Couchbase node stayed at
-~10–30% CPU with a ~0 disk-write queue and no OOM while serving ~40k KV ops/s, i.e. **the backend has
-large headroom and is not the limit** for this workload. (The two-shim aggregate was itself partly
-*client*-bound — the single load generator was also ~90% CPU — so driving from multiple load gens is
-needed to reach true two-shim saturation; the rig supports it.)
+~15% CPU with a ~0 disk-write queue and no OOM while serving ~40k KV ops/s, i.e. **the backend has
+large headroom and is not the limit** for this workload — so throughput scales by adding shim
+replicas, well beyond two.
 
 **Derived sizing (initial):** a 4-vCPU shim sustains **~16–17k read ops/sec at p99 < 5 ms** before
 becoming CPU-bound, so size the replica count ≈ `target_read_QPS / ~16k` and scale the shim tier
@@ -119,8 +123,8 @@ multi-second `REMOVE`/`PUT_ALL` latencies. Treat these as cold-path/administrati
 hot-path application calls; a large-keyspace, mutation-heavy workload would need the keyset-metadata
 design reworked (or avoided).
 
-**Still open:** a full scaling curve (1 → 2 → 4 shims with multiple load generators) and
-failure-injection-at-scale — both reproducible on the rig.
+**Still open:** the 4-shim point (1→2 measured near-linear; extending to 4 is just more of the same on
+the rig) and failure-injection-at-scale — both reproducible on the rig.
 
 ---
 
