@@ -1,0 +1,59 @@
+# Wires the shim and Couchbase into the kube-prometheus-stack Prometheus (installed by deploy.sh).
+# node_exporter, Prometheus, and Grafana themselves come from that chart (node_exporter is a DaemonSet
+# on every node, so host metrics are covered automatically). The `release: monitoring` label is how
+# kube-prometheus-stack's Prometheus selects ServiceMonitors by default.
+#
+# Shim: scrape /metrics on the health port of the chart's Service.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: protogemcouch-shim
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames: ["pgc"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: protogemcouch
+      app.kubernetes.io/instance: shim
+  endpoints:
+    - port: health
+      path: /metrics
+      interval: 5s
+---
+# Couchbase basic-auth credentials for the scrape (dev/test rig values).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: couchbase-metrics-auth
+  labels:
+    release: monitoring
+stringData:
+  username: "Administrator"
+  password: "password"
+---
+# Couchbase: scrape /metrics on 8091 with basic auth.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: couchbase
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames: ["pgc"]
+  selector:
+    matchLabels:
+      app: couchbase
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 5s
+      basicAuth:
+        username:
+          name: couchbase-metrics-auth
+          key: username
+        password:
+          name: couchbase-metrics-auth
+          key: password

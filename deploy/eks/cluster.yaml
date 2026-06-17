@@ -1,0 +1,37 @@
+# eksctl cluster for the capacity rig. The EKS control plane needs >= 2 AZs, but the workload
+# nodegroup is pinned to ONE AZ so inter-pod latency stays low and consistent (capacity numbers
+# must not be polluted by cross-AZ jitter). Scale `desiredCapacity` to >= shim_count + 1 (Couchbase)
+# + load-gen pods; with the one-pod-per-node anti-affinity in shim-values.yaml each shim gets a node.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: pgc-capacity
+  region: us-east-1
+  version: "1.30"
+  tags:
+    Project: protogemcouch
+    Component: capacity-rig
+
+availabilityZones: ["us-east-1a", "us-east-1b"]
+
+iam:
+  withOIDC: true
+
+# EBS CSI driver so the Couchbase StatefulSet can bind a gp3 PVC.
+addons:
+  - name: aws-ebs-csi-driver
+
+managedNodeGroups:
+  - name: rig
+    instanceType: c6i.xlarge
+    desiredCapacity: 4
+    minSize: 2
+    maxSize: 8
+    volumeSize: 80
+    volumeType: gp3
+    availabilityZones: ["us-east-1a"]
+    labels:
+      role: rig
+    tags:
+      Project: protogemcouch

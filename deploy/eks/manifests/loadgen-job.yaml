@@ -1,0 +1,36 @@
+# In-cluster load generators: reuse the published image to run the benchmark against the shim's
+# ClusterIP Service (kube-proxy spreads connections across the shim pods). `parallelism` = number of
+# concurrent load-gen pods — raise it (and re-run) until aggregate throughput stops climbing. For a
+# stepped concurrency sweep, re-apply this Job with different BENCH_CONCURRENCY values (delete the old
+# Job first), and watch the Grafana host + Couchbase dashboards to localize the knee.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loadgen
+spec:
+  parallelism: 2
+  completions: 2
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bench
+          image: docker.io/rhadaway14/protogemcouch:latest
+          command: ["java", "-cp", "/app/protogemcouch.jar", "com.protogemcouch.benchmark.ConcurrentBenchmarkRunner"]
+          env:
+            - { name: BENCH_HOST, value: "shim-protogemcouch" }
+            - { name: BENCH_PORT, value: "40405" }
+            - { name: BENCH_REGION, value: "helloWorld" }
+            - { name: BENCH_PROFILE, value: "mixed" }
+            - { name: BENCH_CONCURRENCY, value: "64" }
+            - { name: BENCH_WARMUP_SECONDS, value: "10" }
+            - { name: BENCH_DURATION_SECONDS, value: "120" }
+            - { name: BENCH_KEYSPACE, value: "100000" }
+            - { name: BENCH_SEED, value: "true" }
+            - { name: BENCH_SEED_COUNT, value: "100000" }
+            - { name: BENCH_PROGRESS_SECONDS, value: "15" }
+          resources:
+            requests:
+              cpu: "2"
+              memory: 1Gi

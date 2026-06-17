@@ -1,0 +1,48 @@
+# Helm values for charts/protogemcouch on the capacity rig. Reuses the production chart; only the
+# capacity-test specifics are overridden here.
+replicaCount: 2
+
+image:
+  repository: docker.io/rhadaway14/protogemcouch
+  tag: latest
+  pullPolicy: IfNotPresent
+
+couchbase:
+  connectionString: "couchbase://couchbase"
+  bucket: "test"
+  scope: "_default"
+  collection: "_default"
+  username: "Administrator"
+  # Dev/test rig default; override with `helm ... --set couchbase.password=...` from a secret store.
+  password: "password"
+
+# Controlled experiment: fixed replica count (sweep it manually), no autoscaling, no PDB interfering
+# with scale-down between runs.
+autoscaling:
+  enabled: false
+podDisruptionBudget:
+  enabled: false
+
+# Request ~a full node's worth of CPU so that, with the one-pod-per-node anti-affinity below, each
+# shim replica owns its node and the per-replica ceiling is unambiguous (no co-location contention).
+resources:
+  requests:
+    cpu: "2"
+    memory: 1Gi
+  limits:
+    cpu: "3500m"
+    memory: 2Gi
+
+service:
+  type: ClusterIP
+
+# One shim pod per node — the whole point of the rig is to avoid co-location contention.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values: ["protogemcouch"]
