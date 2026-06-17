@@ -239,10 +239,16 @@ detecting risky operations such as GET_ALL, PUT_ALL, and keySetOnServer
 
 ## Provisioned dashboards
 
-Grafana auto-loads two dashboards (folder **ProtoGemCouch**), from `grafana/dashboards/`:
+Grafana auto-loads these dashboards (folder **ProtoGemCouch**), from `grafana/dashboards/`:
 
 - **ProtoGemCouch Observability** — Prometheus metrics (request/error rates, latency percentiles,
   byte sizes, connections) by operation.
+- **ProtoGemCouch Host Metrics** — host/OS metrics from `node_exporter` (CPU busy %, memory used %,
+  load average, network throughput, disk I/O utilization, filesystem used %), with a per-host
+  `instance` template variable. Locally it shows the single `node-exporter` container; on the
+  multi-host capacity rig every shim / Couchbase / load-generator host runs `node_exporter` and is
+  listed as a Prometheus target, so the dashboard attributes the capacity ceiling to a specific
+  resource on a specific host.
 - **ProtoGemCouch Logs & Traces** — built on the Loki and Jaeger datasources: log volume by level,
   completed operations and failed-request / malformed-frame rates derived from the logs, an audit-event
   breakdown, live shim + audit log panels, and a recent-traces table (the traces table is populated
