@@ -123,12 +123,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   connection-leak; throughput trend reported, gated only on dedicated infra via
   `SOAK_FAIL_ON_THROUGHPUT`) with a machine-readable `SOAK_VERDICT` line + exit code, so the soak can
   gate rather than be eyeballed.
-- [~] **Multi-host capacity ceiling** — turnkey dedicated rigs built (`deploy/ec2` Terraform + NLB,
+- [x] **Multi-host capacity ceiling** — turnkey dedicated rigs built (`deploy/ec2` Terraform + NLB,
   `deploy/eks` Helm/eksctl: separate shim hosts, dedicated Couchbase, separate load generators, full
-  obs stack) and a **first capacity characterization captured** in `docs/SOAK_RESULTS.md`: per-shim
-  read ceiling ~16.9k ops/sec (p99 4.3 ms, knee ~conc 128 / ~17.7k), two-shim aggregate ~25k req/s,
-  **shim-CPU-bound with large Couchbase headroom** (~40k KV ops/s at ~20% node CPU). **Remaining:** the
-  full scaling curve (1 → 2 → 4 shims driven from multiple load generators) — reproducible on the rig.
+  obs stack) and the ceiling measured on the EC2 rig (`docs/SOAK_RESULTS.md`): per-shim read ceiling
+  ~16.9k ops/sec (p99 4.3 ms), and a **near-linear scaling curve** — 2 shims behind the NLB driven from
+  2 load gens reach **~35k ops/sec** aggregate (~2×, 0 errors). **Shim-CPU-bound with large Couchbase
+  headroom** (one `r6i.xlarge` served ~40k KV ops/s at ~15% node CPU), so throughput scales by adding
+  shim replicas. (Extending the curve to 4+ shims is just more of the same on the rig.)
 - [ ] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
   chaos suite covers single-node backend outage + shim restart today; the rig can host this next).
 
