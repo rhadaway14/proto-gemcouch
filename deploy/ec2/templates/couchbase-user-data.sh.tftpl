@@ -23,7 +23,18 @@ docker exec couchbase couchbase-cli cluster-init -c 127.0.0.1:8091 \
   --services data,index,query \
   --cluster-ramsize 2048 --cluster-index-ramsize 512 --index-storage-setting default || true
 
-docker exec couchbase couchbase-cli bucket-create -c 127.0.0.1:8091 \
-  -u "${couchbase_username}" -p "${couchbase_password}" \
-  --bucket "${couchbase_bucket}" --bucket-type couchbase \
-  --bucket-ramsize "${couchbase_bucket_ram_mb}" --bucket-replica 0 --wait || true
+# bucket-create can race the data service coming up right after cluster-init, so retry until the
+# bucket is actually listed (a single best-effort attempt could fail silently and leave the shim
+# unable to open the bucket).
+for attempt in $(seq 1 30); do
+  if docker exec couchbase couchbase-cli bucket-list -c 127.0.0.1:8091 \
+      -u "${couchbase_username}" -p "${couchbase_password}" 2>/dev/null | grep -qw "${couchbase_bucket}"; then
+    echo "bucket ${couchbase_bucket} present (attempt $attempt)"
+    break
+  fi
+  docker exec couchbase couchbase-cli bucket-create -c 127.0.0.1:8091 \
+    -u "${couchbase_username}" -p "${couchbase_password}" \
+    --bucket "${couchbase_bucket}" --bucket-type couchbase \
+    --bucket-ramsize "${couchbase_bucket_ram_mb}" --bucket-replica 0 --wait || true
+  sleep 5
+done
