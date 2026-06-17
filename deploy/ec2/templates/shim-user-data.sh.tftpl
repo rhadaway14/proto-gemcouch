@@ -10,6 +10,18 @@ docker run -d --restart unless-stopped --name node-exporter \
   --net=host --pid=host -v /:/host:ro \
   prom/node-exporter:v1.8.2 --path.rootfs=/host
 
+# Wait until Couchbase is up AND the bucket exists before starting the shim, so it connects on the
+# first try instead of crash-looping for minutes while Couchbase initializes. Bounded (~5 min); if
+# Couchbase is still not ready the shim's own SDK retry covers it, so we proceed either way.
+for attempt in $(seq 1 60); do
+  if curl -fs -u "${couchbase_username}:${couchbase_password}" \
+       "http://${couchbase_ip}:8091/pools/default/buckets/${couchbase_bucket}" >/dev/null 2>&1; then
+    echo "couchbase bucket ${couchbase_bucket} reachable (attempt $attempt)"
+    break
+  fi
+  sleep 5
+done
+
 docker run -d --restart unless-stopped --name shim \
   -p 40405:40405 -p 8081:8081 \
   -e CB_CONNSTR="couchbase://${couchbase_ip}" \

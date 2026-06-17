@@ -95,6 +95,15 @@ spec:
                 --cluster-username "$CB_USER" --cluster-password "$CB_PASS" \
                 --services data,index,query \
                 --cluster-ramsize 4096 --cluster-index-ramsize 512 --index-storage-setting default || true
-              couchbase-cli bucket-create -c "$CB_HOST:8091" -u "$CB_USER" -p "$CB_PASS" \
-                --bucket "$CB_BUCKET" --bucket-type couchbase \
-                --bucket-ramsize "$CB_BUCKET_RAM_MB" --bucket-replica 0 --wait || true
+              # bucket-create races the data service after cluster-init; retry until it is listed.
+              for i in $(seq 1 30); do
+                if couchbase-cli bucket-list -c "$CB_HOST:8091" -u "$CB_USER" -p "$CB_PASS" 2>/dev/null | grep -qw "$CB_BUCKET"; then
+                  break
+                fi
+                couchbase-cli bucket-create -c "$CB_HOST:8091" -u "$CB_USER" -p "$CB_PASS" \
+                  --bucket "$CB_BUCKET" --bucket-type couchbase \
+                  --bucket-ramsize "$CB_BUCKET_RAM_MB" --bucket-replica 0 --wait || true
+                sleep 5
+              done
+              # Fail the Job (so backoffLimit retries) if the bucket still is not present.
+              couchbase-cli bucket-list -c "$CB_HOST:8091" -u "$CB_USER" -p "$CB_PASS" 2>/dev/null | grep -qw "$CB_BUCKET"
