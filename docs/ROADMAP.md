@@ -83,8 +83,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   to the Security tab; hard gate on fixable CRITICAL OS-package CVEs — jar CVEs from Geode's
   transitive deps are triaged, not gated) and signs every published image with keyless cosign
   (GitHub OIDC + Rekor). Remaining: periodic base-digest bumps and a documented `.trivyignore`.
-- [ ] **Resource sizing guidance** tied to capacity tests (methodology documented in
-  `docs/SOAK_RESULTS.md`; the sizing numbers themselves need the dedicated-infra capacity runs).
+- [x] **Resource sizing guidance** tied to capacity tests — initial guidance derived from the EC2
+  rig: a 4-vCPU (`c6i.xlarge`) shim sustains ~16–17k read ops/sec at p99 < 5 ms before it is
+  CPU-bound, so replica count ≈ `target_read_QPS / ~16k`; the shim tier is the constraint and a single
+  `r6i.xlarge` Couchbase node had large headroom (~40k KV ops/s at ~20% CPU). Full numbers + caveats in
+  `docs/SOAK_RESULTS.md`.
 
 ### 2c. Security (remaining)
 
@@ -120,11 +123,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   connection-leak; throughput trend reported, gated only on dedicated infra via
   `SOAK_FAIL_ON_THROUGHPUT`) with a machine-readable `SOAK_VERDICT` line + exit code, so the soak can
   gate rather than be eyeballed.
-- [ ] **Multi-host capacity ceiling** — dedicated Couchbase + separate load generators (all current
-  numbers are single-host/relative). Methodology documented in `docs/SOAK_RESULTS.md`; needs a
-  dedicated rig to produce absolute capacity/sizing numbers.
+- [~] **Multi-host capacity ceiling** — turnkey dedicated rigs built (`deploy/ec2` Terraform + NLB,
+  `deploy/eks` Helm/eksctl: separate shim hosts, dedicated Couchbase, separate load generators, full
+  obs stack) and a **first capacity characterization captured** in `docs/SOAK_RESULTS.md`: per-shim
+  read ceiling ~16.9k ops/sec (p99 4.3 ms, knee ~conc 128 / ~17.7k), two-shim aggregate ~25k req/s,
+  **shim-CPU-bound with large Couchbase headroom** (~40k KV ops/s at ~20% node CPU). **Remaining:** the
+  full scaling curve (1 → 2 → 4 shims driven from multiple load generators) — reproducible on the rig.
 - [ ] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
-  chaos suite covers single-node backend outage + shim restart today).
+  chaos suite covers single-node backend outage + shim restart today; the rig can host this next).
 
 ### 2e. Operability
 

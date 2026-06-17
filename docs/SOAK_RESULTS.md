@@ -88,6 +88,40 @@ Both surface the **Host Metrics** and **Couchbase** Grafana dashboards, whose di
 CPU panels attribute the knee to a specific tier (shim vs Couchbase vs network). See each directory's
 `README.md`.
 
+### First multi-host capacity characterization (EC2 rig)
+
+First run on the `deploy/ec2` rig (shim hosts `c6i.xlarge` / 4 vCPU, dedicated Couchbase `r6i.xlarge`,
+internal NLB, load generators on separate hosts; `read-heavy` profile — GET/CONTAINS/GET_ALL, the KV
+hot path):
+
+| measurement | result |
+| --- | --- |
+| **single shim**, direct, concurrency 32 | **~16.9k ops/sec**, GET p50 1.5 ms / p99 4.3 ms, 0 errors |
+| **single shim**, sweep knee | ~conc 128: ~17.7k ops/sec at p99 ~26 ms (beyond it, +2% throughput for +50% p99) |
+| **two shims** behind the NLB (one load gen) | ~25k req/s aggregate (GET peak 27.1k req/s), ~40k Couchbase KV ops/s, 0 errors, p99 single-digit ms |
+
+**Bottleneck:** the **shim tier (CPU)** — shim hosts pinned ~90% at peak. The Couchbase node stayed at
+~10–30% CPU with a ~0 disk-write queue and no OOM while serving ~40k KV ops/s, i.e. **the backend has
+large headroom and is not the limit** for this workload. (The two-shim aggregate was itself partly
+*client*-bound — the single load generator was also ~90% CPU — so driving from multiple load gens is
+needed to reach true two-shim saturation; the rig supports it.)
+
+**Derived sizing (initial):** a 4-vCPU shim sustains **~16–17k read ops/sec at p99 < 5 ms** before
+becoming CPU-bound, so size the replica count ≈ `target_read_QPS / ~16k` and scale the shim tier
+horizontally (the backend isn't the constraint). One `r6i.xlarge` Couchbase node comfortably served
+~40k KV ops/s for this profile.
+
+**Important caveat — two performance classes.** The numbers above are the KV hot path. The
+**keyset-metadata operations** (`REMOVE`, `PUT_ALL`, `SIZE`, `KEY_SET`) are a separate, far more
+expensive class: each does a CAS read-modify-write over the per-region keyset document, which becomes
+*pathological* at large keyspaces. At a 100k keyspace, a `mixed` run collapsed to ~36 ops/sec with
+multi-second `REMOVE`/`PUT_ALL` latencies. Treat these as cold-path/administrative operations, not
+hot-path application calls; a large-keyspace, mutation-heavy workload would need the keyset-metadata
+design reworked (or avoided).
+
+**Still open:** a full scaling curve (1 → 2 → 4 shims with multiple load generators) and
+failure-injection-at-scale — both reproducible on the rig.
+
 ---
 
 ## Executive summary
