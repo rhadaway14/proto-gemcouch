@@ -66,6 +66,15 @@ resource "aws_vpc_security_group_ingress_rule" "ext_shim" {
   description       = "external load against the NLB from operator"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "prometheus" {
+  security_group_id = aws_security_group.rig.id
+  cidr_ipv4         = var.ssh_ingress_cidr
+  from_port         = 9090
+  to_port           = 9090
+  ip_protocol       = "tcp"
+  description       = "Prometheus from operator"
+}
+
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.rig.id
   cidr_ipv4         = "0.0.0.0/0"
