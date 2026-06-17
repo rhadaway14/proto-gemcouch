@@ -12,7 +12,9 @@ set -euo pipefail
 # shellcheck disable=SC1091
 [ -f /etc/pgc-rig.env ] && . /etc/pgc-rig.env
 
-TARGET_HOST="${TARGET_HOST:-${NLB_DNS:?set NLB_DNS (in /etc/pgc-rig.env) or TARGET_HOST}}"
+# Target precedence: TARGET_HOST, then BENCH_HOST (so a directly-passed BENCH_HOST works too), then
+# the NLB from /etc/pgc-rig.env.
+TARGET_HOST="${TARGET_HOST:-${BENCH_HOST:-${NLB_DNS:?set TARGET_HOST / BENCH_HOST, or NLB_DNS in /etc/pgc-rig.env}}}"
 IMAGE="${SHIM_IMAGE:-docker.io/rhadaway14/protogemcouch:latest}"
 
 exec docker run --rm --network host \
