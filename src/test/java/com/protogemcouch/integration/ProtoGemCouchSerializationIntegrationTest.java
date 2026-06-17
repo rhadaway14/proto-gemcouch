@@ -4348,7 +4348,7 @@ class ProtoGemCouchSerializationIntegrationTest {
     }
 
     @Test
-    void complexStringObjectHashMapWithNestedObjectArrayAndObjectArrayListShouldRoundTripAsOpaqueJavaSerializedMap() {
+    void complexStringObjectHashMapWithNestedObjectArrayAndObjectArrayListShouldRoundTripStructured() {
         String suffix = UUID.randomUUID().toString();
         String key = "it-complex-map-object-containers-" + suffix;
 

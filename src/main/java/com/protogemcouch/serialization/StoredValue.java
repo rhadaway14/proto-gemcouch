@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -846,57 +847,9 @@ public record StoredValue(
     }
 
     private static Object copySupportedMapObjectValue(Object value) {
-        if (value instanceof byte[] bytes) {
-            return copyByteArray(bytes);
-        }
-
-        if (value instanceof boolean[] booleans) {
-            return copyBooleanArray(booleans);
-        }
-
-        if (value instanceof char[] chars) {
-            return copyCharArray(chars);
-        }
-
-        if (value instanceof short[] shorts) {
-            return copyShortArray(shorts);
-        }
-
-        if (value instanceof int[] ints) {
-            return copyIntArray(ints);
-        }
-
-        if (value instanceof long[] longs) {
-            return copyLongArray(longs);
-        }
-
-        if (value instanceof float[] floats) {
-            return copyFloatArray(floats);
-        }
-
-        if (value instanceof double[] doubles) {
-            return copyDoubleArray(doubles);
-        }
-
-        if (value instanceof String[] strings) {
-            return copyStringArray(strings);
-        }
-
-        if (value instanceof ArrayList<?> list) {
-            ArrayList<String> copy = new ArrayList<>(list.size());
-
-            for (Object item : list) {
-                copy.add(item == null ? null : String.valueOf(item));
-            }
-
-            return copy;
-        }
-
-        if (value instanceof Date date) {
-            return copyDate(date);
-        }
-
-        return value;
+        // Recursive deep copy (nested Map/Object[]/List + the JDK scalar extras) lives in
+        // NestedValueSupport, shared with the decode and wire layers.
+        return NestedValueSupport.copyValue(value);
     }
 
     private static Date copyDate(Date value) {
@@ -931,6 +884,14 @@ public record StoredValue(
     }
 
     private static boolean mapObjectValuesEqual(Object left, Object right) {
+        if (left == right) {
+            return true;
+        }
+
+        if (left == null || right == null) {
+            return false;
+        }
+
         if (left instanceof byte[] leftBytes && right instanceof byte[] rightBytes) {
             return Arrays.equals(leftBytes, rightBytes);
         }
@@ -963,8 +924,46 @@ public record StoredValue(
             return Arrays.equals(leftDoubles, rightDoubles);
         }
 
-        if (left instanceof String[] leftStrings && right instanceof String[] rightStrings) {
-            return Arrays.equals(leftStrings, rightStrings);
+        // Object[] (covers String[] and the nested object arrays), List, and nested Map are compared
+        // by value recursively so arrays-inside-arrays / arrays-inside-maps don't fall back to array
+        // identity equality.
+        if (left instanceof Object[] leftArray && right instanceof Object[] rightArray) {
+            if (leftArray.length != rightArray.length) {
+                return false;
+            }
+            for (int i = 0; i < leftArray.length; i++) {
+                if (!mapObjectValuesEqual(leftArray[i], rightArray[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (left instanceof List<?> leftList && right instanceof List<?> rightList) {
+            if (leftList.size() != rightList.size()) {
+                return false;
+            }
+            for (int i = 0; i < leftList.size(); i++) {
+                if (!mapObjectValuesEqual(leftList.get(i), rightList.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (left instanceof Map<?, ?> leftMap && right instanceof Map<?, ?> rightMap) {
+            if (leftMap.size() != rightMap.size()) {
+                return false;
+            }
+            for (Map.Entry<?, ?> entry : leftMap.entrySet()) {
+                if (!rightMap.containsKey(entry.getKey())) {
+                    return false;
+                }
+                if (!mapObjectValuesEqual(entry.getValue(), rightMap.get(entry.getKey()))) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         return Objects.equals(left, right);
@@ -986,6 +985,10 @@ public record StoredValue(
     }
 
     private static int mapObjectValueHashCode(Object value) {
+        if (value == null) {
+            return 0;
+        }
+
         if (value instanceof byte[] bytes) {
             return Arrays.hashCode(bytes);
         }
@@ -1018,8 +1021,30 @@ public record StoredValue(
             return Arrays.hashCode(doubles);
         }
 
-        if (value instanceof String[] strings) {
-            return Arrays.hashCode(strings);
+        // Recursive, order-aware for Object[]/List and order-independent for Map, kept consistent
+        // with mapObjectValuesEqual so deep-equal values always hash equal.
+        if (value instanceof Object[] array) {
+            int result = 1;
+            for (Object item : array) {
+                result = 31 * result + mapObjectValueHashCode(item);
+            }
+            return result;
+        }
+
+        if (value instanceof List<?> list) {
+            int result = 1;
+            for (Object item : list) {
+                result = 31 * result + mapObjectValueHashCode(item);
+            }
+            return result;
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            int result = 0;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                result += Objects.hashCode(entry.getKey()) ^ mapObjectValueHashCode(entry.getValue());
+            }
+            return result;
         }
 
         return Objects.hashCode(value);
