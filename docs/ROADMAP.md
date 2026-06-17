@@ -365,8 +365,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   and the **reverse PDX lookup** (GET_PDX_TYPE_BY_ID, opcode 92) so a second client can decode a PDX
   value it did not write (e.g. a CQ/subscription event value). One shared PDX-aware field resolver
   backs both the QUERY and CQ paths. See `docs/OQL.md` / `docs/CONTINUOUS_QUERIES.md`. **Remaining:**
-  PDX fields whose type is OBJECT/array (only scalars are queryable), and PDX schema evolution.
-- [ ] Full PDX registry discovery + schema evolution.
+  PDX fields whose type is OBJECT/array (only scalars are queryable).
+- [x] **PDX schema evolution** — multiple versions of one logical PDX class (same class name,
+  different field sets — field added / removed) coexist in a region as distinct types. The registry
+  keys types by content fingerprint, so each version gets its own type id and is stored independently;
+  field access resolves each field against the *instance's own* embedded type id, so a field absent
+  from an older version is correctly treated as absent (not an error) and a newer field matches only
+  the versions that declare it. Validated end-to-end against a real Geode 1.15 client by
+  `ProtoGemCouchPdxSchemaEvolutionIntegrationTest`: three versions coexist, each round-trips with its
+  own fields, an evolved field is queryable only on the versions that have it, and projecting it yields
+  just those versions. (The mechanism already supported this; this closes the gap by validating it.)
+- [ ] Full PDX registry discovery — bulk type/enum registry sync (GET_PDX_TYPES / region-init type
+  preload) beyond the per-type forward (`GET_PDX_ID_FOR_TYPE`) + reverse (`GET_PDX_TYPE_BY_ID`)
+  lookups that are already supported.
 - [~] Nested complex types inside `HashMap<String,Object>`. **Done:** a generic `Object[]`, an
   `ArrayList`, a nested `Map<String,Object>` (all recursive, with supported elements), and the JDK
   scalar extras `UUID` / `BigInteger` / `BigDecimal` / `enum` nested inside a map now decode
