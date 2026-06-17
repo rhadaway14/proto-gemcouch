@@ -55,9 +55,12 @@ resource "aws_instance" "shim" {
 resource "aws_lb" "shim" {
   name               = "${var.name_prefix}-nlb"
   load_balancer_type = "network"
-  internal           = false
-  subnets            = [aws_subnet.rig.id]
-  tags               = { Name = "${var.name_prefix}-nlb" }
+  # Internal: the load generators live in this VPC. An internet-facing NLB resolves to public IPs and
+  # is not reliably reachable from clients inside the same VPC (hairpin), which is why in-VPC load gens
+  # got NoAvailableServers. Internal resolves to private IPs and routes cleanly intra-VPC.
+  internal = true
+  subnets  = [aws_subnet.rig.id]
+  tags     = { Name = "${var.name_prefix}-nlb" }
 }
 
 resource "aws_lb_target_group" "shim" {
@@ -66,6 +69,11 @@ resource "aws_lb_target_group" "shim" {
   protocol    = "TCP"
   vpc_id      = aws_vpc.rig.id
   target_type = "instance"
+
+  # Off for same-VPC clients: with client-IP preservation, an instance target replies straight to the
+  # client (bypassing the NLB), so the return path is asymmetric and the connection never establishes.
+  # The shim doesn't need the real client IP for a capacity test.
+  preserve_client_ip = false
 
   # HTTP health check against the shim's readiness endpoint on the health port.
   health_check {
