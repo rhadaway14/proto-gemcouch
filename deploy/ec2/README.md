@@ -71,6 +71,53 @@ terraform apply -var shim_count=1   # then sweep; repeat for 2, 4
 Compare peak ops/sec per replica count — that's the horizontal-scaling answer, and where Couchbase (not
 the shim) becomes the ceiling shows up as a flat disk-write-queue/OOM climb on the Couchbase dashboard.
 
+## Failure injection at scale
+
+The in-tree chaos test (`ProtoGemCouchChaosIntegrationTest`) proves the resilience contract for a
+*hard* backend stop/start on a single box. This rig closes the remaining gap — **backend latency,
+packet loss, a partial (frozen) outage, and a network partition, all under sustained multi-host
+load** — using `fault-injection.sh`, which the Couchbase host installs at `/opt/pgc-rig/`.
+
+Two terminals (mirrors how the sweep is operated — one script per host):
+
+```bash
+# Terminal 1 — sustained load from a load-gen host (long duration so it spans every fault window)
+ssh ec2-user@<loadgen_public_ip>
+BENCH_DURATION_SECONDS=900 BENCH_CONCURRENCY=64 /opt/pgc-rig/run-benchmark.sh
+
+# Terminal 2 — inject the fault sequence on the Couchbase host
+ssh ec2-user@<couchbase_private_ip>          # via a load-gen as a jump host, or your VPN
+/opt/pgc-rig/fault-injection.sh scenario     # latency → loss → partial → partition → hard-outage
+```
+
+`scenario` runs each fault for a bounded window with a healthy gap between (timestamps print so they
+line up with Grafana). Or drive one fault at a time:
+
+```bash
+/opt/pgc-rig/fault-injection.sh latency 200 120   # +200ms for 120s
+/opt/pgc-rig/fault-injection.sh loss 5 120        # 5% loss for 120s
+/opt/pgc-rig/fault-injection.sh partial 60        # freeze (docker pause) 60s
+/opt/pgc-rig/fault-injection.sh partition 90      # cut KV ports 11210/11207 for 90s
+/opt/pgc-rig/fault-injection.sh outage 60         # hard stop/start, 60s down
+/opt/pgc-rig/fault-injection.sh heal              # panic button — remove every fault now
+```
+
+Every fault self-heals on its window, and an `EXIT` trap restores the host on Ctrl-C/error, so the
+script can't leave the backend degraded.
+
+**The contract to verify** (read the load-gen `PERF_RESULT errors=` + the Grafana throughput/latency
+panels):
+- **Latency / loss:** p99 climbs but the shim *rides it out* — errors stay near zero (or a small,
+  bounded retry rate for loss), and throughput/latency snap back when the fault heals.
+- **Partial / partition / hard outage:** in-flight ops fail **promptly and cleanly** (no infinite
+  hang), the **shim process stays up** (its `/metrics` keeps serving — visible on the Host Metrics
+  dashboard), and on heal the shim **recovers on its own** (throughput returns without a restart).
+
+The partition deliberately drops only the KV data ports, so the Couchbase mgmt/metrics ports stay up
+and the **Couchbase Grafana dashboard keeps updating through the partition** — you can watch the data
+path go dark while the node itself is plainly alive. Record the run in
+`docs/SOAK_RESULTS.md` (§ *Failure injection at scale*).
+
 ## Tear down
 
 ```bash

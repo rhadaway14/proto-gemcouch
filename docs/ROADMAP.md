@@ -130,8 +130,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   2 load gens reach **~35k ops/sec** aggregate (~2×, 0 errors). **Shim-CPU-bound with large Couchbase
   headroom** (one `r6i.xlarge` served ~40k KV ops/s at ~15% node CPU), so throughput scales by adding
   shim replicas. (Extending the curve to 4+ shims is just more of the same on the rig.)
-- [ ] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
-  chaos suite covers single-node backend outage + shim restart today; the rig can host this next).
+- [~] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
+  chaos suite covers single-node backend outage + shim restart today). **Tooling complete:**
+  `deploy/ec2/scripts/fault-injection.sh` injects latency / loss / partial-outage (pause) /
+  KV-port-partition / hard-outage on the Couchbase host with bounded self-healing windows; the rig
+  installs it at `/opt/pgc-rig/` and the README documents the two-terminal (sustained-load +
+  fault-sequence) workflow and the resilience contract to verify. **Remaining:** execute a run on the
+  rig and record per-fault results in `docs/SOAK_RESULTS.md` (§ Failure injection at scale).
 
 ### 2e. Operability
 

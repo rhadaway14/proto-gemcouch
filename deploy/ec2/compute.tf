@@ -21,6 +21,8 @@ resource "aws_instance" "couchbase" {
   user_data = templatefile("${path.module}/templates/couchbase-user-data.sh.tftpl", merge(local.common, {
     couchbase_image         = var.couchbase_image
     couchbase_bucket_ram_mb = var.couchbase_bucket_ram_mb
+    git_repo                = var.git_repo
+    git_ref                 = var.git_ref
   }))
 
   root_block_device {
