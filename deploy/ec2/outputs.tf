@@ -32,3 +32,8 @@ output "capacity_sweep_hint" {
   description = "How to run the capacity sweep."
   value       = "ssh ec2-user@<loadgen_public_ip> then: /opt/pgc-rig/capacity-sweep.sh   (override CONCURRENCY_STEPS, BENCH_DURATION_SECONDS, etc.)"
 }
+
+output "chaos_results_bucket" {
+  description = "S3 bucket holding the self-driving failure-injection results (only when chaos_experiment=true). Fetch when COMPLETE appears: aws s3 sync s3://<bucket> ./results"
+  value       = var.chaos_experiment ? aws_s3_bucket.chaos[0].id : null
+}

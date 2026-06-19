@@ -116,3 +116,35 @@ variable "git_ref" {
   type        = string
   default     = "master"
 }
+
+# ---- Self-driving failure-injection experiment (hands-off; no SSH) ----
+
+variable "chaos_experiment" {
+  description = "When true, the rig runs the failure-injection experiment itself on boot (load-gens drive sustained load; the Couchbase host injects latency/loss/partial/partition/outage) and uploads results to an S3 bucket. Off = a normal rig you drive manually."
+  type        = bool
+  default     = false
+}
+
+variable "chaos_load_duration" {
+  description = "Seconds the load-gens drive sustained load during the experiment (must comfortably exceed warmup + the fault scenario, ~750s)."
+  type        = number
+  default     = 1500
+}
+
+variable "chaos_warmup" {
+  description = "Seconds the Couchbase host waits after the shim is reachable before injecting the first fault (lets load ramp and dashboards fill)."
+  type        = number
+  default     = 180
+}
+
+variable "chaos_profile" {
+  description = "Benchmark profile for the experiment load. read-heavy gives the cleanest latency/loss signal."
+  type        = string
+  default     = "read-heavy"
+}
+
+variable "chaos_concurrency" {
+  description = "Per-load-gen benchmark concurrency during the experiment."
+  type        = number
+  default     = 64
+}
