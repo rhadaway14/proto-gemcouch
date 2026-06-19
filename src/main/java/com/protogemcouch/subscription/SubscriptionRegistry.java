@@ -52,10 +52,10 @@ public final class SubscriptionRegistry {
             AttributeKey.valueOf("protogemcouch.subscription.clientId");
 
     private final Set<Channel> feeds = ConcurrentHashMap.newKeySet();
-    // Per-client interest: client id -> the regions that client registered interest in. A client only
-    // receives events for regions in its set (ALL_KEYS granularity; regex/key-list register the whole
-    // region — see docs/SUBSCRIPTIONS.md).
-    private final java.util.concurrent.ConcurrentMap<String, Set<String>> interests =
+    // Per-client interest: client id -> region -> the interests that client registered there (the union
+    // of all-keys / specific keys / regex). A feed receives an event only when one of its client's
+    // interests for that region matches the mutated key (see docs/SUBSCRIPTIONS.md).
+    private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>>> interests =
             new ConcurrentHashMap<>();
 
     /** A registered continuous query: the parsed OQL (its region path is the CQ's region). */
@@ -171,27 +171,57 @@ public final class SubscriptionRegistry {
         }
     }
 
+    /** Register all-keys interest in a region (backward-compatible default). */
     public void registerInterest(String clientId, String region) {
-        if (clientId != null && region != null && !region.isBlank()) {
-            interests.computeIfAbsent(clientId, k -> ConcurrentHashMap.newKeySet()).add(region);
+        registerInterest(clientId, region, Interest.allKeys());
+    }
+
+    /** Register a specific interest (all-keys / key-set / regex) for a client in a region. */
+    public void registerInterest(String clientId, String region, Interest interest) {
+        if (clientId == null || region == null || region.isBlank() || interest == null) {
+            return;
         }
+        interests.computeIfAbsent(clientId, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(region, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
+                .add(interest);
     }
 
     public void unregisterInterest(String clientId, String region) {
-        if (clientId != null && region != null) {
-            Set<String> regions = interests.get(clientId);
-            if (regions != null) {
-                regions.remove(region);
-            }
+        if (clientId == null || region == null) {
+            return;
+        }
+        java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>> byRegion = interests.get(clientId);
+        if (byRegion != null) {
+            byRegion.remove(region); // region-level unregister (drops all interest in the region)
         }
     }
 
+    /** True if the client has any interest registered in the region (gates event building). */
     private boolean isInterested(String clientId, String region) {
-        if (clientId == null || region == null) {
+        java.util.List<Interest> list = interestsFor(clientId, region);
+        return list != null && !list.isEmpty();
+    }
+
+    /** True if any of the client's interests in the region matches the mutated key (per-key filtering). */
+    private boolean isInterestedInKey(String clientId, String region, String key) {
+        java.util.List<Interest> list = interestsFor(clientId, region);
+        if (list == null) {
             return false;
         }
-        Set<String> regions = interests.get(clientId);
-        return regions != null && regions.contains(region);
+        for (Interest interest : list) {
+            if (interest.matches(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private java.util.List<Interest> interestsFor(String clientId, String region) {
+        if (clientId == null || region == null) {
+            return null;
+        }
+        java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>> byRegion = interests.get(clientId);
+        return byRegion == null ? null : byRegion.get(region);
     }
 
     /** True if any open feed's client has registered interest in this region. */
@@ -408,8 +438,9 @@ public final class SubscriptionRegistry {
                 continue;
             }
             String feedClientId = channel.attr(CLIENT_ID).get();
-            // Per-client interest: only push to feeds whose client registered interest in this region.
-            if (!isInterested(feedClientId, region)) {
+            // Per-key interest: only push to feeds whose client registered an interest matching this key
+            // (all-keys / specific key / key-list / regex).
+            if (!isInterestedInKey(feedClientId, region, key)) {
                 continue;
             }
             // Self-event suppression: never echo a mutation back to the client that made it.

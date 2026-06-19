@@ -1,9 +1,14 @@
 package com.protogemcouch.subscription;
 
+import com.protogemcouch.serialization.StoredValue;
 import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -51,6 +56,42 @@ class SubscriptionRegistryTest {
 
         registry.unregisterInterest("A", "/r1");
         assertFalse(registry.hasInterest("/r1"), "interest removed by unregister");
+    }
+
+    @Test
+    void keyListInterestDeliversOnlyMatchingKeys() {
+        SubscriptionRegistry registry = new SubscriptionRegistry();
+        EmbeddedChannel feed = feedFor(registry, "A");
+        registry.registerInterest("A", "/r1", Interest.keys(Set.of("k1", "k3")));
+
+        registry.publishWrite("/r1", "k2", StoredValue.stringValue("v"), false, "other");
+        assertNull(feed.readOutbound(), "a key not in the interest list is not delivered");
+
+        registry.publishWrite("/r1", "k1", StoredValue.stringValue("v"), false, "other");
+        assertNotNull(feed.readOutbound(), "a key in the interest list is delivered");
+    }
+
+    @Test
+    void regexInterestDeliversOnlyMatchingKeys() {
+        SubscriptionRegistry registry = new SubscriptionRegistry();
+        EmbeddedChannel feed = feedFor(registry, "A");
+        registry.registerInterest("A", "/r1", Interest.regex("order-.*"));
+
+        registry.publishWrite("/r1", "user-7", StoredValue.stringValue("v"), false, "other");
+        assertNull(feed.readOutbound(), "a key not matching the regex is not delivered");
+
+        registry.publishWrite("/r1", "order-42", StoredValue.stringValue("v"), false, "other");
+        assertNotNull(feed.readOutbound(), "a key matching the regex is delivered");
+    }
+
+    @Test
+    void allKeysInterestDeliversEveryKey() {
+        SubscriptionRegistry registry = new SubscriptionRegistry();
+        EmbeddedChannel feed = feedFor(registry, "A");
+        registry.registerInterest("A", "/r1"); // all-keys (2-arg default)
+
+        registry.publishWrite("/r1", "anything", StoredValue.stringValue("v"), false, "other");
+        assertNotNull(feed.readOutbound(), "all-keys interest delivers any key");
     }
 
     @Test
