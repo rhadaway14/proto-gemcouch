@@ -409,7 +409,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3c. Protocol completeness
 
-- [ ] Full opcode coverage + a captured golden-wire regression library per opcode.
+- [x] **Golden-wire regression library per opcode** — every handled opcode's reply frame is locked
+  byte-for-byte to a committed hex fixture (`src/test/resources/golden-wire/`, asserted by
+  `GoldenWireResponseTest`), and a coverage test ties the fixture set to `OpcodeRegistry` so a new
+  opcode can't ship without a golden lock. Per-value-type GET encodings stay locked by the `*ShapeTest`
+  suite; request-side decoding by the fuzz/shape + integration suites. (Remaining for full "golden wire":
+  capturing real-client *request* byte fixtures per opcode — lower ROI, the decode path is already
+  fuzz- and integration-covered.)
 - [ ] Protocol version negotiation across Geode/GemFire client versions.
 - [ ] Client notification/subscription channel (prerequisite for interest/CQ/listeners).
 
