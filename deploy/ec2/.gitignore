@@ -7,3 +7,5 @@ crash.log
 # Local variable files may contain your IP / credentials
 terraform.tfvars
 *.auto.tfvars
+# Fetched experiment artifacts (logs synced from the chaos S3 bucket)
+results/
