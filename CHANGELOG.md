@@ -58,6 +58,12 @@ and round-trip changes are validated against a real Geode 1.15 client.
   First capacity characterization recorded in `docs/SOAK_RESULTS.md`: per-shim read ceiling ~16.9k
   ops/sec, **near-linear two-shim scaling** (~35k aggregate), shim-CPU-bound with large Couchbase
   headroom; initial resource-sizing guidance derived.
+- **Failure injection at scale** — `deploy/ec2/scripts/fault-injection.sh` (latency / loss / partial
+  pause / KV-port partition / hard outage) plus a **hands-off self-driving rig mode**
+  (`chaos_experiment=true`) that runs the whole experiment on boot and uploads results to S3 (no SSH).
+  Validated on the rig (`docs/SOAK_RESULTS.md`): over an 11.7M-op run the resilience contract held on
+  every fault — latency/loss ridden out with 0 errors, and pause/partition/outage failed bounded and
+  clean then fully recovered with no shim restart (0.036% total error rate, 0 requests shed).
 
 ### Changed
 - `GET_CLIENT_PARTITION_ATTRIBUTES` (the single-hop probe) is now a **documented graceful no-op** —

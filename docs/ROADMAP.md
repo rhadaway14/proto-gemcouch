@@ -130,13 +130,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   2 load gens reach **~35k ops/sec** aggregate (~2×, 0 errors). **Shim-CPU-bound with large Couchbase
   headroom** (one `r6i.xlarge` served ~40k KV ops/s at ~15% node CPU), so throughput scales by adding
   shim replicas. (Extending the curve to 4+ shims is just more of the same on the rig.)
-- [~] **Failure injection at scale** — backend latency, partial outages, partitions under load (the
-  chaos suite covers single-node backend outage + shim restart today). **Tooling complete:**
-  `deploy/ec2/scripts/fault-injection.sh` injects latency / loss / partial-outage (pause) /
-  KV-port-partition / hard-outage on the Couchbase host with bounded self-healing windows; the rig
-  installs it at `/opt/pgc-rig/` and the README documents the two-terminal (sustained-load +
-  fault-sequence) workflow and the resilience contract to verify. **Remaining:** execute a run on the
-  rig and record per-fault results in `docs/SOAK_RESULTS.md` (§ Failure injection at scale).
+- [x] **Failure injection at scale** — backend latency, packet loss, partial (frozen) outage, and a
+  KV-port partition, all under sustained multi-host load. `deploy/ec2/scripts/fault-injection.sh`
+  injects each fault with bounded self-healing windows; a hands-off self-driving mode
+  (`chaos_experiment=true` + `chaos-autorun.sh`) runs the whole experiment on the rig and uploads
+  results to S3 (no SSH). **Validated on the rig (2026-06-19, see `docs/SOAK_RESULTS.md`):** over an
+  11.7M-op run the resilience contract held on every fault — latency/loss ridden out with **0 errors**
+  (throughput throttles, p99 →958 ms, recovers), and pause/partition/hard-outage failed **bounded and
+  clean** (no hang) then fully recovered with **no shim restart** (counters monotonic, both shims `up`
+  throughout); total error rate 0.036%, 0 requests shed.
 
 ### 2e. Operability
 
