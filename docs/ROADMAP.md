@@ -182,8 +182,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   benchmark runs against a real shim + Couchbase and fails the build on a gross throughput / tail-latency
   / error regression vs the conservative thresholds in `scripts/perf-baseline.env`. The perf gate also
   runs weekly and on demand (kept off per-PR to avoid shared-runner variance). `docs/RELEASE_CHECKLIST.md`
-  ties it together. **Remaining:** tighten the perf thresholds against a dedicated, representative
-  environment (today they are gross-regression guards tuned to tolerate CI variance).
+  ties it together. The CI gate keeps the conservative gross-guard thresholds (`scripts/perf-baseline.env`),
+  and a **tight, rig-calibrated profile** (`scripts/perf-baseline.rig.env`, derived from the dedicated-rig
+  characterization in `docs/SOAK_RESULTS.md`) enforces SLO-grade thresholds when the gate is run on
+  controlled hardware (`PERF_BASELINE=… ./scripts/perf-gate.sh`).
 
 ### 2g. Testing/quality (broaden)
 

@@ -15,8 +15,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Threshold/param set to enforce. Defaults to the conservative CI gross-guard baseline; point
+# PERF_BASELINE at scripts/perf-baseline.rig.env (or your own file) to enforce tight, dedicated-
+# environment thresholds when running on controlled hardware (e.g. the capacity rig).
+PERF_BASELINE="${PERF_BASELINE:-$SCRIPT_DIR/perf-baseline.env}"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/perf-baseline.env"
+source "$PERF_BASELINE"
+echo "perf-gate: thresholds from $PERF_BASELINE"
 
 HOST=${PERF_HOST:-127.0.0.1}
 SHIM_PORT=${PERF_SHIM_PORT:-40405}
