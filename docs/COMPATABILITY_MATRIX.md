@@ -10,6 +10,16 @@ narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGEL
 validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
 client/server protocol over the shim's Geode port (TLS / mutual TLS optional).
 
+**Protocol version negotiation.** On connect, the shim parses the client's protocol version ordinal
+from the handshake and accepts only supported versions — the default is the wire-validated **1.15.x**
+line (ordinal **150**). A client advertising an unsupported version is **refused cleanly** with a Geode
+`REPLY_REFUSED` handshake (the client raises `ServerRefusedConnectionException`) rather than being
+served a 1.15.x-shaped session it can't decode; rejections increment
+`protogemcouch_handshake_version_rejected_total` and emit a `handshake_version_rejected` audit event.
+Operators who have validated additional wire-compatible Geode versions in their own environment can
+widen the allowlist via `SUPPORTED_VERSION_ORDINALS` (comma-separated ordinals). (Capture a new
+client's ordinal with `com.protogemcouch.tools.HandshakeCapture`.)
+
 **Supported client surface** (all validated end-to-end against a real Geode client):
 ```text
 core entry ops:        get, put, remove, containsKey, containsValueForKey, getEntry

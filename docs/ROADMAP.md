@@ -416,7 +416,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   suite; request-side decoding by the fuzz/shape + integration suites. (Remaining for full "golden wire":
   capturing real-client *request* byte fixtures per opcode — lower ROI, the decode path is already
   fuzz- and integration-covered.)
-- [ ] Protocol version negotiation across Geode/GemFire client versions.
+- [x] **Protocol version negotiation** — the shim parses the client protocol version ordinal from the
+  handshake and accepts only supported versions (default: the wire-validated 1.15.x line, ordinal 150;
+  widenable via `SUPPORTED_VERSION_ORDINALS`). An unsupported version is refused cleanly with a Geode
+  `REPLY_REFUSED` handshake (→ `ServerRefusedConnectionException`) instead of being served a session it
+  can't decode; rejections are metered + audited. `HandshakeVersionPolicy` (parser + allowlist + refusal
+  builder) is unit-tested against a real captured 1.15.x handshake, the refusal format is validated
+  against a real Geode client (`HandshakeRefusalClientTest`), and `tools.HandshakeCapture` regenerates
+  the capture. (Only 1.15.x is wire-validated here; accepting other ordinals is opt-in per environment.)
 - [ ] Client notification/subscription channel (prerequisite for interest/CQ/listeners).
 
 ### 3d. Cache semantics

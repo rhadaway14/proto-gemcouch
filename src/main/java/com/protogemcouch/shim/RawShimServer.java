@@ -79,6 +79,10 @@ public class RawShimServer {
     // Geode 1.15 server (see docs/SUBSCRIPTIONS.md / tools/SubscriptionCapture).
     private static final byte[] FEED_HANDSHAKE_REPLY = ByteUtils.hex("69000000000000000000000000ea60");
 
+    // Protocol version negotiation: which Geode client protocol versions the shim accepts. Defaults to
+    // the wire-validated 1.15.x line; widenable via SUPPORTED_VERSION_ORDINALS. See HandshakeVersionPolicy.
+    private static final HandshakeVersionPolicy VERSION_POLICY = HandshakeVersionPolicy.fromEnvironment();
+
     private static final AttributeKey<Integer> CURRENT_OPCODE =
             AttributeKey.valueOf("protogemcouch.currentOpcode");
 
@@ -516,6 +520,26 @@ public class RawShimServer {
                         "mode", mode,
                         "hex", ByteBufUtil.hexDump(inbound)
                 ));
+
+                // Protocol version negotiation: reject a parseable-but-unsupported client version with a
+                // clean Geode handshake refusal (ServerRefusedConnectionException) instead of serving it a
+                // 1.15.x-shaped session it can't decode. An unparseable/fragmented ordinal is left to the
+                // existing best-effort path (don't penalize a supported client whose handshake fragmented).
+                int versionOrdinal = HandshakeVersionPolicy.parseVersionOrdinal(inbound);
+                if (versionOrdinal != HandshakeVersionPolicy.UNKNOWN_ORDINAL
+                        && !VERSION_POLICY.isSupported(versionOrdinal)) {
+                    metrics.recordHandshakeVersionRejected();
+                    AuditLog.event(
+                            "handshake_version_rejected",
+                            "remote", ctx.channel().remoteAddress(),
+                            "mode", mode,
+                            "clientVersionOrdinal", versionOrdinal,
+                            "supported", VERSION_POLICY.supportedOrdinals());
+                    handshakeDone = true;
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(VERSION_POLICY.buildRefusalReply(versionOrdinal)))
+                            .addListener(io.netty.channel.ChannelFutureListener.CLOSE);
+                    return;
+                }
 
                 // Subscription feed connection (mode 101): reply with the SuccessfulServerToClient
                 // handshake, retain the channel as an event feed, and keep it open for server->client

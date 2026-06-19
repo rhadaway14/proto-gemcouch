@@ -18,6 +18,7 @@ public class MetricsRegistry {
     private final LongAdder firstRequestTimeouts = new LongAdder();
     private final LongAdder requestsShed = new LongAdder();
     private final LongAdder handshakeRequests = new LongAdder();
+    private final LongAdder handshakeVersionRejected = new LongAdder();
     private final LongAdder unknownOpcodes = new LongAdder();
     private final LongAdder requestErrors = new LongAdder();
     private final LongAdder malformedFrames = new LongAdder();
@@ -75,6 +76,10 @@ public class MetricsRegistry {
 
     public void recordHandshakeRequest() {
         handshakeRequests.increment();
+    }
+
+    public void recordHandshakeVersionRejected() {
+        handshakeVersionRejected.increment();
     }
 
     public void recordMalformedFrame() {
@@ -155,6 +160,7 @@ public class MetricsRegistry {
                 "first_request_timeouts", firstRequestTimeouts.sum(),
                 "requests_shed", requestsShed.sum(),
                 "handshake_requests", handshakeRequests.sum(),
+                "handshake_version_rejected", handshakeVersionRejected.sum(),
                 "unknown_opcodes", unknownOpcodes.sum(),
                 "request_errors", requestErrors.sum(),
                 "malformed_frames", malformedFrames.sum()
@@ -219,6 +225,7 @@ public class MetricsRegistry {
 
         out.append("\"requests\":{");
         out.append("\"handshakeRequests\":").append(handshakeRequests.sum()).append(',');
+        out.append("\"handshakeVersionRejected\":").append(handshakeVersionRejected.sum()).append(',');
         out.append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',');
         out.append("\"requestErrors\":").append(requestErrors.sum()).append(',');
         out.append("\"malformedFrames\":").append(malformedFrames.sum()).append(',');
@@ -313,6 +320,10 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_handshake_requests_total", "Total Geode handshake requests received.");
         appendMetricType(out, "protogemcouch_handshake_requests_total", "counter");
         appendMetric(out, "protogemcouch_handshake_requests_total", handshakeRequests.sum());
+
+        appendMetricHelp(out, "protogemcouch_handshake_version_rejected_total", "Total handshakes rejected for an unsupported Geode client protocol version.");
+        appendMetricType(out, "protogemcouch_handshake_version_rejected_total", "counter");
+        appendMetric(out, "protogemcouch_handshake_version_rejected_total", handshakeVersionRejected.sum());
 
         appendMetricHelp(out, "protogemcouch_unknown_opcodes_total", "Total unknown opcodes received.");
         appendMetricType(out, "protogemcouch_unknown_opcodes_total", "counter");
