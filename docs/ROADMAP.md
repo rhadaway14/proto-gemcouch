@@ -339,10 +339,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   UPDATE / DESTROY / INVALIDATE (EventID + versionTag built via Geode's own classes) to interested
   feeds, so a `CacheListener` fires for create/update/destroy/invalidate by another client; with
   **create/update distinction**, **client-identity self-event suppression**, and **UNREGISTER**. See
-  `docs/SUBSCRIPTIONS.md`; `tools/SubscriptionCapture` reproduces the captures. **Remaining (P3):**
-  regex/key-list per-key event filtering (registers the whole region today), durable clients,
-  redundancy/MAKE_PRIMARY, PERIODIC_ACK draining / keepalive, and a cross-replica eventing backplane
-  (single shim instance only today).
+  `docs/SUBSCRIPTIONS.md`; `tools/SubscriptionCapture` reproduces the captures. **Cross-replica
+  eventing backplane — DONE (pluggable; opt-in):** a `NoOpEventBackplane` default (single-instance,
+  zero dependency) plus a pluggable `EventBackplane` seam where each `publish*` broadcasts a
+  `RemoteEvent` and `applyRemote` re-delivers events from other replicas (own echoes dropped by
+  `originInstanceId`); first concrete transport is an opt-in **Redis pub/sub** adapter over a
+  hand-rolled RESP client (no Redis library in the build; `EVENT_BACKPLANE=redis`). The abstraction
+  keeps the core Redis-free so a self-contained transport can replace it later. Validated by unit + a
+  fake-broker round-trip; **remaining: end-to-end multi-replica validation on a real cluster.**
+  **Other P3 remaining:** regex/key-list per-key event filtering (registers the whole region today),
+  durable clients, redundancy/MAKE_PRIMARY, and PERIODIC_ACK draining / keepalive.
 - [x] **Server-side functions — graceful rejection** (validated by
   `ProtoGemCouchFunctionIntegrationTest`). The shim has none of the user's `Function` classes, so it
   cannot *run* functions; it now rejects them the way a real server rejects an unregistered function
