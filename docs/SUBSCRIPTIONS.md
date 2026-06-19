@@ -62,16 +62,21 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
   by a **pluggable `EventBackplane`** (`com.protogemcouch.subscription`): each `publish*` delivers
   locally *and* broadcasts a `RemoteEvent`, and `applyRemote` re-delivers events from other replicas
   through the same delivery cores (a replica drops its own echoes by `originInstanceId`). The default is
-  `NoOpEventBackplane` (single-instance, zero dependency). The first concrete transport is an **opt-in
-  Redis pub/sub** adapter (`RedisEventBackplane`, a tiny hand-rolled RESP client — no Redis client
-  library is pulled into the build), enabled with:
-  - `EVENT_BACKPLANE=redis`
-  - `REDIS_HOST` (default `127.0.0.1`), `REDIS_PORT` (default `6379`)
-  - `EVENT_BACKPLANE_CHANNEL` (default `protogemcouch-events`)
+  `NoOpEventBackplane` (single-instance, zero dependency). Two concrete transports ship behind the same
+  seam (select with `EVENT_BACKPLANE`):
+  - **`mesh` — self-contained, broker-free (no external dependency; the recommended end state).** Each
+    replica runs a small TCP listener (`MESH_PORT`, default `40406`) and broadcasts each event directly
+    to its peers as a length-prefixed frame. Peers come from `MESH_PEER_DNS` (a Kubernetes **headless
+    Service** name, re-resolved every `MESH_DISCOVERY_INTERVAL_SECONDS`, default `10`, so scaling is
+    tracked) or a static `MESH_PEERS` (`host:port,host:port`). A replica skips meshing to itself, and
+    `originInstanceId` guards against any loopback. The deployment stays just **shim + Couchbase**.
+  - **`redis` — opt-in Redis pub/sub** (`RedisEventBackplane`, a tiny hand-rolled RESP client — no Redis
+    client library in the build): `REDIS_HOST` (default `127.0.0.1`), `REDIS_PORT` (default `6379`),
+    `EVENT_BACKPLANE_CHANNEL` (default `protogemcouch-events`).
 
-  The abstraction keeps the shim core free of any hard Redis dependency, so this can later be swapped
-  for a self-contained transport (peer mesh / Couchbase change feed) and drop Redis entirely. **End-to-
-  end multi-replica validation on a real cluster is the remaining step.**
+  Both keep the shim core dependency-free behind the abstraction. The **mesh** transport is the path to
+  zero reliance on any broker product. **End-to-end multi-replica validation on a real cluster is the
+  remaining step.**
 - **GII consistency.** The KEYS_VALUES initial image plus the live feed must not drop or duplicate the
   events racing with the GII (Geode solves this with the marker + queue ordering).
 - Durable clients, subscription redundancy, MAKE_PRIMARY/secondary feeds, and conflation are **out of
