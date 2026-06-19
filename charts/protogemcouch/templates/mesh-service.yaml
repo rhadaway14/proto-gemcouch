@@ -1,0 +1,20 @@
+{{- if eq .Values.eventing.backplane "mesh" }}
+# Headless Service for the self-contained peer-mesh eventing backplane: resolves to every shim pod's
+# IP (A records), which each replica re-resolves (MESH_PEER_DNS) to find its peers. publishNotReady so
+# replicas can mesh during rollout/startup, not only once fully Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "protogemcouch.fullname" . }}-mesh
+  labels:
+    {{- include "protogemcouch.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "protogemcouch.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mesh
+      port: {{ .Values.eventing.mesh.port }}
+      targetPort: mesh
+{{- end }}

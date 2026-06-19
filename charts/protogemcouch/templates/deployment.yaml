@@ -41,6 +41,10 @@ spec:
               containerPort: {{ .Values.shimPort }}
             - name: health
               containerPort: {{ .Values.healthPort }}
+            {{- if eq .Values.eventing.backplane "mesh" }}
+            - name: mesh
+              containerPort: {{ .Values.eventing.mesh.port }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "protogemcouch.fullname" . }}
