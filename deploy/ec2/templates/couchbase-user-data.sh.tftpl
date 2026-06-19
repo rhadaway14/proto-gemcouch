@@ -3,7 +3,7 @@
 # advertised addresses are this host's private IP (no alternate-address / port-mapping headaches).
 set -euxo pipefail
 
-dnf install -y docker
+dnf install -y docker git iproute-tc iptables
 systemctl enable --now docker
 
 # Host metrics (scraped by the observability node).
@@ -42,3 +42,9 @@ for attempt in $(seq 1 30); do
     --bucket-ramsize "${couchbase_bucket_ram_mb}" --bucket-replica 0 --wait || true
   sleep 5
 done
+
+# Install the fault-injection script (plain shell from the repo) so the operator can inject backend
+# latency / loss / partial-outage / partition / hard-outage under load (see deploy/ec2/README.md).
+git clone --depth 1 --branch ${git_ref} ${git_repo} /opt/pgc
+mkdir -p /opt/pgc-rig
+ln -sf /opt/pgc/deploy/ec2/scripts/fault-injection.sh /opt/pgc-rig/fault-injection.sh

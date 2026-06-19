@@ -124,7 +124,25 @@ hot-path application calls; a large-keyspace, mutation-heavy workload would need
 design reworked (or avoided).
 
 **Still open:** the 4-shim point (1→2 measured near-linear; extending to 4 is just more of the same on
-the rig) and failure-injection-at-scale — both reproducible on the rig.
+the rig).
+
+### Failure injection at scale (EC2 rig)
+
+The single-box chaos test (`ProtoGemCouchChaosIntegrationTest`) covers a *hard* backend stop/start.
+The rig's `fault-injection.sh` (run on the Couchbase host under sustained multi-host load — see
+`deploy/ec2/README.md`) covers the remaining failure modes: **latency, packet loss, a partial
+(frozen) outage, and a KV-port partition**. The resilience contract being verified:
+
+| fault | injected | expected shim behavior |
+| --- | --- | --- |
+| backend latency | `+200 ms` for 120 s | p99 climbs, **errors ≈ 0** (rides it out), snaps back on heal |
+| packet loss | `5%` for 120 s | small **bounded** retry/error rate, no hang, recovers on heal |
+| partial outage | `docker pause` 60 s | in-flight ops fail **bounded** (no infinite hang), shim process stays up |
+| partition (KV ports) | drop `11210/11207` 90 s | data path fails cleanly; **Couchbase node still alive** on its dashboard; shim reconnects on heal |
+| hard outage | `docker stop/start` 60 s | ops fail fast/clean, shim recovers **without restart** |
+
+_Results: TBD — fill in after the first rig run (per-fault: peak p99, error count, recovery time to
+baseline throughput; confirm the shim process never died and `/metrics` served throughout)._
 
 ---
 
