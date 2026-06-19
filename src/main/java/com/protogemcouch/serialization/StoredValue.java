@@ -1,5 +1,6 @@
 package com.protogemcouch.serialization;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -39,7 +40,7 @@ public record StoredValue(
         Float floatValue,
         Double doubleValue,
         Date dateValue
-) {
+) implements Serializable {
 
     public enum Type {
         STRING,

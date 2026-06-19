@@ -66,6 +66,12 @@ public final class SubscriptionRegistry {
     private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.ConcurrentMap<String, Cq>> cqs =
             new ConcurrentHashMap<>();
 
+    // Cross-replica eventing. Each publish* both delivers to this replica's local feeds AND broadcasts a
+    // RemoteEvent on the backplane; events the backplane echoes back from this replica are dropped by
+    // instanceId. Default is no-op (single-instance) — see EventBackplane.
+    private final String instanceId = java.util.UUID.randomUUID().toString();
+    private volatile EventBackplane backplane = new NoOpEventBackplane();
+
     // A stable fabricated membership identity for events from this shim (used by the client only as an
     // opaque dedup/version key), plus monotonic counters for EventID sequence and entry/region versions.
     private final byte[] memberId = ByteUtils.hex("0a0000bc0000e29a");
@@ -89,6 +95,41 @@ public final class SubscriptionRegistry {
      */
     public void setCqFieldResolver(OqlQuery.FieldResolver resolver) {
         this.cqFieldResolver = resolver == null ? OqlQuery.MAP_RESOLVER : resolver;
+    }
+
+    /** This replica's stable id — the {@code originInstanceId} stamped on events it broadcasts. */
+    public String instanceId() {
+        return instanceId;
+    }
+
+    /**
+     * Install the cross-replica backplane and start receiving remote events. Null restores the no-op
+     * (single-instance) default. Called once at startup when multi-replica eventing is configured.
+     */
+    public void setBackplane(EventBackplane backplane) {
+        this.backplane = (backplane == null) ? new NoOpEventBackplane() : backplane;
+        this.backplane.subscribe(this::applyRemote);
+    }
+
+    /**
+     * Apply an event broadcast by another replica to this replica's local feeds. Drops this replica's
+     * own echoed events (already delivered locally when published) by {@code originInstanceId}, then
+     * dispatches to the same local-delivery cores the local publish path uses (no re-broadcast).
+     */
+    void applyRemote(RemoteEvent event) {
+        if (event == null || instanceId.equals(event.originInstanceId())) {
+            return;
+        }
+        switch (event.kind()) {
+            case WRITE -> deliverWrite(event.region(), event.key(), event.value(), event.update(),
+                    event.originClientId());
+            case DESTROY -> deliverDestroy(event.region(), event.key(), event.originClientId());
+            case INVALIDATE -> deliverInvalidate(event.region(), event.key(), event.originClientId());
+            case CQ_EVENT -> deliverCqEvent(event.region(), event.key(), event.value(), event.priorValue(),
+                    event.originClientId());
+            case CQ_DESTROY -> deliverCqDestroy(event.region(), event.key(), event.priorValue(),
+                    event.originClientId());
+        }
     }
 
     /** Null-safe origin client id for a request's channel (null when there is no channel, e.g. tests). */
@@ -179,6 +220,15 @@ public final class SubscriptionRegistry {
      * {@code LOCAL_UPDATE} when the key already existed, otherwise {@code LOCAL_CREATE}.
      */
     public void publishWrite(String region, String key, StoredValue value, boolean update, String originClientId) {
+        if (value == null) {
+            return;
+        }
+        deliverWrite(region, key, value, update, originClientId);
+        backplane.publish(new RemoteEvent(
+                RemoteEvent.Kind.WRITE, region, key, value, null, update, originClientId, instanceId));
+    }
+
+    private void deliverWrite(String region, String key, StoredValue value, boolean update, String originClientId) {
         if (!hasInterest(region) || value == null) {
             return;
         }
@@ -190,6 +240,12 @@ public final class SubscriptionRegistry {
 
     /** Push a destroy notification for an interested region's key to every open feed (except the origin). */
     public void publishDestroy(String region, String key, String originClientId) {
+        deliverDestroy(region, key, originClientId);
+        backplane.publish(new RemoteEvent(
+                RemoteEvent.Kind.DESTROY, region, key, null, null, false, originClientId, instanceId));
+    }
+
+    private void deliverDestroy(String region, String key, String originClientId) {
         if (!hasInterest(region)) {
             return;
         }
@@ -199,6 +255,12 @@ public final class SubscriptionRegistry {
 
     /** Push an invalidate notification for an interested region's key to every open feed (except the origin). */
     public void publishInvalidate(String region, String key, String originClientId) {
+        deliverInvalidate(region, key, originClientId);
+        backplane.publish(new RemoteEvent(
+                RemoteEvent.Kind.INVALIDATE, region, key, null, null, false, originClientId, instanceId));
+    }
+
+    private void deliverInvalidate(String region, String key, String originClientId) {
         if (!hasInterest(region)) {
             return;
         }
@@ -219,6 +281,16 @@ public final class SubscriptionRegistry {
      */
     public void publishCqEvent(String region, String key, StoredValue value, StoredValue priorValue,
                                String originClientId) {
+        if (value == null) {
+            return;
+        }
+        deliverCqEvent(region, key, value, priorValue, originClientId);
+        backplane.publish(new RemoteEvent(
+                RemoteEvent.Kind.CQ_EVENT, region, key, value, priorValue, false, originClientId, instanceId));
+    }
+
+    private void deliverCqEvent(String region, String key, StoredValue value, StoredValue priorValue,
+                                String originClientId) {
         if (cqs.isEmpty() || value == null) {
             return;
         }
@@ -283,6 +355,15 @@ public final class SubscriptionRegistry {
      * value is evaluated against the predicate. Self-suppressed.
      */
     public void publishCqDestroy(String region, String key, StoredValue priorValue, String originClientId) {
+        if (priorValue == null) {
+            return;
+        }
+        deliverCqDestroy(region, key, priorValue, originClientId);
+        backplane.publish(new RemoteEvent(
+                RemoteEvent.Kind.CQ_DESTROY, region, key, null, priorValue, false, originClientId, instanceId));
+    }
+
+    private void deliverCqDestroy(String region, String key, StoredValue priorValue, String originClientId) {
         if (cqs.isEmpty() || priorValue == null) {
             return;
         }
