@@ -20,6 +20,9 @@
 #
 set -uo pipefail
 
+# AL2023 ships the AWS CLI; guard anyway so a missing CLI can't silently lose every result.
+command -v aws >/dev/null 2>&1 || dnf install -y awscli >/dev/null 2>&1 || dnf install -y aws-cli >/dev/null 2>&1 || true
+
 ROLE="${1:?usage: chaos-autorun.sh <loadgen|couchbase>}"
 NLB_DNS="${NLB_DNS:?}"
 RESULTS_BUCKET="${RESULTS_BUCKET:?}"
