@@ -348,7 +348,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   the zero-external-dependency end state) and an opt-in **Redis pub/sub** adapter over a hand-rolled
   RESP client (`EVENT_BACKPLANE=redis`; no Redis library in the build). Both sit behind the abstraction
   so the core stays broker-free. Validated by unit + no-infra mesh round-trip/fan-out + a fake-broker
-  Redis round-trip; **remaining: end-to-end multi-replica validation on a real cluster.**
+  Redis round-trip, **and end-to-end on a real 2-replica Kubernetes deployment (`EVENT_BACKPLANE=mesh`,
+  Helm + headless Service): a `CacheListener` on replica A fires for a mutation made on replica B
+  (`CROSS_REPLICA_EVENT_CHECK PASS`), with a `backplane=none` negative control correctly FAILing**
+  (`tools/CrossReplicaEventCheck` + `scripts/k8s-mesh-e2e.sh`).
   **Other P3 remaining:** regex/key-list per-key event filtering (registers the whole region today),
   durable clients, redundancy/MAKE_PRIMARY, and PERIODIC_ACK draining / keepalive.
 - [x] **Server-side functions — graceful rejection** (validated by
