@@ -57,6 +57,18 @@ JSON-text persistence boundary) and `ProtoGemCouchRoundTripPropertyIntegrationTe
 putAll/getAll through a real client). Each iteration is seeded and prints its seed on failure for
 exact reproduction.
 
+### Golden-wire regression library (per opcode)
+The exact reply bytes for every handled opcode are locked to committed hex fixtures under
+`src/test/resources/golden-wire/`, asserted byte-for-byte by `GoldenWireResponseTest`. Any unintended
+change to a reply's wire encoding — a marker byte, a length field, a part ordering — fails the build
+with a hex diff, so the large, real-client-validated protocol surface can't silently drift. A coverage
+test ties the fixture set to `OpcodeRegistry`: **every opcode the shim handles must have a locked reply
+fixture (or be an explicit no-reply opcode)**, so a newly registered opcode can't ship without a golden
+lock. Per-value-type GET encodings are byte-asserted separately by the `*ShapeTest` suite; request-side
+decoding is covered by the decoder fuzz/shape tests + the integration suite. Regenerate after an
+intended encoding change with `mvn -o test -Dtest=GoldenWireResponseTest -Dgolden.update=true` and
+review the diff.
+
 ---
 
 ## 3. Code coverage (measurement + gate)

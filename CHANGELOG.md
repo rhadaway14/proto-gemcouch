@@ -7,7 +7,11 @@ minor versions as parity expands.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Golden-wire regression library per opcode** — every handled opcode's reply frame is locked
+  byte-for-byte to a committed hex fixture (`GoldenWireResponseTest` + `src/test/resources/golden-wire/`),
+  with a coverage test that ties the fixture set to `OpcodeRegistry` so a newly registered opcode can't
+  ship without a golden lock. Protects the whole real-client-validated wire surface from silent drift.
 
 ## [0.3.0] - 2026-06-18
 
