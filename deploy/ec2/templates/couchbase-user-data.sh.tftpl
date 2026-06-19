@@ -48,3 +48,13 @@ done
 git clone --depth 1 --branch ${git_ref} ${git_repo} /opt/pgc
 mkdir -p /opt/pgc-rig
 ln -sf /opt/pgc/deploy/ec2/scripts/fault-injection.sh /opt/pgc-rig/fault-injection.sh
+
+# Self-driving failure-injection experiment: wait out a warmup, then run the fault scenario under load,
+# detached, uploading the timeline to S3 (no operator SSH). Only when chaos_experiment=true.
+%{ if chaos_experiment ~}
+nohup env \
+  NLB_DNS="${nlb_dns}" RESULTS_BUCKET="${results_bucket}" \
+  AWS_DEFAULT_REGION="${region}" CHAOS_WARMUP="${chaos_warmup}" \
+  bash /opt/pgc/deploy/ec2/scripts/chaos-autorun.sh couchbase \
+  >/var/log/pgc-chaos.log 2>&1 &
+%{ endif ~}

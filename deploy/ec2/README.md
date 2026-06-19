@@ -78,6 +78,31 @@ The in-tree chaos test (`ProtoGemCouchChaosIntegrationTest`) proves the resilien
 packet loss, a partial (frozen) outage, and a network partition, all under sustained multi-host
 load** — using `fault-injection.sh`, which the Couchbase host installs at `/opt/pgc-rig/`.
 
+### Automated (hands-off) — no SSH, no manual steps
+
+Set `chaos_experiment=true` and the rig runs the whole experiment **itself** on boot: the load-gens
+drive sustained load, the Couchbase host waits out a warmup then runs the fault scenario, and both
+upload results to an S3 bucket. You run exactly one apply and fetch the results — no SSH, ever.
+
+```bash
+cd deploy/ec2
+terraform apply -var chaos_experiment=true        # builds the rig + runs the experiment
+
+BUCKET=$(terraform output -raw chaos_results_bucket)
+# wait for the COMPLETE marker (the run is ~warmup + ~13 min scenario after the hosts are up):
+until aws s3 ls "s3://$BUCKET/COMPLETE" >/dev/null 2>&1; do sleep 30; done
+aws s3 sync "s3://$BUCKET" ./results                # faults.log + loadgen-*.log
+```
+
+Pair the logs with the Prometheus timeseries for the window (the `prometheus_url` output, reachable
+from your operator IP) to attribute each fault. Tunables: `chaos_load_duration`, `chaos_warmup`,
+`chaos_profile`, `chaos_concurrency`. Tear down with `terraform destroy` (the results bucket is
+`force_destroy`, so it goes too — `aws s3 sync` first if you want to keep the logs).
+
+### Manual — drive it yourself over SSH
+
+If you'd rather drive it by hand, leave `chaos_experiment` off (default) and use the script directly.
+
 Two terminals (mirrors how the sweep is operated — one script per host):
 
 ```bash

@@ -17,12 +17,21 @@ resource "aws_instance" "couchbase" {
   availability_zone      = var.availability_zone
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.rig.id]
+  iam_instance_profile   = var.chaos_experiment ? aws_iam_instance_profile.chaos[0].name : null
 
   user_data = templatefile("${path.module}/templates/couchbase-user-data.sh.tftpl", merge(local.common, {
     couchbase_image         = var.couchbase_image
     couchbase_bucket_ram_mb = var.couchbase_bucket_ram_mb
     git_repo                = var.git_repo
     git_ref                 = var.git_ref
+    chaos_experiment        = var.chaos_experiment
+    results_bucket          = var.chaos_experiment ? aws_s3_bucket.chaos[0].id : ""
+    nlb_dns                 = aws_lb.shim.dns_name
+    region                  = var.region
+    chaos_load_duration     = var.chaos_load_duration
+    chaos_warmup            = var.chaos_warmup
+    chaos_profile           = var.chaos_profile
+    chaos_concurrency       = var.chaos_concurrency
   }))
 
   root_block_device {
@@ -124,12 +133,20 @@ resource "aws_instance" "loadgen" {
   availability_zone      = var.availability_zone
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.rig.id]
+  iam_instance_profile   = var.chaos_experiment ? aws_iam_instance_profile.chaos[0].name : null
 
   user_data = templatefile("${path.module}/templates/loadgen-user-data.sh.tftpl", {
-    shim_image = var.shim_image
-    nlb_dns    = aws_lb.shim.dns_name
-    git_repo   = var.git_repo
-    git_ref    = var.git_ref
+    shim_image          = var.shim_image
+    nlb_dns             = aws_lb.shim.dns_name
+    git_repo            = var.git_repo
+    git_ref             = var.git_ref
+    chaos_experiment    = var.chaos_experiment
+    results_bucket      = var.chaos_experiment ? aws_s3_bucket.chaos[0].id : ""
+    region              = var.region
+    loadgen_index       = count.index
+    chaos_load_duration = var.chaos_load_duration
+    chaos_profile       = var.chaos_profile
+    chaos_concurrency   = var.chaos_concurrency
   })
 
   tags = { Name = "${var.name_prefix}-loadgen-${count.index}", Role = "loadgen" }

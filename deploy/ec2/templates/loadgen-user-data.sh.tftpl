@@ -28,3 +28,15 @@ ln -sf /opt/pgc/deploy/ec2/scripts/run-benchmark.sh /opt/pgc-rig/run-benchmark.s
 ln -sf /opt/pgc/deploy/ec2/scripts/capacity-sweep.sh /opt/pgc-rig/capacity-sweep.sh
 
 docker pull ${shim_image} || true
+
+# Self-driving failure-injection experiment: drive sustained load for the whole window, detached so it
+# outlives cloud-init and uploads results to S3 (no operator SSH). Only when chaos_experiment=true.
+%{ if chaos_experiment ~}
+nohup env \
+  NLB_DNS="${nlb_dns}" RESULTS_BUCKET="${results_bucket}" SHIM_IMAGE="${shim_image}" \
+  AWS_DEFAULT_REGION="${region}" LOADGEN_INDEX="${loadgen_index}" \
+  CHAOS_LOAD_DURATION="${chaos_load_duration}" BENCH_PROFILE="${chaos_profile}" \
+  BENCH_CONCURRENCY="${chaos_concurrency}" \
+  bash /opt/pgc/deploy/ec2/scripts/chaos-autorun.sh loadgen \
+  >/var/log/pgc-chaos.log 2>&1 &
+%{ endif ~}
