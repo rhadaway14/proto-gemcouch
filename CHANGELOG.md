@@ -8,6 +8,12 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **Per-key subscription interest filtering** — register-interest now honors the interest *type*: a
+  client that registers a specific key, a key list (`REGISTER_INTEREST_LIST`), or a regex
+  (`registerInterestRegex`) receives server-pushed events only for matching keys, instead of every key
+  in the region. Backed by an `Interest` matcher (all-keys / keys / regex) and per-key filtering on the
+  push path; the `"ALL_KEYS"` sentinel still means the whole region. Validated against a real Geode
+  1.15 client (`ProtoGemCouchInterestFilteringIntegrationTest`).
 - **Golden-wire regression library per opcode** — every handled opcode's reply frame is locked
   byte-for-byte to a committed hex fixture (`GoldenWireResponseTest` + `src/test/resources/golden-wire/`),
   with a coverage test that ties the fixture set to `OpcodeRegistry` so a newly registered opcode can't

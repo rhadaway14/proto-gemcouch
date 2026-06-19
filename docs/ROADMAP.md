@@ -352,8 +352,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   Helm + headless Service): a `CacheListener` on replica A fires for a mutation made on replica B
   (`CROSS_REPLICA_EVENT_CHECK PASS`), with a `backplane=none` negative control correctly FAILing**
   (`tools/CrossReplicaEventCheck` + `scripts/k8s-mesh-e2e.sh`).
-  **Other P3 remaining:** regex/key-list per-key event filtering (registers the whole region today),
-  durable clients, redundancy/MAKE_PRIMARY, and PERIODIC_ACK draining / keepalive.
+  **Per-key interest filtering DONE:** REGISTER_INTEREST (20) / REGISTER_INTEREST_LIST (24) now parse
+  the interest type + key/regex/list (`Interest` matcher: all-keys / specific key / key-list / regex),
+  so a feed receives only events whose key matches — validated against a real Geode 1.15 client
+  (`ProtoGemCouchInterestFilteringIntegrationTest`: specific-key, regex, and key-list each deliver only
+  matching keys; ALL_KEYS still delivers everything). **Other P3 remaining:** durable clients,
+  redundancy/MAKE_PRIMARY, and PERIODIC_ACK draining / keepalive.
 - [x] **Server-side functions — graceful rejection** (validated by
   `ProtoGemCouchFunctionIntegrationTest`). The shim has none of the user's `Function` classes, so it
   cannot *run* functions; it now rejects them the way a real server rejects an unregistered function
