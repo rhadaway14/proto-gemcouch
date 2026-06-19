@@ -33,6 +33,21 @@ shim:
 
 extraEnv: []   # e.g. [{ name: HANDLER_MAX_PENDING_TASKS, value: "10000" }]
 
+# Cross-replica eventing backplane — propagates subscription/CQ events across shim replicas so a feed
+# on one replica sees mutations that land on another. Default "none" = single-instance (no broadcast).
+#   mesh  — self-contained, no external broker: replicas discover each other via a headless Service the
+#           chart creates and broadcast events directly (recommended; deployment stays shim + Couchbase).
+#   redis — opt-in Redis pub/sub (set eventing.redis.host to a reachable Redis).
+eventing:
+  backplane: "none"   # none | mesh | redis
+  mesh:
+    port: 40406
+    discoveryIntervalSeconds: 10
+  redis:
+    host: ""
+    port: 6379
+    channel: "protogemcouch-events"
+
 # Inbound TLS for the Geode listener. When enabled, the keystore — and, for mutual TLS, the
 # truststore — are mounted read-only from a Secret you manage (e.g. cert-manager / Vault). Rotate by
 # updating that Secret and rolling the Deployment; see docs/SECURITY.md "Certificate rotation".

@@ -19,3 +19,15 @@ data:
   # Credentials are read from mounted files, not env, via these *_FILE paths.
   CB_USERNAME_FILE: "/etc/protogemcouch/secrets/cb-username"
   CB_PASSWORD_FILE: "/etc/protogemcouch/secrets/cb-password"
+  {{- if eq .Values.eventing.backplane "mesh" }}
+  # Self-contained peer-mesh cross-replica eventing: peers discovered via the headless Service below.
+  EVENT_BACKPLANE: "mesh"
+  MESH_PORT: {{ .Values.eventing.mesh.port | quote }}
+  MESH_DISCOVERY_INTERVAL_SECONDS: {{ .Values.eventing.mesh.discoveryIntervalSeconds | quote }}
+  MESH_PEER_DNS: {{ printf "%s-mesh" (include "protogemcouch.fullname" .) | quote }}
+  {{- else if eq .Values.eventing.backplane "redis" }}
+  EVENT_BACKPLANE: "redis"
+  REDIS_HOST: {{ .Values.eventing.redis.host | quote }}
+  REDIS_PORT: {{ .Values.eventing.redis.port | quote }}
+  EVENT_BACKPLANE_CHANNEL: {{ .Values.eventing.redis.channel | quote }}
+  {{- end }}
