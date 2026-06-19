@@ -7,8 +7,13 @@ minor versions as parity expands.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-06-18
+
 Observability/operability, SDK-parity, testing, and multi-host capacity work since 0.2.0. All parity
-and round-trip changes are validated against a real Geode 1.15 client.
+and round-trip changes are validated against a real Geode 1.15 client. Published as a scanned,
+SBOM-attested, cosign-signed image at `docker.io/rhadaway14/protogemcouch:0.3.0` (and `latest`).
 
 ### Added
 - **Distributed tracing** — OpenTelemetry, off by default (enabled via `OTEL_*`); a span per Geode
@@ -70,6 +75,9 @@ and round-trip changes are validated against a real Geode 1.15 client.
   single-hop is not applicable to a single-backend shim, so the client falls back to direct routing.
 - Refreshed `docs/CURRENT_LIMITATIONS.md` (now defers the detailed surface to the compatibility matrix
   + roadmap so it can't drift) and pointed `docs/NEXT_STEPS.md` at `ROADMAP.md`.
+- The perf-regression gate can now enforce a **rig-calibrated strict threshold profile**
+  (`scripts/perf-baseline.rig.env`, selected via `PERF_BASELINE`) on controlled hardware, while CI
+  keeps the conservative gross-guard defaults.
 
 ## [0.2.0] - 2026-06-15
 
@@ -127,6 +135,8 @@ cosign-signed image at `docker.io/rhadaway14/protogemcouch:0.2.0` (and `latest`)
 - **Certificate rotation:** the Helm chart mounts the inbound-TLS keystore/truststore from a Secret and
   rolls pods on change; zero-downtime rolling-restart rotation + mTLS CA-rotation ordering documented.
 
+[Unreleased]: https://github.com/rhadaway14/proto-gemcouch/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.2.0
 
 ## [0.1.0] - 2026-06-05

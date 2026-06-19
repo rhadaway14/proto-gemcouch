@@ -4,7 +4,7 @@ This is the shim's **compatibility contract**: the Geode client surface it suppo
 it round-trips, and its explicit non-goals. Per-feature details and byte encodings follow; the
 narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGELOG.md`.
 
-## Compatibility contract (as of 0.2.0)
+## Compatibility contract (as of 0.3.0)
 
 **Client / runtime.** Apache Geode (and GemFire-compatible) **Java clients on the 1.15.x line**,
 validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
@@ -75,7 +75,7 @@ putAll followed by getAll with more than 252 entries
 
 ## Verification
 
-Every supported item above is validated end-to-end against a real Geode 1.15.1 client. As of 0.2.0:
+Every supported item above is validated end-to-end against a real Geode 1.15.1 client. As of 0.3.0:
 
 ```text
 ~500 unit / shape / golden-wire tests (mvn -o test)
