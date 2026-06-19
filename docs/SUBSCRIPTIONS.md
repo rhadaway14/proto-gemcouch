@@ -56,12 +56,22 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
 
 - **Architecture inversion.** Server-initiated push is new; it needs an async per-client outbound
   queue and careful Netty channel ownership (the feed channel is written from mutation threads).
-- **Cross-replica eventing is not possible without a backplane.** Events can propagate in-memory only
-  among clients connected to the *same shim instance*. With multiple shim replicas sharing one
-  Couchbase, a mutation on replica A is invisible to interested clients on replica B — Couchbase KV
-  is not a message bus. True multi-replica eventing would need a pub/sub backplane (Couchbase DCP/
-  Eventing, or an external broker), which is a separate, heavy initiative. **A first cut is
-  single-instance-scoped and must document this.**
+- **Cross-replica eventing requires a backplane (now pluggable; opt-in).** In-memory delivery reaches
+  only clients on the *same shim instance*; behind a load balancer a mutation on replica A is otherwise
+  invisible to an interested client on replica B (Couchbase KV is not a message bus). This is now solved
+  by a **pluggable `EventBackplane`** (`com.protogemcouch.subscription`): each `publish*` delivers
+  locally *and* broadcasts a `RemoteEvent`, and `applyRemote` re-delivers events from other replicas
+  through the same delivery cores (a replica drops its own echoes by `originInstanceId`). The default is
+  `NoOpEventBackplane` (single-instance, zero dependency). The first concrete transport is an **opt-in
+  Redis pub/sub** adapter (`RedisEventBackplane`, a tiny hand-rolled RESP client — no Redis client
+  library is pulled into the build), enabled with:
+  - `EVENT_BACKPLANE=redis`
+  - `REDIS_HOST` (default `127.0.0.1`), `REDIS_PORT` (default `6379`)
+  - `EVENT_BACKPLANE_CHANNEL` (default `protogemcouch-events`)
+
+  The abstraction keeps the shim core free of any hard Redis dependency, so this can later be swapped
+  for a self-contained transport (peer mesh / Couchbase change feed) and drop Redis entirely. **End-to-
+  end multi-replica validation on a real cluster is the remaining step.**
 - **GII consistency.** The KEYS_VALUES initial image plus the live feed must not drop or duplicate the
   events racing with the GII (Geode solves this with the marker + queue ordering).
 - Durable clients, subscription redundancy, MAKE_PRIMARY/secondary feeds, and conflation are **out of

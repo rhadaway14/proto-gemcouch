@@ -12,6 +12,14 @@ minor versions as parity expands.
   byte-for-byte to a committed hex fixture (`GoldenWireResponseTest` + `src/test/resources/golden-wire/`),
   with a coverage test that ties the fixture set to `OpcodeRegistry` so a newly registered opcode can't
   ship without a golden lock. Protects the whole real-client-validated wire surface from silent drift.
+- **Cross-replica eventing backplane (pluggable, opt-in)** — subscriptions/CQ events can now propagate
+  across load-balanced shim replicas. A pluggable `EventBackplane` seam (default `NoOpEventBackplane` =
+  single-instance, zero dependency) broadcasts each mutation as a `RemoteEvent` and re-delivers events
+  from other replicas (own echoes dropped by `originInstanceId`). First concrete transport is an opt-in
+  **Redis pub/sub** adapter over a tiny hand-rolled RESP client — no Redis client library is pulled into
+  the build — enabled via `EVENT_BACKPLANE=redis` (`REDIS_HOST`/`REDIS_PORT`/`EVENT_BACKPLANE_CHANNEL`).
+  The abstraction keeps the core Redis-free so the transport can later be swapped for a self-contained
+  one. (End-to-end multi-replica cluster validation is the remaining step.)
 - **Protocol version negotiation** — the shim now parses the client's protocol version ordinal from the
   handshake and accepts only supported versions (default: the wire-validated Geode 1.15.x line, ordinal
   150; widenable via `SUPPORTED_VERSION_ORDINALS`). Unsupported versions are refused cleanly with a Geode
