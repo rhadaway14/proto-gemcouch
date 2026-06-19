@@ -12,6 +12,12 @@ minor versions as parity expands.
   byte-for-byte to a committed hex fixture (`GoldenWireResponseTest` + `src/test/resources/golden-wire/`),
   with a coverage test that ties the fixture set to `OpcodeRegistry` so a newly registered opcode can't
   ship without a golden lock. Protects the whole real-client-validated wire surface from silent drift.
+- **Protocol version negotiation** — the shim now parses the client's protocol version ordinal from the
+  handshake and accepts only supported versions (default: the wire-validated Geode 1.15.x line, ordinal
+  150; widenable via `SUPPORTED_VERSION_ORDINALS`). Unsupported versions are refused cleanly with a Geode
+  `REPLY_REFUSED` handshake instead of being served a session they can't decode, metered via
+  `protogemcouch_handshake_version_rejected_total` and audited. Previously any client version was blindly
+  accepted and given the 1.15.x reply.
 
 ## [0.3.0] - 2026-06-18
 
