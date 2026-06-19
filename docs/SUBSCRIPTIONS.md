@@ -75,8 +75,10 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     `EVENT_BACKPLANE_CHANNEL` (default `protogemcouch-events`).
 
   Both keep the shim core dependency-free behind the abstraction. The **mesh** transport is the path to
-  zero reliance on any broker product. **End-to-end multi-replica validation on a real cluster is the
-  remaining step.**
+  zero reliance on any broker product. **Validated end-to-end on a real 2-replica Kubernetes deployment**
+  (`EVENT_BACKPLANE=mesh` via the Helm chart + its headless Service): a `CacheListener` on replica A
+  fires for a mutation made on replica B (`CROSS_REPLICA_EVENT_CHECK PASS`), and a `backplane=none`
+  negative control correctly FAILs — see `tools/CrossReplicaEventCheck` + `scripts/k8s-mesh-e2e.sh`.
 - **GII consistency.** The KEYS_VALUES initial image plus the live feed must not drop or duplicate the
   events racing with the GII (Geode solves this with the marker + queue ordering).
 - Durable clients, subscription redundancy, MAKE_PRIMARY/secondary feeds, and conflation are **out of

@@ -20,7 +20,10 @@ minor versions as parity expands.
   peers discovered via a Kubernetes headless Service (`MESH_PEER_DNS`) or a static `MESH_PEERS` list —
   **no external broker, the zero-dependency end state**; and an opt-in **Redis pub/sub** adapter over a
   tiny hand-rolled RESP client (`EVENT_BACKPLANE=redis`) — no Redis client library is pulled into the
-  build either way. (End-to-end multi-replica cluster validation is the remaining step.)
+  build either way. The Helm chart wires the mesh (a headless Service for peer discovery) via
+  `eventing.backplane=mesh`, and it is **validated end-to-end on a real 2-replica Kubernetes
+  deployment**: a `CacheListener` on one replica fires for a mutation made on another, with a
+  `backplane=none` negative control correctly not delivering.
 - **Protocol version negotiation** — the shim now parses the client's protocol version ordinal from the
   handshake and accepts only supported versions (default: the wire-validated Geode 1.15.x line, ordinal
   150; widenable via `SUPPORTED_VERSION_ORDINALS`). Unsupported versions are refused cleanly with a Geode
