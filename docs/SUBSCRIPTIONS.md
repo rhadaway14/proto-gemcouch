@@ -126,9 +126,14 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     still gets the empty ack. **Per-client interest + UNREGISTER DONE** — interest is tracked per
     client id (not globally): a feed only receives events for regions its client registered, and
     `UNREGISTER_INTEREST` (22/25) removes it (a feed close also drops its client's interest). Gates
-    `unregisterInterestStopsEvents` + `SubscriptionRegistryTest`. **P2 complete.** Note: a regex or
-    key-list register-interest registers the whole region (ALL_KEYS granularity) — per-key/per-regex
-    event filtering is a possible future refinement.
+    `unregisterInterestStopsEvents` + `SubscriptionRegistryTest`. **P2 complete.**
+  - **P3 — per-key interest filtering DONE.** REGISTER_INTEREST (20) / REGISTER_INTEREST_LIST (24) are
+    parsed into an `Interest` matcher (all-keys / specific key / key-list / regex; the captured layouts
+    are documented on `RegisterInterestHandler`), and the push path filters per feed by the mutated key
+    (`SubscriptionRegistry.isInterestedInKey`). A client that registers a specific key, a key list, or a
+    regex receives events only for matching keys (the `"ALL_KEYS"` sentinel / `.*` still means the whole
+    region). Validated against a real Geode 1.15 client by `ProtoGemCouchInterestFilteringIntegrationTest`
+    + `SubscriptionRegistryTest`. Per-key UNREGISTER granularity stays region-level (a documented tail).
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica
