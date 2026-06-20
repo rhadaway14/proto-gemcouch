@@ -31,6 +31,11 @@ code, no full native wire parity.
 - **Server-side region creation with custom attributes** — `destroyRegion` is supported; the schemaless
   shim serves any region on first use, so dynamic create is a no-op.
 - **The Geode application-level security handshake** — use transport TLS / mutual TLS instead.
+- **Server-side cache callbacks** — `CacheLoader`/`CacheWriter`/`CacheListener` *registered on a server
+  region*, and server-side expiration/eviction *events*, would run user code / synthesize events on the
+  server, which the stateless shim does not host (TTL is applied via Couchbase expiry). **Client-side**
+  cache callbacks are supported: a client's `CacheLoader` fills a get-miss, a `CacheWriter` vetoes or
+  allows a write before it is sent, and `CacheListener`s fire on the shim's server-pushed events.
 
 **Queryable only at the top level / scalar fields.** OQL and CQ predicates resolve top-level scalar
 fields of `HashMap<String,Object>` and PDX values. **Not queryable** (preserved opaquely — they
@@ -42,8 +47,7 @@ cold-path, not hot-path (see `docs/SOAK_RESULTS.md`).
 
 **Scope-expansion items still open** (tracked in `ROADMAP.md` §3): full PDX registry discovery + schema
 evolution beyond the per-type path; `DataSerializable` *field* access (needs the classes); arbitrary
-object graphs / complete DataSerializer marker coverage; protocol version negotiation; full opcode
-golden-wire coverage; `CacheLoader`/`CacheWriter` and expiration/eviction listeners.
+object graphs / complete DataSerializer marker coverage; full opcode golden-wire coverage.
 
 **Capacity qualification** is characterized on a dedicated rig (`docs/SOAK_RESULTS.md`: per-shim read
 ceiling ~16.9k ops/sec, near-linear two-shim scaling, shim-CPU-bound with Couchbase headroom).

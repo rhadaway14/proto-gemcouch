@@ -8,6 +8,13 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **Client-side cache callbacks validated** — a Geode client's `CacheLoader`, `CacheWriter`, and
+  `CacheListener` compose correctly with the shim as backend: a `CacheLoader` fills a get-miss, a
+  `CacheWriter` veto blocks a write from reaching the server while an allowed write propagates, and
+  `CacheListener`s fire on server-pushed events. These run in the client JVM, so no shim code was
+  needed — `ProtoGemCouchCacheCallbacksIntegrationTest` confirms the composition against a real Geode
+  1.15 client. Server-side cache callbacks and server-side expiration/eviction *events* are documented
+  bounded non-goals (the stateless shim runs no user code; TTL is applied via Couchbase expiry).
 - **Full PDX registry discovery** — a client can now bulk-sync the whole PDX registry: GET_PDX_TYPES
   (opcode 101) and GET_PDX_ENUMS (102) return every registered type/enum as a `Map<Integer, ...>`, and
   GET_PDX_ENUM_BY_ID (98) is the reverse enum lookup (the enum-side counterpart of GET_PDX_TYPE_BY_ID).
