@@ -1,18 +1,19 @@
-
 # ProtoGemCouch
 
-ProtoGemCouch is a Java protocol shim that accepts a practical subset of Apache Geode / GemFire client requests and translates them into Couchbase operations.
+ProtoGemCouch is a Java protocol shim that accepts a practical subset of Apache Geode / GemFire client
+requests and translates them into Couchbase operations. The goal is to let an existing Java Geode client
+application change only its connection endpoint while the shim handles protocol translation and persists
+data in Couchbase.
 
-The goal is to let an existing Java Geode client application change only its connection endpoint, while the shim handles protocol translation and persists data in Couchbase.
-
-## Current Status
+## Current status
 
 **ProtoGemCouch 1.0.0 — first general-availability release (2026-06-20).** The authoritative, maintained
 references are:
 
-- `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals
-- `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*
-- `CHANGELOG.md` — released history; `docs/ROADMAP.md` — the post-1.0 (1.1.0) backlog
+- `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals.
+- `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*.
+- `CHANGELOG.md` — released history.
+- `docs/ROADMAP.md` — the post-1.0 (1.1.0) backlog.
 
 This file is a feature/encoding overview; where it disagrees with the matrix, the matrix wins.
 
@@ -20,77 +21,41 @@ Verification: `mvn -o test` (574 unit tests + coverage gate) and `mvn -o verify`
 real-Geode-1.15-client integration suite, 257 tests). The signed `v*` release pipeline runs the full
 `mvn verify`, the perf-regression gate, and a Trivy/SBOM/cosign image publish.
 
-## Supported Operations
+## Supported operations
 
 See `docs/COMPATABILITY_MATRIX.md` for the full contract. In brief, the validated surface includes:
 
-```text
-connect / handshake (+ protocol-version negotiation)
-get / put / remove / containsKey / getEntry (in-transaction) / invalidate
-putAll / getAll
-sizeOnServer / keySetOnServer
-clear / destroyRegion
-OQL queries (WHERE / projection / ORDER BY / paging / parameters, incl. PDX field access)
-transactions (begin / commit / rollback, read-your-writes, atomic commit)
-continuous queries (CQ) + register-interest subscriptions (server-pushed events)
-PDX (incl. schema evolution + registry discovery)
-durable subscription clients (single-instance)
-graceful rejection of server-side functions; unknown-opcode logging
-```
+- Connect / handshake (with protocol-version negotiation).
+- `get` / `put` / `remove` / `containsKey` / `getEntry` (in-transaction) / `invalidate`.
+- `putAll` / `getAll`.
+- `sizeOnServer` / `keySetOnServer`.
+- `clear` / `destroyRegion`.
+- OQL queries (`WHERE` / projection / `ORDER BY` / paging / parameters, incl. PDX field access).
+- Transactions (begin / commit / rollback, read-your-writes, atomic commit).
+- Continuous queries (CQ) and register-interest subscriptions (server-pushed events).
+- PDX (incl. schema evolution and registry discovery).
+- Durable subscription clients (single-instance).
+- Graceful rejection of server-side functions; unknown-opcode logging.
 
-## Supported Value Types
+## Supported value types
 
-```text
-String
-Boolean
-Character
-Byte
-Short
-Integer
-Long
-Float
-Double
-java.util.Date
-byte[]
-boolean[]
-char[]
-short[]
-int[]
-long[]
-float[]
-double[]
-String[]
-Integer[]
-Long[]
-Boolean[]
-Double[]
-UUID[]
-BigInteger[]
-BigDecimal[]
-Enum[]
-Instant[]
-LocalDate[]
-LocalDateTime[]
-ArrayList<String>
-HashMap<String,String>
-HashMap<String,Object>
-Serializable POJO
-Object[]
-ArrayList<Object>
-UUID
-BigInteger
-BigDecimal
-Enum
-java.time.Instant
-java.time.LocalDate
-java.time.LocalDateTime
-```
+- **Scalars / wrappers:** `String`, `Boolean`, `Character`, `Byte`, `Short`, `Integer`, `Long`,
+  `Float`, `Double`, `java.util.Date`.
+- **JDK utility scalars:** `UUID`, `BigInteger`, `BigDecimal`, `Enum`, `java.time.Instant`,
+  `java.time.LocalDate`, `java.time.LocalDateTime`.
+- **Primitive arrays:** `byte[]`, `boolean[]`, `char[]`, `short[]`, `int[]`, `long[]`, `float[]`,
+  `double[]`.
+- **Typed / object arrays:** `String[]`, `Integer[]`, `Long[]`, `Boolean[]`, `Double[]`, `UUID[]`,
+  `BigInteger[]`, `BigDecimal[]`, `Enum[]`, `Instant[]`, `LocalDate[]`, `LocalDateTime[]`, `Object[]`.
+- **Collections / maps:** `ArrayList<String>`, `ArrayList<Object>`, `HashMap<String,String>`,
+  `HashMap<String,Object>` (with recursively-nested supported values).
+- **Opaque preservation** (round-trips exactly, not queryable on contents): `Serializable` POJOs,
+  `PDX` / `PdxInstance`, custom `DataSerializable`.
 
-## Primitive Array Support
+## Primitive array support
 
-Primitive arrays are supported structurally using Geode DataSerializer primitive-array payloads.
-
-Supported markers:
+Primitive arrays are decoded structurally from Geode DataSerializer primitive-array payloads, stored as
+typed JSON array envelopes, and re-encoded as Geode-compatible payloads on the way back. Markers:
 
 ```text
 boolean[]  -> 0x1a
@@ -106,14 +71,7 @@ double[]   -> 0x33
 Example:
 
 ```java
-int[] value = new int[] {
-    1,
-    42,
-    -7,
-    Integer.MAX_VALUE,
-    Integer.MIN_VALUE
-};
-
+int[] value = new int[] {1, 42, -7, Integer.MAX_VALUE, Integer.MIN_VALUE};
 region.put("int-array-demo-key", value);
 Object actual = region.get("int-array-demo-key");
 ```
@@ -128,13 +86,10 @@ Couchbase envelope:
 }
 ```
 
-The shim decodes primitive arrays structurally, stores them as typed JSON array envelopes, and re-encodes them as Geode-compatible primitive-array payloads when returning data to the client.
+## Wrapper and utility array support
 
-## Wrapper and Utility Array Support
-
-Wrapper and utility arrays are supported through generalized `0x34` object-array preservation.
-
-Examples:
+Wrapper and utility arrays are preserved through generalized `0x34` object-array preservation: the shim
+stores and returns the full `0x34...` payload so the Geode client deserializes the original array type.
 
 ```text
 Integer[]        -> 0x34 ... java.lang.Integer ...
@@ -160,29 +115,25 @@ Couchbase envelope:
 }
 ```
 
-The shim stores and returns the full `0x34...` payload, allowing the Geode client to deserialize the original array type.
+## Standalone utility value support
 
-## Standalone Utility Value Support
-
-Standalone utility values are supported through either dedicated opaque Geode marker preservation or the existing Java-serialized-object path.
-
-Supported standalone utility markers:
+Standalone utility values are preserved through either a dedicated opaque Geode marker or the
+Java-serialized-object path. Markers:
 
 ```text
 BigInteger              -> 0x5f
 BigDecimal              -> 0x60
 UUID                    -> 0x62
 Enum                    -> 0x65
-java.time.Instant       -> 0x2c Java serialized
-java.time.LocalDate     -> 0x2c Java serialized
-java.time.LocalDateTime -> 0x2c Java serialized
+java.time.Instant       -> 0x2c (Java serialized)
+java.time.LocalDate     -> 0x2c (Java serialized)
+java.time.LocalDateTime -> 0x2c (Java serialized)
 ```
 
 Example:
 
 ```java
 UUID value = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
-
 region.put("uuid-demo-key", value);
 Object actual = region.get("uuid-demo-key");
 ```
@@ -198,15 +149,16 @@ Couchbase envelope:
 }
 ```
 
-## ArrayList<Object> Support
+## ArrayList<Object> support
 
-`ArrayList<Object>` is supported as an opaque Geode DataSerializer list payload.
-
-Observed wire shape:
+`ArrayList<Object>` is preserved as an opaque Geode DataSerializer list payload. Observed wire shape:
 
 ```text
 41 <length> <elements...>
 ```
+
+Decode rule: `ArrayList<String>` is decoded first into the structured `stringArrayList` format; if that
+fails and the payload starts with `0x41`, the value is treated as an opaque `ArrayList<Object>`.
 
 Couchbase envelope:
 
@@ -218,17 +170,9 @@ Couchbase envelope:
 }
 ```
 
-Important decode rule:
+## Object[] support
 
-```text
-ArrayList<String> is decoded first into the structured stringArrayList format.
-If that fails and the payload starts with 0x41, the value is treated as opaque ArrayList<Object>.
-```
-
-## Object[] Support
-
-`Object[]` and component-specific object arrays are supported as opaque Geode DataSerializer payloads.
-
+`Object[]` and component-specific object arrays are preserved as opaque Geode DataSerializer payloads.
 Observed wire shape:
 
 ```text
@@ -245,9 +189,10 @@ Couchbase envelope:
 }
 ```
 
-## Serializable POJO Support
+## Serializable POJO support
 
-Serializable POJOs are preserved opaquely.
+`Serializable` POJOs are preserved opaquely — the Geode marker is stripped for storage and reattached on
+return, so the client re-instantiates the object via its own class:
 
 ```text
 Client sends:  2c ac ed 00 05 ...
@@ -280,16 +225,14 @@ ProtoGemCouch Shim
 Couchbase
 ```
 
-## Main Packages
+## Main packages
 
-```text
-com.protogemcouch.wire          protocol frame and response encoding
-com.protogemcouch.ops           operation handlers
-com.protogemcouch.serialization typed value decoding and representation
-com.protogemcouch.couchbase     repository and Couchbase persistence
-```
+- `com.protogemcouch.wire` — protocol frame and response encoding.
+- `com.protogemcouch.ops` — operation handlers.
+- `com.protogemcouch.serialization` — typed value decoding and representation.
+- `com.protogemcouch.couchbase` — repository and Couchbase persistence.
 
-## Couchbase Document Examples
+## Couchbase document examples
 
 ### Primitive array
 
@@ -375,87 +318,50 @@ com.protogemcouch.couchbase     repository and Couchbase persistence
 {
   "type": "stringObjectHashMap",
   "value": {
-    "name": {
-      "type": "string",
-      "value": "rob"
-    },
-    "age": {
-      "type": "integer",
-      "value": 42
-    },
-    "intItems": {
-      "type": "intArray",
-      "value": [1, 42, -7],
-      "length": 3
-    }
+    "name": { "type": "string", "value": "rob" },
+    "age": { "type": "integer", "value": 42 },
+    "intItems": { "type": "intArray", "value": [1, 42, -7], "length": 3 }
   },
   "length": 3
 }
 ```
 
-## Running Tests
+## Running tests
 
-Local tests:
+Local unit tests:
 
-```powershell
-mvn test
-mvn clean test
+```bash
+mvn -o test
 ```
 
-Docker-backed serialization integration:
+Docker-backed integration tests (Docker must be running):
 
-```powershell
-mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
-```
-
-Docker must be running:
-
-```powershell
+```bash
 docker ps
+mvn -o verify
 ```
 
-## Current Validation Scope
+## Current validation scope
 
-Validated:
+Validated end-to-end against a real Geode 1.15 client and a Docker-backed Couchbase:
 
-```text
-Primitive wrapper round trips
-byte[] round trips
-boolean[] round trips
-char[] round trips
-short[] round trips
-int[] round trips
-long[] round trips
-float[] round trips
-double[] round trips
-String[] round trips
-Wrapper / utility array round trips
-ArrayList<String> round trips
-HashMap<String,String> round trips
-HashMap<String,Object> round trips
-Serializable POJO round trips
-Object[] round trips
-ArrayList<Object> round trips
-Standalone utility value round trips
-java.util.Date round trips
-Couchbase typed envelopes
-GET_ALL VersionedObjectList-compatible responses
-Docker-backed integration verification
-```
-
-Since this snapshot was written, the validated surface has expanded well beyond the list above —
-DataSerializable, PDX (incl. schema evolution + registry discovery), transactions, OQL queries,
-continuous queries, register-interest subscriptions, region lifecycle, nested complex values inside
-`Map<String,Object>`, and full-surface soak testing are all covered. See
-`docs/COMPATABILITY_MATRIX.md` for the current contract.
+- Primitive, wrapper, and utility-scalar round-trips (incl. `UUID` / `BigInteger` / `BigDecimal` /
+  `Enum` / `java.time`).
+- Primitive-array, typed/object-array, and `String[]` round-trips.
+- `ArrayList<String>` / `ArrayList<Object>` and `HashMap<String,String>` / `HashMap<String,Object>`
+  (with recursively-nested values) round-trips.
+- `Serializable` POJO, `Object[]`, PDX (incl. schema evolution and registry discovery), and
+  `DataSerializable` round-trips.
+- OQL queries, transactions, continuous queries, and register-interest subscriptions.
+- `GET_ALL` VersionedObjectList-compatible responses; large key-set boundary behavior.
+- Full-surface soak and high-concurrency testing (see `docs/SOAK_RESULTS.md`).
 
 Out of scope by design (documented non-goals — see `docs/CURRENT_LIMITATIONS.md`):
 
-```text
-Server-side execution of user code (functions; server-side cache callbacks)
-Full native Geode-server wire parity / general-purpose drop-in replacement
-Field-level querying of customer Serializable POJOs / DataSerializable (no schema without the classes)
-```
+- Server-side execution of user code (functions; server-side cache callbacks).
+- Full native Geode-server wire parity / a general-purpose drop-in replacement.
+- Field-level querying of customer `Serializable` POJOs / `DataSerializable` (no schema without the
+  classes).
 
 ## Next
 
