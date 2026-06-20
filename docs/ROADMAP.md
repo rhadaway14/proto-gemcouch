@@ -485,7 +485,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3d. Cache semantics
 
-- [ ] CacheLoader / CacheWriter, expiration/eviction listeners, callback events.
+- [x] **Client-side cache callbacks** — a Geode client's `CacheLoader`, `CacheWriter`, and
+  `CacheListener` run in the client JVM and compose correctly with the shim as backend: a `CacheLoader`
+  fills a get-miss (the shim returns null, the client loader supplies the value), a `CacheWriter` veto
+  (`CacheWriterException`) blocks the write from ever reaching the shim while an allowed write
+  propagates, and `CacheListener` callbacks fire on the shim's server-pushed events (validated by
+  `ProtoGemCouchCacheCallbacksIntegrationTest` + the subscription/CQ suites). No shim code is required
+  for these — they are pure client-side behavior over normal get/put/destroy/event ops.
+- **Bounded non-goals** (documented): **server-side** `CacheLoader`/`CacheWriter`/`CacheListener`
+  (registered on a server region) would run user code on the server, which a stateless shim has no way
+  to execute — same class as server-side functions. **Server-side expiration/eviction listener events**
+  are also out of scope: the shim applies TTL via Couchbase document expiry (and leaves eviction to
+  Couchbase) but does not synthesize per-entry expiration/eviction *events* to push to subscribers.
+  Client-side region expiration/eviction (on a `CACHING_PROXY`) is local client behavior and works.
 
 ---
 

@@ -130,6 +130,8 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. |
 | PDX registry discovery | Supported | Bulk type/enum sync (`GET_PDX_TYPES`, `GET_PDX_ENUMS`) returns the whole registry as a `Map<Integer,…>`; `GET_PDX_ENUM_BY_ID` is the reverse enum lookup. |
 | PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version. |
+| client-side cache callbacks | Supported | A client's `CacheLoader` (fills a get-miss), `CacheWriter` (veto/allow before the op is sent), and `CacheListener` (fires on server-pushed events) run in the client JVM and compose with the shim. |
+| server-side cache callbacks | Non-goal | Server-registered `CacheLoader`/`CacheWriter`/`CacheListener` and server-side expiration/eviction *events* run user code / event synthesis the stateless shim does not host (TTL is applied via Couchbase expiry). |
 | unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
 
 ## Supported Value Types
