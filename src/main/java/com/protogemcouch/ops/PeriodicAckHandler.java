@@ -8,9 +8,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Handles PERIODIC_ACK (52): a subscription/CQ client periodically acks the events it has received so
- * the server can trim its subscription queue. The shim keeps no durable queue, so this is a no-op
- * drain — it is fire-and-forget (no reply), but it must be handled here so it does not fall through to
- * the unknown-opcode path (which would log a "UNKNOWN FRAME TYPE" regression marker).
+ * the server can trim its subscription queue. It is fire-and-forget (no reply), drained here so it does
+ * not fall through to the unknown-opcode path (which would log a "UNKNOWN FRAME TYPE" regression
+ * marker). The ack also keeps the feed's connection non-idle.
+ *
+ * <p>The shim queues events only for a <em>disconnected</em> durable client (see
+ * {@code SubscriptionRegistry}); while a client is connected its events are delivered live rather than
+ * queued, and the disconnected queue is replayed wholesale on reconnect — so there is no live queue for
+ * an ack to trim, and draining is the correct behavior.
  */
 public class PeriodicAckHandler implements OperationHandler {
 

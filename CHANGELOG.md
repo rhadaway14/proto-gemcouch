@@ -8,6 +8,12 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **Subscription feed keepalive** — server→client subscription/durable feeds are now exempt from the
+  idle-connection reaper, so a long-idle feed waiting for events is no longer silently closed (dead
+  feeds are still detected at the TCP layer). Completes the subscription P3 tail: client PINGs are
+  acked, MAKE_PRIMARY is drained on the feed, PERIODIC_ACK is drained, and subscription redundancy is a
+  graceful no-op for the single-backend shim — verified to produce no unhandled opcodes from a real
+  redundancy-enabled, keepalive-pinging client.
 - **Durable subscription clients (single-instance)** — a durable client (`durable-client-id`) that
   disconnects now has its interest retained and its matching events queued in memory, replayed in order
   on reconnect + `readyForEvents()`, and dropped if it doesn't return within its timeout. The handshake
