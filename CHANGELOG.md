@@ -2,10 +2,20 @@
 
 All notable changes to ProtoGemCouch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
-[semantic versioning](https://semver.org/). Pre-1.0 releases may still change behavior between
-minor versions as parity expands.
+[semantic versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-06-20
+
+First general-availability release. The supported surface is the compatibility contract in
+`docs/COMPATABILITY_MATRIX.md`; deliberate non-goals (server-side user-code execution, full native
+wire parity) are documented there and in `docs/CURRENT_LIMITATIONS.md`. Highlights since 0.3.0:
+in-transaction `getEntry` (op 89) + `TX_FAILOVER` handling, full PDX registry discovery
+(`GET_PDX_TYPES`/`GET_PDX_ENUMS`/`GET_PDX_ENUM_BY_ID`), validated client-side cache callbacks, broader
+top-level value-type coverage (and a fix for top-level JDK collections corrupting to `byte[]`), a
+cross-version client matrix, a request-side golden-wire library, a full-surface soak with a
+container-aware bounded heap, and gadget-safe deserialization of untrusted client values (CWE-502).
 
 ### Security
 - **Gadget-safe deserialization of untrusted client values (CWE-502)** — the shim deserializes a
