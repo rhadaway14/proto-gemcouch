@@ -194,9 +194,11 @@ class ProtoGemCouchFailureIntegrationTest {
 
     /** Send a dummy handshake and consume the shim's fixed handshake reply. */
     private static void completeHandshake(Socket socket) throws IOException {
-        // The shim replies with a canned handshake to the first inbound message regardless of
-        // content, then switches the connection into frame-decoding mode.
-        socket.getOutputStream().write(new byte[] {1, 0, 0, 0, 0, 0, 0, 0});
+        // A handshake advertising a SUPPORTED protocol version (mode 0x64, ordinal token 0xFF 0x0096 =
+        // 150, the validated 1.15.x line) so version negotiation accepts the connection; the shim then
+        // replies with its canned handshake and switches into frame-decoding mode. A handshake with an
+        // unsupported/zero ordinal would be refused (REPLY_REFUSED) before frame mode is reached.
+        socket.getOutputStream().write(new byte[] {0x64, (byte) 0xFF, 0x00, (byte) 0x96, 0, 0, 0, 0});
         socket.getOutputStream().flush();
 
         InputStream in = socket.getInputStream();

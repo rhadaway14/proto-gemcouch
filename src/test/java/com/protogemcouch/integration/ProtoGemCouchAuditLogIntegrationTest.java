@@ -82,7 +82,10 @@ class ProtoGemCouchAuditLogIntegrationTest {
     private static final String AUDIT_LOGGER = "protogemcouch.audit";
 
     private static void completeHandshake(Socket socket) throws IOException {
-        socket.getOutputStream().write(new byte[] {1, 0, 0, 0, 0, 0, 0, 0});
+        // Advertise a SUPPORTED version (ordinal 150 = 1.15.x) so version negotiation accepts the
+        // connection and lets the subsequent (malformed) frame reach the decoder; ordinal 0 would be
+        // refused at handshake.
+        socket.getOutputStream().write(new byte[] {0x64, (byte) 0xFF, 0x00, (byte) 0x96, 0, 0, 0, 0});
         socket.getOutputStream().flush();
         InputStream in = socket.getInputStream();
         int first = in.read();
