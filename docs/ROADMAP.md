@@ -462,7 +462,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   opaque** (round-trips exactly, just not queryable — the shim can't load/normalize them): nested
   Serializable POJOs, PDX instances, *typed* object arrays (`Integer[]`, `UUID[]`, …, kept type-exact),
   `java.time` values, and non-`ArrayList` `List`s. Top-level forms of all types remain supported.
-- [ ] Arbitrary object graphs; complete DataSerializer marker coverage.
+- [x] **Top-level value-type coverage breadth.** Validated end-to-end against a real Geode 1.15 client
+  (`ProtoGemCouchTopLevelValueTypeIntegrationTest`) that the full value-type profile round-trips
+  *exactly* as a top-level region value (not just nested in a Map/PDX): the JDK utility scalars
+  (`UUID`/`BigInteger`/`BigDecimal`/JDK & custom `enum`/`Instant`/`LocalDate`/`LocalDateTime`) and
+  *typed* object arrays (`Integer[]`/`Long[]`/`Double[]`/`UUID[]`/`BigInteger[]`/`Instant[]`/`enum[]`).
+  **Fixed a real corruption bug surfaced here:** a top-level `LinkedList`/`HashSet`/`TreeMap` (and the
+  other standalone JDK container DSCODEs — `HashTable`/`Vector`/`IdentityHashMap`/`LinkedHashSet`/
+  `Stack`/`TreeSet`/`ConcurrentHashMap`, plus `TimeUnit`/`Timestamp`) used to fall through to the
+  raw-byte-array catch-all and come back to the client as a `byte[]`. They are now preserved as opaque
+  Geode values (exact bytes re-served), validated by a trial deserialization so a real `byte[]` value
+  starting with one of those marker bytes is not mis-tagged (`ContainerOpaqueDecodeTest`).
+- [ ] Arbitrary object graphs; full per-marker queryability (the opaque container/POJO forms above
+  round-trip exactly but are not yet queryable on their contents).
 
 ### 3c. Protocol completeness
 

@@ -149,6 +149,30 @@ public final class ValueDecoding {
     private static final int GEODE_ENUM_CODE = 0x65;
 
     /*
+     * Standalone JDK container / utility DataSerializer markers (org.apache.geode...DSCODE) that the
+     * structured decoders do not handle (ArrayList/HASH_MAP have their own structured paths). Without
+     * this, a top-level LinkedList/HashSet/TreeMap/etc. falls through to the raw-byte-array catch-all
+     * and is returned to the client as a {@code byte[]} (data corruption). We preserve them opaquely so
+     * the client re-instantiates the exact collection via DataSerializer. The byte preserved is the
+     * whole original payload, validated by a trial deserialization so a real {@code byte[]} value that
+     * merely starts with one of these bytes is not mis-tagged.
+     */
+    private static final java.util.Set<Integer> GEODE_OPAQUE_CONTAINER_CODES = java.util.Set.of(
+            0x0a, // LINKED_LIST
+            0x42, // HASH_SET
+            0x44, // TIME_UNIT
+            0x46, // HASH_TABLE
+            0x47, // VECTOR
+            0x48, // IDENTITY_HASH_MAP
+            0x49, // LINKED_HASH_SET
+            0x4a, // STACK
+            0x4b, // TREE_MAP
+            0x4c, // TREE_SET
+            0x61, // CONCURRENT_HASH_MAP
+            0x63  // TIMESTAMP
+    );
+
+    /*
      * Geode PDX / PdxInstance marker observed from PdxShapeTest:
      *
      *   PdxInstance -> 0x5d <payload...>
@@ -710,6 +734,38 @@ public final class ValueDecoding {
             return new OpaqueGeodeValue(dataSerializableTypeName(payload), payload);
         }
 
+        if (GEODE_OPAQUE_CONTAINER_CODES.contains(first)) {
+            // A standalone JDK collection/map/utility the structured decoders don't cover. Validate it
+            // really is one (so a raw byte[] starting with this byte is not mis-tagged), then preserve
+            // the exact bytes so the client deserializes the original container back.
+            Object container = tryDeserializeContainer(payload);
+            if (container != null) {
+                return new OpaqueGeodeValue(container.getClass().getName(), payload);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Trial-deserialize a payload whose first byte is a {@link #GEODE_OPAQUE_CONTAINER_CODES container
+     * marker}; returns the object only when it deserializes cleanly to a {@code Collection}, {@code Map},
+     * or one of the standalone utility types ({@code TimeUnit} / {@code java.sql.Timestamp}). Any
+     * failure (e.g. a raw {@code byte[]} value that coincidentally starts with the byte, or a container
+     * of classes the shim cannot load) returns {@code null} so the caller falls through.
+     */
+    private static Object tryDeserializeContainer(byte[] payload) {
+        try {
+            Object object = GeodeSerialization.deserializeObject(payload);
+            if (object instanceof java.util.Collection
+                    || object instanceof Map
+                    || object instanceof java.util.concurrent.TimeUnit
+                    || object instanceof java.sql.Timestamp) {
+                return object;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // not a clean container payload — fall through to the raw-byte-array path
+        }
         return null;
     }
 
