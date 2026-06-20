@@ -63,12 +63,19 @@ regenerating (e.g. a Geode version bump), run `TxCommitProbe`, copy the `0-regio
 - **Atomic commit** — all of a commit's writes land together or none do, via a Couchbase
   multi-document ACID transaction (validated by `commitIsAtomicWhenAnOperationFails`).
 
-## Known limitations (documented gaps)
+## In-transaction compare ops (supported)
 
-- **Per-region TTL is not applied to transactionally-committed writes** — Couchbase transactional
-  inserts/replaces do not carry per-document expiry. Non-transactional writes are unaffected.
-- **In-transaction compare ops** (`putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`,
-  `remove(k,v)`) buffer as a plain put/remove; their compare semantics are not evaluated within the
-  transaction.
-- **JTA `TX_SYNCHRONIZATION` (opcode 90)** and transaction failover are not handled.
+`putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`, and `remove(k,v)` inside a transaction honor their
+compare against the transaction's **effective view** (read-your-writes over committed state) and reply
+with the Geode-accurate old value / boolean — `putIfAbsent` won't overwrite an existing key, `replace`
+won't create an absent one, and `remove(k,v)` respects the value. The compare is evaluated at buffer
+time against the current snapshot (a bounded approximation of Geode's optimistic commit-time conflict
+check). Validated by `ProtoGemCouchTransactionIntegrationTest`.
+
+## Known limitations (documented, bounded gaps)
+
+- **Per-region TTL is not applied to transactionally-committed writes** — a Couchbase ACID transaction
+  carries no per-document expiry. Non-transactional writes are unaffected; rooted in the backend.
+- **JTA `TX_SYNCHRONIZATION` (opcode 90)** is not handled (only sent by JTA-coordinated transactions),
+  and **transaction failover** is out of scope for the per-connection buffered tx model.
 - The committing-member identity in the commit reply is a fixed shim identity, not the client's.
