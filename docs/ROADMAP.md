@@ -313,10 +313,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   `size`, and `keySet` (all see the tx's own buffered writes/removes). **Commit is atomic** — all
   value docs + affected keyset metadata are applied in one Couchbase multi-document ACID transaction,
   so a failed op rolls the whole commit back (validated by `commitIsAtomicWhenAnOperationFails`). See
-  `docs/TRANSACTIONS.md`. **Remaining:** per-region TTL is not applied to transactionally-committed
-  writes (no per-op expiry in Couchbase transactions); transactional putIfAbsent/replace/remove(k,v)
-  buffer as plain put/remove (no in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and
-  tx failover are not handled.
+  `docs/TRANSACTIONS.md`. **In-tx compare semantics DONE:** transactional `putIfAbsent` / `replace` /
+  `replace(k,old,new)` / `remove(k,v)` now honor their compare against the transaction's effective view
+  (read-your-writes over committed state) and reply with the Geode-accurate old value / boolean — so
+  `putIfAbsent` won't overwrite an existing key, `replace` won't create an absent one, and `remove(k,v)`
+  respects the value, all inside a tx (validated by `ProtoGemCouchTransactionIntegrationTest`, 5 cases).
+  The compare is evaluated at buffer time against the current snapshot (a bounded approximation of
+  Geode's optimistic commit-time conflict check). **Remaining:** per-region TTL is not applied to
+  transactionally-committed writes (no per-op expiry in a Couchbase ACID transaction); JTA
+  `TX_SYNCHRONIZATION` (opcode 90) and tx failover are not handled.
 - [x] **Continuous Queries (CQ)** — registration + event delivery. **P1 DONE**: EXECUTECQ (42)
   compiles the OQL with the shim's own `OqlQuery` and registers it per client; matching PUT/REMOVE
   push CQ events (LOCAL_CREATE/UPDATE/DESTROY with the `[numCqElems, cqName, cqOp]` section) to the

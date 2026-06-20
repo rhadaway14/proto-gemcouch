@@ -92,6 +92,60 @@ class ProtoGemCouchTransactionIntegrationTest {
     }
 
     @Test
+    void txPutIfAbsentOnExistingKeyReturnsPriorValueAndDoesNotOverwrite() {
+        region.put("k", "orig"); // committed before the tx
+        txMgr.begin();
+        Object prior = region.putIfAbsent("k", "new");
+        txMgr.commit();
+
+        assertEquals("orig", prior, "putIfAbsent in a tx returns the existing value");
+        assertEquals("orig", region.get("k"), "putIfAbsent in a tx must not overwrite an existing key");
+    }
+
+    @Test
+    void txReplaceOnAbsentKeyDoesNothing() {
+        txMgr.begin();
+        Object prior = region.replace("absent", "v");
+        txMgr.commit();
+
+        assertNull(prior, "replace in a tx returns null when the key is absent");
+        assertNull(region.get("absent"), "replace in a tx must not create an absent key");
+    }
+
+    @Test
+    void txReplaceOnExistingKeyReplacesAndReturnsPrior() {
+        region.put("k", "a");
+        txMgr.begin();
+        Object prior = region.replace("k", "b");
+        txMgr.commit();
+
+        assertEquals("a", prior, "replace in a tx returns the prior value");
+        assertEquals("b", region.get("k"), "replace in a tx updates an existing key");
+    }
+
+    @Test
+    void txRemoveWithWrongValueDoesNotRemove() {
+        region.put("k", "x");
+        txMgr.begin();
+        boolean removed = region.remove("k", "wrong");
+        txMgr.commit();
+
+        assertTrue(!removed, "remove(k,v) in a tx returns false on a value mismatch");
+        assertEquals("x", region.get("k"), "remove(k,v) in a tx must not remove on a value mismatch");
+    }
+
+    @Test
+    void txRemoveWithMatchingValueRemoves() {
+        region.put("k", "y");
+        txMgr.begin();
+        boolean removed = region.remove("k", "y");
+        txMgr.commit();
+
+        assertTrue(removed, "remove(k,v) in a tx returns true on a value match");
+        assertNull(region.get("k"), "remove(k,v) in a tx removes the entry on a value match");
+    }
+
+    @Test
     void containsKeyReflectsBufferedWritesInsideTransaction() {
         region.put("base", "b"); // committed outside the transaction
 

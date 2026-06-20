@@ -8,6 +8,11 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **In-transaction compare semantics** — `putIfAbsent` / `replace` / `replace(k,old,new)` / `remove(k,v)`
+  inside a client transaction now honor their compare against the transaction's effective view
+  (read-your-writes over committed state) and return the Geode-accurate old value / boolean, instead of
+  buffering as a plain put/remove. So `putIfAbsent` won't overwrite, `replace` won't create, and
+  `remove(k,v)` respects the value — all inside a tx. Validated against a real Geode 1.15 client.
 - **CQ completeness** — each of a client's matching continuous queries now fires for a single mutation
   (multiple CQs per event), client-side `CqQuery.getStatistics()` counts the delivered events, and
   **durable CQs** are supported: a durable client's CQ is retained across disconnect and CQ events that
