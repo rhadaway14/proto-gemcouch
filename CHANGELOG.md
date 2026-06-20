@@ -7,6 +7,18 @@ minor versions as parity expands.
 
 ## [Unreleased]
 
+### Security
+- **Gadget-safe deserialization of untrusted client values (CWE-502)** — the shim deserializes a
+  client's Java-serialized value only to check whether it is a `Map`/`Collection` for queryability, but
+  a gadget chain executes during `readObject` regardless. That deserialization is now constrained two
+  ways (`SafeDeserialization`): the shim's own `ObjectInputStream` runs under a **strict allowlist**
+  filter (only `java.lang`/`java.util`/`java.math`/`java.time` container/scalar types; any application
+  class is rejected and the value is preserved opaquely) with depth/reference/array bounds, and a
+  **process-wide gadget-blocklist** serialization filter is installed at startup (covering Geode's
+  internal `DataSerializer` deserialization too) while deferring to an operator-provided
+  `jdk.serialFilter`. Validated by `SafeDeserializationTest`; normal value/round-trip/transaction
+  integration tests confirm legitimate deserialization is unaffected. See `docs/SECURITY.md`.
+
 ### Fixed
 - **Container-aware bounded heap** — the runtime image now starts the JVM with
   `-XX:MaxRAMPercentage=75.0` and the docker-compose shim sets `mem_limit: 1g`. Previously the image set

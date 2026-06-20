@@ -1,8 +1,5 @@
 package com.protogemcouch.serialization;
 
-import java.io.ByteArrayInputStream;
-import java.io.ObjectInputStream;
-
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
@@ -1548,11 +1545,9 @@ public final class ValueDecoding {
     }
 
     private static Object deserializeJavaObject(byte[] payload, int offset, int length) {
-        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(payload, offset, length))) {
-            return in.readObject();
-        } catch (Throwable ignored) {
-            return null;
-        }
+        // Untrusted client bytes: run under the strict allowlist filter (CWE-502 guard). The result is
+        // only inspected for its type, so a rejected (non-JDK / gadget) class degrades to opaque.
+        return SafeDeserialization.deserialize(payload, offset, length);
     }
 
     // The structured/queryable supported-value rules (recursive over nested Map/Object[]/List plus

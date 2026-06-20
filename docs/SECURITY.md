@@ -225,6 +225,13 @@ These guards are observable via `protogemcouch_connections_rejected_total`,
 and `protogemcouch_requests_shed_total`. Set `MAX_CONNECTIONS` to a value matched to the shim's
 resources, and keep the idle and first-request timeouts enabled on untrusted networks.
 
+**PDX type/enum registry growth.** To decode PDX values the shim remembers every PDX type and enum a
+client registers (as Geode itself does); the registry is in-memory and not evicted, so a client that
+registers a very large number of *distinct* PDX types grows it over time. Each registration is a normal
+op bounded by the frame-validation limits above, and the bounded container heap caps the blast radius
+(the process is memory-limited, not crash-prone); treat it as the same class as a client writing a lot
+of data, and keep `MAX_CONNECTIONS` / network exposure restricted on untrusted networks.
+
 The idle timeout reaps inactive connections; the first-request deadline additionally closes
 slowloris-style connections that stay technically active by trickling bytes without ever completing
 a request (which would otherwise keep resetting the idle timer). Together they bound both idle and
@@ -271,6 +278,35 @@ decoder never throws, hangs, or over-allocates and emits only self-consistent fr
 
 Tune the limits down to the smallest values that comfortably fit legitimate traffic for your
 deployment to reduce the per-connection memory exposure further.
+
+---
+
+## Deserialization safety (untrusted client values)
+
+To decide whether a client value is queryable, the shim sometimes **deserializes** it — a
+Java-serialized value (Geode `DataSerializer` `SERIALIZABLE` code `0x2c`) is read back to check whether
+it is a `Map`/`Collection`. Deserializing untrusted bytes is a classic gadget-chain risk (CWE-502): a
+malicious payload can execute a chain during `readObject` regardless of how the result is used. Two
+layers constrain it (`com.protogemcouch.serialization.SafeDeserialization`):
+
+- **Strict allowlist on the shim's own deserialization.** Every `ObjectInputStream` the shim opens runs
+  under an `ObjectInputFilter` that permits **only** JDK container/scalar types
+  (`java.lang` / `java.util` / `java.math` / `java.time`, plus primitives and arrays of them) and
+  **rejects every application class** — where gadget chains live. A rejected value simply isn't treated
+  as a queryable map; it is preserved opaquely and round-trips unchanged. Depth/reference/array bounds
+  also cap resource use. Validated by `SafeDeserializationTest` (a JDK map deserializes; a non-JDK class,
+  and a JDK map carrying a non-JDK element, are rejected).
+- **Process-wide gadget blocklist (defense in depth).** At startup the shim installs a JVM-wide
+  serialization filter (`ObjectInputFilter.Config.setSerialFilter`) that blocks the well-known gadget
+  packages (commons-collections functors, BeanUtils, Groovy/Spring/Xalan/JNDI/RMI/scripting, …) for
+  **any** `ObjectInputStream` in the process — including the one Geode's `DataSerializer` uses
+  internally for a `SERIALIZABLE` element — while leaving all other classes allowed so Geode's own
+  serialization keeps working. It **defers to an operator-provided `jdk.serialFilter`**, so you can
+  tighten or replace the policy without code changes.
+
+Operators on untrusted networks who do not need Java-serialized client values queryable can tighten
+further by setting `-Djdk.serialFilter=!*` (reject all Java deserialization) — values still round-trip
+opaquely. PDX and the shim's native value encodings are unaffected (they do not use Java serialization).
 
 ---
 
@@ -394,8 +430,10 @@ ProtoGemCouch supports basic secure operational hygiene:
 - no secrets in source
 - no hardcoded passwords
 - redacted startup logging
-- non-root container runtime
+- non-root container runtime, container-aware bounded heap
 - simple health endpoints without sensitive payloads
+- inbound frame validation + connection resource guards
+- gadget-safe deserialization of untrusted client values (allowlist + process-wide gadget filter)
 - automated CI-based dependency and static code scanning
 
 Additional hardening is still recommended before broader production deployment.
