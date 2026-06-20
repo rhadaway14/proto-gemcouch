@@ -7,7 +7,21 @@ minor versions as parity expands.
 
 ## [Unreleased]
 
+### Fixed
+- **Top-level JDK collections no longer corrupt to `byte[]`** — a `LinkedList`, `HashSet`, `TreeMap`
+  (and the other standalone container DSCODEs: `HashTable`, `Vector`, `IdentityHashMap`,
+  `LinkedHashSet`, `Stack`, `TreeSet`, `ConcurrentHashMap`, plus `TimeUnit`/`Timestamp`) stored as a
+  top-level region value used to fall through to the raw-byte-array catch-all and come back to the
+  client as a `byte[]`. They are now preserved as opaque Geode values (exact bytes re-served so the
+  client deserializes the original container), gated by a trial deserialization so a genuine `byte[]`
+  value that merely starts with one of those marker bytes is not mis-tagged.
+
 ### Added
+- **Top-level value-type coverage validated** — the full value-type profile now has real-client
+  evidence of exact round-trip as a *top-level* region value (not only nested in a Map/PDX): the JDK
+  utility scalars (`UUID`/`BigInteger`/`BigDecimal`/JDK & custom `enum`/`Instant`/`LocalDate`/
+  `LocalDateTime`) and typed object arrays (`Integer[]`/`Long[]`/`Double[]`/`UUID[]`/`BigInteger[]`/
+  `Instant[]`/`enum[]`), via `ProtoGemCouchTopLevelValueTypeIntegrationTest`.
 - **Client-side cache callbacks validated** — a Geode client's `CacheLoader`, `CacheWriter`, and
   `CacheListener` compose correctly with the shim as backend: a `CacheLoader` fills a get-miss, a
   `CacheWriter` veto blocks a write from reaching the server while an allowed write propagates, and
