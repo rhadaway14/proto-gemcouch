@@ -569,7 +569,7 @@ ProtoGemCouch currently has a strong baseline for point, small-bulk, mixed, and 
 
 The current best launch-readiness statement is:
 
-> ProtoGemCouch is a scoped production candidate for applications whose required behavior is covered by the current supported operation set, especially workloads dominated by CRUD, small bulk operations, and currently validated metadata operations under known keyspace and deployment constraints.
+> ProtoGemCouch is production-ready (1.0.0 GA) within its scoped supported surface, especially for workloads dominated by CRUD, small bulk operations, and currently validated metadata operations under known keyspace and deployment constraints. (OQL is the heaviest path — a full region scan with no index — and is targeted for query pushdown in 1.1.0; see `docs/ROADMAP.md` and `docs/SOAK_RESULTS.md`.)
 
 It should still not be described as:
 

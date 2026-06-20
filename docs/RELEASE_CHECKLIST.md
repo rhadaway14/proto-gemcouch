@@ -18,7 +18,8 @@ This checklist is used before cutting a release tag, sharing a build, or declari
 - [ ] GitHub Actions Docker build workflow passes
 - [ ] `CHANGELOG.md` has a dated entry for this version (no stale "not supported" claims)
 - [ ] `docs/COMPATABILITY_MATRIX.md` contract reflects this version's supported surface + non-goals
-- [ ] Version chosen per semver (pre-1.0: minor bump for new parity, patch for fixes)
+- [ ] Version chosen per semver (post-1.0: **major** for breaking changes, **minor** for additive
+  features/parity, **patch** for fixes)
 
 > The `v*` tag triggers the release gate: `release-candidate.yml` (full `mvn verify` integration suite),
 > `docker-image.yml` (Trivy scan + SBOM + cosign signature), and `perf-gate.yml` (the automated

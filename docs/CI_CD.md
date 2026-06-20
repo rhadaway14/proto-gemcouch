@@ -4,14 +4,17 @@
 
 This document explains the GitHub Actions workflows used by ProtoGemCouch for continuous integration and basic delivery readiness.
 
-The current CI/CD setup is focused on:
-- building the project
-- running tests
-- validating Docker image builds
-- submitting dependency metadata
-- running static security analysis
+The current CI/CD setup covers:
+- building the project and running unit + Docker-backed integration tests
+- building, vulnerability-scanning (Trivy), SBOM/provenance-attesting, and **keyless cosign-signing**
+  the Docker image, and publishing it on default-branch pushes and `v*` tags
+- a signed release gate on `v*` tags: full `mvn verify`, the perf-regression gate, and the image
+  scan/sign/publish (see `docs/RELEASE_CHECKLIST.md`)
+- static security analysis (CodeQL) and dependency metadata submission
 
-It is not yet a full automated deployment pipeline.
+It automates continuous integration and the **release/publish** pipeline. It does **not** perform
+continuous *deployment* (automatic rollout to running environments) — deployment is operator-driven via
+the Helm chart / Docker Compose.
 
 ---
 

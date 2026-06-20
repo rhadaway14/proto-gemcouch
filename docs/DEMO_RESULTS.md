@@ -395,38 +395,10 @@ Large collection count-boundary behavior
 Docker-backed integration environment
 ```
 
-Not yet validated:
-
-```text
-Nested Object[] inside structured Map<String,Object>
-Nested POJO inside structured Map<String,Object>
-Nested ArrayList<Object> inside structured Map<String,Object>
-Nested wrapper / utility arrays inside structured Map<String,Object>
-Nested opaque standalone utility values inside structured Map<String,Object>
-Nested PDX / PdxInstance inside structured Map<String,Object>
-DataSerializable
-Full PDX registry discovery / broader PDX server semantics
-Queries
-Transactions
-Continuous queries
-Interest registration
-Server-side functions
-High-concurrency load testing against the current PDX/boundary baseline
-```
-
-## Suggested Next Demo Target
-
-```text
-observability hardening
-```
-
-Suggested demo additions:
-
-```text
-/metrics/json endpoint
-operation counters
-success/error counts
-latency tracking
-response byte-size tracking
-Prometheus-format /metrics endpoint
-```
+> **Historical demo snapshot.** Everything that was "not yet validated" at the time of this demo —
+> nested complex values inside `Map<String,Object>`, DataSerializable, full PDX registry discovery,
+> queries, transactions, continuous queries, interest registration, and high-concurrency/soak testing —
+> has since been validated and shipped in the 1.0.0 GA (server-side functions remain a documented
+> non-goal). The observability additions suggested below also shipped (Prometheus `/metrics`,
+> `/metrics/json`, operation/error/latency/byte-size counters, Grafana, Alertmanager, tracing). See
+> `docs/COMPATABILITY_MATRIX.md` for the current contract and `docs/ROADMAP.md` for the 1.1.0 backlog.

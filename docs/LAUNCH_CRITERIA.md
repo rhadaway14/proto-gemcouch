@@ -40,28 +40,31 @@ This document defines the minimum criteria required before ProtoGemCouch can be 
 
 ## Current assessed status
 
-**Current recommendation: Level 3 — Scoped production candidate**
+**Current status: Level 4 — Production ready. ProtoGemCouch 1.0.0 GA shipped 2026-06-20** (within the
+scoped compatibility surface in `docs/COMPATABILITY_MATRIX.md`; the documented non-goals remain
+non-goals — this is a scoped shim, not a drop-in native Geode server).
 
-ProtoGemCouch now demonstrates:
+The Level 4 criteria are met:
 
-- stable CRUD-style and bulk-style behavior for the current supported operation set
-- broad typed value compatibility coverage
-- PDX / `PdxInstance` round-trip coverage
-- large collection boundary coverage for `keySetOnServer`, `getAll`, and `putAll/getAll`
-- repeatable Docker and Docker Compose deployment
-- automated local Couchbase initialization
-- structured logging, startup validation, health/readiness endpoints, JSON metrics, Prometheus metrics, and request/response byte-size metrics
-- compatibility, deployment, limitation, and launch documentation
-- fast unit tests for risky response-writer byte-shape behavior
-- Docker-backed real-client integration validation
+- **Deployment hardened** — JRE-only image pinned by digest, non-root, container-aware bounded heap,
+  graceful SIGTERM drain; Docker Compose + a Helm chart (multi-replica, PDB, RollingUpdate).
+- **Security posture reviewed** — frame-validation/resource guards, TLS/mTLS, externalized/file-mounted
+  secrets, gadget-safe deserialization (CWE-502), and a security re-review of the expanded surface
+  (`docs/SECURITY.md`).
+- **Release process established** — semver, dated CHANGELOG, `docs/RELEASE_CHECKLIST.md`, and a signed
+  `v*` release pipeline (full `mvn verify` + Trivy/SBOM/cosign + perf-gate); 1.0.0-rc1 → 1.0.0 cut green.
+- **Rollback tested** — stateless replicas behind Couchbase; chaos/rolling-restart validated
+  (`ProtoGemCouchChaosIntegrationTest`).
+- **Runbooks complete** — `docs/RUNBOOK.md`; **monitoring + alerting complete** — Prometheus metrics +
+  Grafana dashboards + Alertmanager + OpenTelemetry tracing + Loki logs.
 
-Still open before a broader Level 4 / general-purpose production claim:
+It also demonstrates: stable CRUD/bulk behavior, broad typed-value + PDX (incl. schema evolution +
+registry discovery) coverage, transactions + CQ + subscriptions, OQL, full-surface soak evidence
+(`docs/SOAK_RESULTS.md`), and Docker-backed real-Geode-1.15-client integration validation.
 
-- high-concurrency and soak validation against the latest PDX/boundary/observability baseline
-- stronger transport/security hardening
-- final target-application opcode review
-- formal support and operational handoff
-- optional Prometheus histogram buckets, deeper latency decomposition, and refreshed performance/soak evidence
+Out of scope by design (not gaps): a general-purpose / fully-native Geode-server compatibility claim,
+and server-side execution of user code (functions, server-side cache callbacks). Post-1.0 parity and
+performance work is tracked in `docs/ROADMAP.md` (the 1.1.0 backlog).
 
 ---
 
@@ -352,7 +355,7 @@ Current status:
 
 ProtoGemCouch is ready to be described as:
 
-> **A scoped production candidate for applications whose required behavior is covered by the currently supported CRUD, bulk, key metadata, typed value, and PDX compatibility subset, with repeatable containerized deployment, machine-checkable health/readiness, JSON and Prometheus metrics endpoints, and Docker-backed real-client integration tests.**
+> **A production-ready (1.0.0 GA), scoped Geode/GemFire-to-Couchbase compatibility shim for applications whose required behavior is covered by its validated surface (CRUD, bulk, key-metadata, typed values, OQL, transactions, CQ/subscriptions, PDX), with hardened containerized deployment (Docker Compose + Helm), TLS/mTLS, machine-checkable health/readiness, Prometheus metrics + Grafana/Alertmanager + tracing, a signed release pipeline, and Docker-backed real-Geode-client integration tests.**
 
 It should not yet be described as:
 

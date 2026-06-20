@@ -7,46 +7,35 @@ The goal is to let an existing Java Geode client application change only its con
 
 ## Current Status
 
-```text
-standalone-utility-value-support-complete
-```
+**ProtoGemCouch 1.0.0 — first general-availability release (2026-06-20).** The authoritative, maintained
+references are:
 
-Latest verification:
+- `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals
+- `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*
+- `CHANGELOG.md` — released history; `docs/ROADMAP.md` — the post-1.0 (1.1.0) backlog
 
-```powershell
-mvn clean test
-mvn clean verify "-Dtest=ProtoGemCouchSerializationIntegrationTest"
-```
+This file is a feature/encoding overview; where it disagrees with the matrix, the matrix wins.
 
-Latest Docker-backed integration result:
-
-```text
-ProtoGemCouchCrudIntegrationTest
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-
-ProtoGemCouchSerializationIntegrationTest
-Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
-
-Total:
-Tests run: 110, Failures: 0, Errors: 0, Skipped: 0
-
-BUILD SUCCESS
-```
+Verification: `mvn -o test` (574 unit tests + coverage gate) and `mvn -o verify` (Docker-backed,
+real-Geode-1.15-client integration suite, 257 tests). The signed `v*` release pipeline runs the full
+`mvn verify`, the perf-regression gate, and a Trivy/SBOM/cosign image publish.
 
 ## Supported Operations
 
+See `docs/COMPATABILITY_MATRIX.md` for the full contract. In brief, the validated surface includes:
+
 ```text
-connect / handshake
-region access
-put
-get
-putAll
-getAll
-remove
-containsKey
-sizeOnServer
-keySetOnServer
-unknown opcode logging
+connect / handshake (+ protocol-version negotiation)
+get / put / remove / containsKey / getEntry (in-transaction) / invalidate
+putAll / getAll
+sizeOnServer / keySetOnServer
+clear / destroyRegion
+OQL queries (WHERE / projection / ORDER BY / paging / parameters, incl. PDX field access)
+transactions (begin / commit / rollback, read-your-writes, atomic commit)
+continuous queries (CQ) + register-interest subscriptions (server-pushed events)
+PDX (incl. schema evolution + registry discovery)
+durable subscription clients (single-instance)
+graceful rejection of server-side functions; unknown-opcode logging
 ```
 
 ## Supported Value Types
@@ -454,27 +443,21 @@ GET_ALL VersionedObjectList-compatible responses
 Docker-backed integration verification
 ```
 
-Not yet implemented or validated:
+Since this snapshot was written, the validated surface has expanded well beyond the list above —
+DataSerializable, PDX (incl. schema evolution + registry discovery), transactions, OQL queries,
+continuous queries, register-interest subscriptions, region lifecycle, nested complex values inside
+`Map<String,Object>`, and full-surface soak testing are all covered. See
+`docs/COMPATABILITY_MATRIX.md` for the current contract.
+
+Out of scope by design (documented non-goals — see `docs/CURRENT_LIMITATIONS.md`):
 
 ```text
-Nested Object[] inside structured Map<String,Object>
-Nested Serializable POJO inside structured Map<String,Object>
-Nested ArrayList<Object> inside structured Map<String,Object>
-Nested wrapper / utility arrays inside structured Map<String,Object>
-Nested opaque standalone utility values inside structured Map<String,Object>
-DataSerializable
-PDX / PdxInstance
-Transactions
-Queries
-Continuous queries
-Interest registration
-Partitioned region metadata behavior
-Server-side functions
-High-concurrency load and soak testing
+Server-side execution of user code (functions; server-side cache callbacks)
+Full native Geode-server wire parity / general-purpose drop-in replacement
+Field-level querying of customer Serializable POJOs / DataSerializable (no schema without the classes)
 ```
 
-## Next Target
+## Next
 
-```text
-nested opaque values inside HashMap<String,Object>
-```
+Post-1.0 work is tracked in `docs/ROADMAP.md` (the 1.1.0 backlog): OQL query pushdown (performance),
+in-memory registry observability + bounds, and PDX nested/object/array field querying.

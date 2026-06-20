@@ -1,5 +1,10 @@
 # ProtoGemCouch PRODUCTION READINESS PLAN
 
+> **Status: COMPLETE — production-readiness achieved; ProtoGemCouch 1.0.0 GA shipped 2026-06-20.**
+> This document is retained as the historical plan that drove the road to 1.0. For current status see
+> `docs/LAUNCH_CRITERIA.md` (Level 4 assessment), `docs/COMPATABILITY_MATRIX.md` (supported surface),
+> `docs/SOAK_RESULTS.md` (capacity/soak evidence), and `docs/ROADMAP.md` (the post-1.0 / 1.1.0 backlog).
+
 ## Summary
 
 `ProtoGemCouch` has achieved a successful end-to-end compatibility milestone for core operations and a broad supported type profile.
