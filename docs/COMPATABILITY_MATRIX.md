@@ -20,6 +20,29 @@ Operators who have validated additional wire-compatible Geode versions in their 
 widen the allowlist via `SUPPORTED_VERSION_ORDINALS` (comma-separated ordinals). (Capture a new
 client's ordinal with `com.protogemcouch.tools.HandshakeCapture`.)
 
+**Geode client protocol version → ordinal** (authoritative, from `KnownVersion`; the value the shim
+reads from the handshake). The protocol ordinal is per **minor** release — every patch within a minor
+(e.g. all of 1.15.x) shares it, so cross-patch interop is guaranteed and validated implicitly by the
+whole 1.15.x integration suite.
+
+| Geode version | ordinal | | Geode version | ordinal |
+| --- | --- | --- | --- | --- |
+| 8.1 | 35 | | 1.10.0 | 105 |
+| 9.0 | 45 | | 1.11.0 | 110 |
+| 1.1.x | 50–55 | | 1.12.0 / 1.12.1 | 115 / 116 |
+| 1.2.0 | 65 | | 1.13.0 / 1.13.2 | 120 / 121 |
+| 1.3.0–1.9.0 | 70–100 | | 1.14.0 | 125 |
+| | | | **1.15.x (validated)** | **150** |
+
+Ordinals ≤ 127 are sent as a single handshake byte; larger ordinals (1.15.x = 150) use a `0xFF` token
++ 2-byte short. The accept/refuse decision is matrix-tested across the entire table
+(`HandshakeVersionMatrixTest`), and refusal of a lower-version client is validated end-to-end against
+the live shim by replaying a real handshake with the ordinal swapped to 1.14
+(`ProtoGemCouchVersionNegotiationIntegrationTest`). **Caveat for widening:** the shim does not do
+versioned serialization — it emits the 1.15.x wire forms — so adding a lower minor to the allowlist is
+only safe where that version's wire forms match; validate with `scripts/cross-version-matrix.sh` (which
+runs the core suite under a chosen client `geode.version`) before relying on it.
+
 **Supported client surface** (all validated end-to-end against a real Geode client):
 ```text
 core entry ops:        get, put, remove, containsKey, containsValueForKey, getEntry
