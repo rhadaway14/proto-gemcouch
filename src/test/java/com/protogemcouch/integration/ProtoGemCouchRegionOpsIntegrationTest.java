@@ -6,7 +6,6 @@ import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -80,18 +79,17 @@ class ProtoGemCouchRegionOpsIntegrationTest {
         assertFalse(region.containsKeyOnServer("b"));
     }
 
-    @Disabled("Follow-up: Region.getEntry expects a serialized Geode EntrySnapshot object in the "
-            + "reply (the client casts part[0] to internal.cache.EntrySnapshot); returning a raw value "
-            + "yields a null entry value. Needs EntrySnapshot serialization. invalidate + clear are done.")
     @Test
-    void getEntryReturnsValueOrNull() {
+    void getEntryOutsideTransactionIsClientLocalAndReturnsNull() {
+        // A non-transactional getEntry on a client PROXY region is served locally and never reaches the
+        // server (verified against a real Geode server: it emits no wire traffic), so it returns null
+        // even for a key the server holds. getEntry only hits the server inside a transaction — that
+        // path (the serialized EntrySnapshot reply, opcode 89) is covered by
+        // ProtoGemCouchTransactionIntegrationTest.
         String key = "ge-" + UUID.randomUUID();
         region.put(key, "v");
 
-        Region.Entry<String, Object> entry = region.getEntry(key);
-        assertEquals("v", entry == null ? null : entry.getValue(), "getEntry returns the value");
-
-        assertNull(region.getEntry("absent-" + UUID.randomUUID()), "getEntry returns null for an absent key");
+        assertNull(region.getEntry(key), "non-tx getEntry on a proxy region is client-local (null)");
     }
 
     private static void waitForReady(String url, Duration timeout) {

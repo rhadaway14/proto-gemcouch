@@ -26,10 +26,13 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.REMOVE, new RemoveHandler(repository, transactions, subscriptions));
         registry.register(MessageTypes.COMMIT, new CommitHandler(repository, transactions));
         registry.register(MessageTypes.ROLLBACK, new RollbackHandler(transactions));
+        // TX_FAILOVER (88): single-hop clients nominate the tx host before a transactional getEntry;
+        // the single-backend shim is always the host, so ack it (else the client spins and the read hangs).
+        registry.register(MessageTypes.TX_FAILOVER, new TxFailoverHandler());
         registry.register(MessageTypes.INVALIDATE, new InvalidateHandler(repository, subscriptions));
         registry.register(MessageTypes.CLEAR_REGION, new ClearHandler(repository));
         registry.register(MessageTypes.DESTROY_REGION, new DestroyRegionHandler(repository));
-        registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository));
+        registry.register(MessageTypes.GET_ENTRY, new GetEntryHandler(repository, transactions));
         // One PDX-aware field resolver shared by the QUERY path and CQ predicate matching, so an OQL
         // predicate on a PDX object field resolves identically whether one-shot or continuous.
         PdxAwareFieldResolver pdxFieldResolver = new PdxAwareFieldResolver(pdxTypeRegistry);

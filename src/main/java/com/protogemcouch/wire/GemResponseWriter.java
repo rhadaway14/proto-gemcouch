@@ -591,6 +591,62 @@ public final class GemResponseWriter {
         );
     }
 
+    /*
+     * GET_ENTRY (opcode 89, only sent inside a client transaction) reply. Captured from a real Geode
+     * 1.15.1 server (tools/GetEntryCapture): a RESPONSE with two parts. For a present key, part[0] is a
+     * DataSerializer-serialized org.apache.geode.internal.cache.EntrySnapshot and part[1] is a 4-byte
+     * int 0; for an absent key, part[0] is the null object (empty) and part[1] is the int 8 (the
+     * client's GetEntryOp returns null, so Region.getEntry yields null).
+     *
+     * The EntrySnapshot object is a plain DataSerializable: DSCODE.DATA_SERIALIZABLE (0x2d), then
+     * DSCODE.CLASS (0x2b) + the class-name string, then EntrySnapshot.toData — a leading boolean
+     * (allowTombstones), writeObject(key), writeObject(value), writeLong(lastModified),
+     * writeBoolean(isRemoved), writeObject(versionTag). We send lastModified=0 and a null versionTag
+     * (the captured server reply did the same for a partitioned-region entry); the client reads the
+     * key and value back intact.
+     */
+    private static final byte[] ENTRY_SNAPSHOT_PREFIX = ByteUtils.hex(
+            "2d2b57002d6f72672e6170616368652e67656f64652e696e7465726e616c2e63616368652e456e747279536e617073686f74");
+
+    /** GET_ENTRY reply for a present key: a serialized EntrySnapshot(key, value) + a trailing int 0. */
+    public static byte[] buildGetEntryResponse(int txId, String key, StoredValue value) {
+        ByteBuf obj = Unpooled.buffer();
+        byte[] payload;
+        try {
+            obj.writeBytes(ENTRY_SNAPSHOT_PREFIX);
+            obj.writeByte(0x00);                                    // allowTombstones = false
+            obj.writeBytes(ValueEncoding.encodeGeodeStringValue(key)); // writeObject(key)
+            obj.writeBytes(encodeStoredValueForGetAll(value));         // writeObject(value)
+            obj.writeLong(0L);                                      // lastModified
+            obj.writeByte(0x00);                                    // isRemoved = false
+            obj.writeByte(GEODE_NULL_CODE);                         // versionTag = null
+            payload = toByteArrayAndRelease(obj);
+        } catch (RuntimeException e) {
+            obj.release();
+            throw e;
+        }
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(
+                        new Part(payload, (byte) 1),
+                        new Part(new byte[] {0x00, 0x00, 0x00, 0x00}, (byte) 0)
+                )
+        );
+    }
+
+    /** GET_ENTRY reply for an absent key: a null object part + a trailing int 8 (client returns null). */
+    public static byte[] buildGetEntryNotFoundResponse(int txId) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(
+                        new Part(new byte[0], (byte) 0),
+                        new Part(new byte[] {0x00, 0x00, 0x00, 0x08}, (byte) 0)
+                )
+        );
+    }
+
     public static byte[] buildPutResponse(int txId) {
         return buildMessage(
                 MessageTypes.REPLY,

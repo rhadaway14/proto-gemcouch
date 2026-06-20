@@ -244,24 +244,26 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   both the single-hop-on and single-hop-off part slots → client raises EntryNotFoundException →
   `false`). Proven end-to-end by `ProtoGemCouchAtomicOpsIntegrationTest` (7 tests) + repository
   contract unit tests.
-- [~] `invalidate` / `getEntry` / `clear`. **`invalidate` and `clear` done & validated** against a
-  real Geode client (`ProtoGemCouchRegionOpsIntegrationTest`): `invalidate` (op 83) keeps the key but
-  drops the value (value-less marker, key retained in the keyset); `clear` (op 36) removes every entry
-  and clears the region's keyset metadata. **`getEntry` (op 89) is a follow-up** — the client casts
-  the reply object to Geode's *internal* `EntrySnapshot` (a `DataSerializableFixedID`), so unlike the
-  documented protocol replies it requires reproducing Geode's internal object wire form. Recipe
-  reverse-engineered so far (for when it's picked up):
-    - reply part[0] = `DataSerializer.writeObject(EntrySnapshot)` = DSFID framing
-      (`DSCODE.DS_FIXED_ID_BYTE=1` or `DS_FIXED_ID_SHORT=2` + the `EntrySnapshot` fixed id — **still to
-      confirm**) followed by `toData`;
-    - `EntrySnapshot.toData` = `writeBoolean(flag)` then `NonLocalRegionEntry.toData` inline:
-      `writeObject(key)`, `writeObject(value)`, `writeLong(lastModified)`, `writeBoolean(isRemoved)`,
-      `writeObject(versionTag)`;
-    - building blocks exist: `ValueEncoding.encodeGeodeStringValue` is `writeObject(String)`; a null
-      versionTag is `DSCODE.NULL=41`.
-    Remaining unknowns (need a docker validation pass): the `EntrySnapshot` fixed-id value, the
-    leading boolean's meaning, and whether a null versionTag is accepted. Captured in the disabled
-    `getEntryReturnsValueOrNull` test. Low ROI for a rarely-used op vs. the internal-serialization risk.
+- [x] `invalidate` / `getEntry` / `clear`. All three done & validated against a real Geode client.
+  `invalidate` (op 83) keeps the key but drops the value (value-less marker, key retained in the
+  keyset); `clear` (op 36) removes every entry and clears the region's keyset metadata
+  (`ProtoGemCouchRegionOpsIntegrationTest`). **`getEntry` (op 89) done** — the byte shape was captured
+  from a real Geode 1.15.1 server (`tools/GetEntryCapture`) and reproduced exactly. Key findings:
+    - A non-transactional `getEntry` on a client PROXY region is served **locally** and never reaches
+      the server (the capture showed zero wire traffic), so opcode 89 is only sent **inside a client
+      transaction**. The handler therefore honors read-your-writes against the tx buffer.
+    - The present-key reply is a serialized `EntrySnapshot` written as a plain `DataSerializable`:
+      `DSCODE.DATA_SERIALIZABLE (0x2d)` + `DSCODE.CLASS (0x2b)` + the class-name string, then
+      `EntrySnapshot.toData` — a leading `allowTombstones` boolean, `writeObject(key)`,
+      `writeObject(value)`, `writeLong(lastModified=0)`, `writeBoolean(isRemoved=false)`, and a null
+      versionTag (`DSCODE.NULL=0x29`); part[1] is an int 0. The absent-key reply is a null object part
+      + int 8 (the client returns `null`). `GemResponseWriter.buildGetEntryResponse` /
+      `buildGetEntryNotFoundResponse` reproduce both **byte-for-byte** vs. the real server
+      (`GetEntryResponseShapeTest`), golden-wire-locked, and validated end-to-end in
+      `ProtoGemCouchTransactionIntegrationTest` (present/absent/read-your-writes/buffered-remove).
+    - Surfaced and fixed an adjacent gap: a single-hop client (the default) sends `TX_FAILOVER`
+      (opcode 88) to nominate the tx host before the read; the shim's no-op partition metadata means
+      it always does, so `TxFailoverHandler` now acks it (else the read retries forever and hangs).
 - [~] Region lifecycle over the wire. **`destroyRegion` done** — `Region.destroyRegion()` (opcode 11,
   `DestroyRegionHandler`) removes the region's entries + keyset metadata and acks like `clear`; the
   schemaless shim re-materializes the region on the next write. Validated end-to-end against a real

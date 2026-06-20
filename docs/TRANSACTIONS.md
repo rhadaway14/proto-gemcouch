@@ -63,6 +63,25 @@ regenerating (e.g. a Geode version bump), run `TxCommitProbe`, copy the `0-regio
 - **Atomic commit** — all of a commit's writes land together or none do, via a Couchbase
   multi-document ACID transaction (validated by `commitIsAtomicWhenAnOperationFails`).
 
+## In-transaction `getEntry` (supported)
+
+`Region.getEntry(key)` is **client-local outside a transaction** — on a client `PROXY` region the
+client answers it without contacting the server (verified against a real Geode server: it sends no
+wire traffic and returns `null`). The `GET_ENTRY` opcode (89) is therefore only sent **inside a
+transaction**, where it honors read-your-writes against the transaction buffer: a buffered put is
+returned, a buffered remove reads as absent, otherwise committed storage is consulted. The present-key
+reply is a serialized Geode `EntrySnapshot` (so the client's `Entry.getValue()` returns the stored
+value) and the absent-key reply is a null object (the client returns `null`). Both replies are
+byte-identical to a real Geode 1.15.1 server (`tools/GetEntryCapture`, `GetEntryResponseShapeTest`)
+and validated end-to-end in `ProtoGemCouchTransactionIntegrationTest`.
+
+A single-hop-enabled client (the default) also sends **`TX_FAILOVER` (opcode 88)** to nominate the
+transaction-host server before that read. Because the shim's partition metadata is a graceful no-op,
+the client can't infer the host from metadata and always sends it; the single-backend shim is always
+the host, so `TxFailoverHandler` acks it with a plain REPLY (the shape `TXFailoverOp` expects). Without
+that ack the client retries `TX_FAILOVER` indefinitely and the transactional `getEntry` hangs even
+though the read itself is answered correctly.
+
 ## In-transaction compare ops (supported)
 
 `putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`, and `remove(k,v)` inside a transaction honor their
