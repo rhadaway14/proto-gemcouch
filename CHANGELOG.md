@@ -8,6 +8,12 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **Durable subscription clients (single-instance)** — a durable client (`durable-client-id`) that
+  disconnects now has its interest retained and its matching events queued in memory, replayed in order
+  on reconnect + `readyForEvents()`, and dropped if it doesn't return within its timeout. The handshake
+  parses the durable id (`DurableHandshakeParser`); `readyForEvents()` is opcode 53 (CLIENT_READY).
+  Validated against a real Geode 1.15 client. (Multi-replica durable persistence is a documented
+  follow-up.)
 - **Per-key subscription interest filtering** — register-interest now honors the interest *type*: a
   client that registers a specific key, a key list (`REGISTER_INTEREST_LIST`), or a regex
   (`registerInterestRegex`) receives server-pushed events only for matching keys, instead of every key

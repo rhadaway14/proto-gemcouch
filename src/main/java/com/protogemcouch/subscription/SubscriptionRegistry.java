@@ -51,6 +51,14 @@ public final class SubscriptionRegistry {
     public static final AttributeKey<String> CLIENT_ID =
             AttributeKey.valueOf("protogemcouch.subscription.clientId");
 
+    /** A durable client's stable durable id (parsed from the handshake), set on durable connections only. */
+    public static final AttributeKey<String> DURABLE_ID =
+            AttributeKey.valueOf("protogemcouch.subscription.durableId");
+
+    /** A durable client's requested durable-client-timeout (seconds). */
+    public static final AttributeKey<Integer> DURABLE_TIMEOUT =
+            AttributeKey.valueOf("protogemcouch.subscription.durableTimeout");
+
     private final Set<Channel> feeds = ConcurrentHashMap.newKeySet();
     // Per-client interest: client id -> region -> the interests that client registered there (the union
     // of all-keys / specific keys / regex). A feed receives an event only when one of its client's
@@ -71,6 +79,42 @@ public final class SubscriptionRegistry {
     // instanceId. Default is no-op (single-instance) — see EventBackplane.
     private final String instanceId = java.util.UUID.randomUUID().toString();
     private volatile EventBackplane backplane = new NoOpEventBackplane();
+
+    // Durable clients (single-instance first cut): when a durable client's feed disconnects we retain
+    // its interest and queue matching events in memory, replaying them on reconnect + CLIENT_READY, and
+    // dropping the queue if it doesn't return within its timeout. Multi-replica durable persistence
+    // (Couchbase-backed) is a documented follow-up. Keyed by durable id.
+    private static final int DURABLE_MAX_QUEUE = intEnv("DURABLE_MAX_QUEUE", 100_000);
+    private static final int DURABLE_DEFAULT_TIMEOUT_SECONDS = 300;
+    private final java.util.concurrent.ConcurrentMap<String, DurableState> durableClients = new ConcurrentHashMap<>();
+    private final java.util.concurrent.ScheduledExecutorService durableExpiry =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "pgc-durable-expiry");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** In-memory state for one durable client: its current feed (or null while away) + its event queue. */
+    private static final class DurableState {
+        volatile Channel liveFeed;        // current feed channel, or null while disconnected
+        volatile boolean ready;           // true after CLIENT_READY — only then is delivery live
+        volatile int timeoutSeconds = DURABLE_DEFAULT_TIMEOUT_SECONDS;
+        volatile java.util.concurrent.ScheduledFuture<?> expiry;
+        final java.util.concurrent.ConcurrentLinkedDeque<byte[]> pending = new java.util.concurrent.ConcurrentLinkedDeque<>();
+        final AtomicInteger pendingCount = new AtomicInteger();
+    }
+
+    private static int intEnv(String name, int fallback) {
+        String v = System.getenv(name);
+        if (v == null || v.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
 
     // A stable fabricated membership identity for events from this shim (used by the client only as an
     // opaque dedup/version key), plus monotonic counters for EventID sequence and entry/region versions.
@@ -140,15 +184,107 @@ public final class SubscriptionRegistry {
 
     public void addFeed(Channel channel) {
         feeds.add(channel);
-        channel.closeFuture().addListener(f -> {
-            feeds.remove(channel);
-            // When a client's feed closes, drop its interests and CQs (a client has one feed).
-            String clientId = channel.attr(CLIENT_ID).get();
-            if (clientId != null) {
-                interests.remove(clientId);
-                cqs.remove(clientId);
+        String durableId = channel.attr(DURABLE_ID).get();
+        if (durableId != null && !durableId.isBlank()) {
+            attachDurableFeed(durableId, channel);
+        }
+        channel.closeFuture().addListener(f -> onFeedClosed(channel));
+    }
+
+    private void onFeedClosed(Channel channel) {
+        feeds.remove(channel);
+        String durableId = channel.attr(DURABLE_ID).get();
+        if (durableId != null && !durableId.isBlank()) {
+            // Durable: keep interest + the event queue, detach the feed, and start the expiry timer.
+            DurableState state = durableClients.get(durableId);
+            if (state != null) {
+                synchronized (state) {
+                    if (state.liveFeed == channel) {
+                        state.liveFeed = null;
+                        state.ready = false;
+                    }
+                    scheduleDurableExpiry(durableId, state);
+                }
+                log.info(StructuredLog.event("durable_client_disconnected", "durableId", durableId,
+                        "queued", state.pendingCount.get(), "timeoutSeconds", state.timeoutSeconds));
             }
-        });
+            return;
+        }
+        // Non-durable: a client has one feed, so drop its interests and CQs on close.
+        String clientId = channel.attr(CLIENT_ID).get();
+        if (clientId != null) {
+            interests.remove(clientId);
+            cqs.remove(clientId);
+        }
+    }
+
+    /** Attach a (re)connecting durable client's feed: cancel any pending expiry; await CLIENT_READY. */
+    private void attachDurableFeed(String durableId, Channel channel) {
+        DurableState state = durableClients.computeIfAbsent(durableId, k -> new DurableState());
+        Integer timeout = channel.attr(DURABLE_TIMEOUT).get();
+        if (timeout != null && timeout > 0) {
+            state.timeoutSeconds = timeout;
+        }
+        synchronized (state) {
+            state.liveFeed = channel;
+            state.ready = false; // a reconnecting client re-calls readyForEvents() before live delivery
+            if (state.expiry != null) {
+                state.expiry.cancel(false);
+                state.expiry = null;
+            }
+        }
+        log.info(StructuredLog.event("durable_client_connected", "durableId", durableId,
+                "queued", state.pendingCount.get()));
+    }
+
+    private void scheduleDurableExpiry(String durableId, DurableState state) {
+        if (state.expiry != null) {
+            state.expiry.cancel(false);
+        }
+        state.expiry = durableExpiry.schedule(
+                () -> dropDurable(durableId), state.timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    private void dropDurable(String durableId) {
+        DurableState state = durableClients.remove(durableId);
+        if (state != null && state.liveFeed == null) {
+            interests.remove(durableId);
+            cqs.remove(durableId);
+            state.pending.clear();
+            log.info(StructuredLog.event("durable_client_expired", "durableId", durableId));
+        } else if (state != null) {
+            // Reconnected between expiry firing and now: keep it.
+            durableClients.put(durableId, state);
+        }
+    }
+
+    /**
+     * A reconnected durable client signalled readiness (CLIENT_READY): replay its queued events down the
+     * now-attached feed in order, then resume live delivery.
+     */
+    public void onClientReady(String durableId) {
+        if (durableId == null) {
+            return;
+        }
+        DurableState state = durableClients.get(durableId);
+        if (state == null) {
+            return;
+        }
+        Channel feed = state.liveFeed;
+        if (feed == null || !feed.isActive()) {
+            state.ready = true; // nothing to replay onto yet; live once a feed attaches
+            return;
+        }
+        sendMarkerIfNeeded(feed);
+        int replayed = 0;
+        byte[] msg;
+        while ((msg = state.pending.pollFirst()) != null) {
+            state.pendingCount.decrementAndGet();
+            feed.writeAndFlush(Unpooled.wrappedBuffer(msg));
+            replayed++;
+        }
+        state.ready = true;
+        log.info(StructuredLog.event("durable_client_replayed", "durableId", durableId, "events", replayed));
     }
 
     /** Register a continuous query for a client (region is the query's FROM region path). */
@@ -188,6 +324,12 @@ public final class SubscriptionRegistry {
 
     public void unregisterInterest(String clientId, String region) {
         if (clientId == null || region == null) {
+            return;
+        }
+        // A durable client sends UNREGISTER_INTEREST as part of its keepalive close, but its interest
+        // must be RETAINED across disconnect so events queue for replay; keep it until the durable
+        // timeout. (First-cut limitation: a durable client can't unregister interest mid-session.)
+        if (durableClients.containsKey(clientId)) {
             return;
         }
         java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>> byRegion = interests.get(clientId);
@@ -231,6 +373,12 @@ public final class SubscriptionRegistry {
         }
         for (Channel feed : feeds) {
             if (isInterested(feed.attr(CLIENT_ID).get(), region)) {
+                return true;
+            }
+        }
+        // Disconnected durable clients keep their interest so their events are queued for replay.
+        for (String durableId : durableClients.keySet()) {
+            if (isInterested(durableId, region)) {
                 return true;
             }
         }
@@ -433,6 +581,7 @@ public final class SubscriptionRegistry {
 
     private void pushToFeeds(byte[] message, String kind, String region, String key, String originClientId) {
         int sent = 0;
+        java.util.Set<String> liveClients = new java.util.HashSet<>();
         for (Channel channel : feeds) {
             if (!channel.isActive()) {
                 continue;
@@ -447,13 +596,51 @@ public final class SubscriptionRegistry {
             if (originClientId != null && originClientId.equals(feedClientId)) {
                 continue;
             }
+            // A durable feed delivers live only after CLIENT_READY; before that its events are queued
+            // (handled in the durable loop below) so they replay in order.
+            DurableState durable = feedClientId == null ? null : durableClients.get(feedClientId);
+            if (durable != null && !durable.ready) {
+                continue;
+            }
             // CLIENT_MARKER once per feed before its first live event (the GII boundary).
             sendMarkerIfNeeded(channel);
             channel.writeAndFlush(Unpooled.wrappedBuffer(message.clone()));
             sent++;
+            if (feedClientId != null) {
+                liveClients.add(feedClientId);
+            }
         }
-        log.info(StructuredLog.event(
-                "subscription_event_pushed", "kind", kind, "region", region, "key", key, "feeds", sent));
+        // Durable clients that are disconnected or attached-but-not-ready: queue the event for replay.
+        int queued = 0;
+        for (java.util.Map.Entry<String, DurableState> entry : durableClients.entrySet()) {
+            String durableId = entry.getKey();
+            DurableState state = entry.getValue();
+            if (state.ready && state.liveFeed != null) {
+                continue; // delivered live above
+            }
+            if (liveClients.contains(durableId) || !isInterestedInKey(durableId, region, key)) {
+                continue;
+            }
+            if (originClientId != null && originClientId.equals(durableId)) {
+                continue;
+            }
+            enqueueDurable(state, message.clone());
+            queued++;
+        }
+        log.info(StructuredLog.event("subscription_event_pushed", "kind", kind, "region", region,
+                "key", key, "feeds", sent, "durableQueued", queued));
+    }
+
+    private static void enqueueDurable(DurableState state, byte[] message) {
+        while (state.pendingCount.get() >= DURABLE_MAX_QUEUE) {
+            if (state.pending.pollFirst() != null) {
+                state.pendingCount.decrementAndGet(); // bounded: drop oldest under sustained overflow
+            } else {
+                break;
+            }
+        }
+        state.pending.addLast(message);
+        state.pendingCount.incrementAndGet();
     }
 
     private byte[] nextEventId() {

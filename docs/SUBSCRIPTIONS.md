@@ -134,6 +134,16 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     regex receives events only for matching keys (the `"ALL_KEYS"` sentinel / `.*` still means the whole
     region). Validated against a real Geode 1.15 client by `ProtoGemCouchInterestFilteringIntegrationTest`
     + `SubscriptionRegistryTest`. Per-key UNREGISTER granularity stays region-level (a documented tail).
+  - **P3 — durable clients DONE (single-instance).** A durable client presents a stable durable id (the
+    last Geode string in its handshake membership, parsed by `DurableHandshakeParser`) plus a timeout.
+    When its feed disconnects, the shim retains its interest and queues matching events in memory
+    (`DurableState`), replaying them in order on reconnect + `readyForEvents()` (CLIENT_READY = opcode
+    53, `ClientReadyHandler`), and dropping the queue if it doesn't return within the timeout. A durable
+    client's UNREGISTER-on-close is ignored so its interest survives the disconnect. Validated against a
+    real Geode 1.15 client by `ProtoGemCouchDurableClientIntegrationTest` + `DurableSubscriptionTest`.
+    **Deferred (documented):** multi-replica durable persistence — the queue surviving replica death or a
+    reconnect to a different replica (would be Couchbase-backed); a durable client can't unregister
+    interest mid-session; and the per-client wire timeout is honored but capped by `DURABLE_MAX_QUEUE`.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

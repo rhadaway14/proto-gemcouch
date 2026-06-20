@@ -508,10 +508,17 @@ public class RawShimServer {
                 buf.release();
 
                 int mode = inbound.length > 0 ? (inbound[0] & 0xff) : MODE_CLIENT_TO_SERVER;
-                // Stable client identity from the ClientProxyMembershipID bytes (identical across a
-                // client's op/control/feed connections; the mode byte + readTimeout before offset 10
-                // differ). Used for subscription self-event suppression.
-                if (inbound.length > 10) {
+                // Stable client identity. A DURABLE client presents its durable id (the last printable
+                // 0x57-string in the handshake — see DurableClientProbe), which is stable across
+                // reconnects, so we use it as the client id + mark the connection durable. A non-durable
+                // client uses the ClientProxyMembershipID bytes (identical across its op/control/feed
+                // connections). Used for self-event suppression and durable-queue retention.
+                DurableHandshakeParser.Durable durable = DurableHandshakeParser.parse(inbound);
+                if (durable != null) {
+                    ctx.channel().attr(com.protogemcouch.subscription.SubscriptionRegistry.CLIENT_ID).set(durable.id());
+                    ctx.channel().attr(com.protogemcouch.subscription.SubscriptionRegistry.DURABLE_ID).set(durable.id());
+                    ctx.channel().attr(com.protogemcouch.subscription.SubscriptionRegistry.DURABLE_TIMEOUT).set(durable.timeoutSeconds());
+                } else if (inbound.length > 10) {
                     String clientId = ByteBufUtil.hexDump(inbound, 10, inbound.length - 10);
                     ctx.channel().attr(com.protogemcouch.subscription.SubscriptionRegistry.CLIENT_ID).set(clientId);
                 }

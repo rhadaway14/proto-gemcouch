@@ -116,6 +116,7 @@ class GoldenWireResponseTest {
         m.put(MessageTypes.CLEAR_REGION, "remove-response.hex");
         m.put(MessageTypes.INVALIDATE, "remove-response.hex");
         m.put(MessageTypes.CONTROL, "simple-ack-response.hex");
+        m.put(MessageTypes.CLIENT_READY, "simple-ack-response.hex");
         m.put(MessageTypes.CONTAINS_KEY, "contains-true-response.hex");
         m.put(MessageTypes.SIZE, "size-response.hex");
         m.put(MessageTypes.KEY_SET, "keyset-response.hex");

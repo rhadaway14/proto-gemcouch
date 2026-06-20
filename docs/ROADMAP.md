@@ -356,8 +356,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   the interest type + key/regex/list (`Interest` matcher: all-keys / specific key / key-list / regex),
   so a feed receives only events whose key matches — validated against a real Geode 1.15 client
   (`ProtoGemCouchInterestFilteringIntegrationTest`: specific-key, regex, and key-list each deliver only
-  matching keys; ALL_KEYS still delivers everything). **Other P3 remaining:** durable clients,
-  redundancy/MAKE_PRIMARY, and PERIODIC_ACK draining / keepalive.
+  matching keys; ALL_KEYS still delivers everything). **Durable clients DONE (single-instance):** the
+  handshake parses the durable id (`DurableHandshakeParser` — the last Geode string in the membership) +
+  timeout; on a durable feed's disconnect the shim retains the client's interest and queues matching
+  events, replaying them in order on reconnect + `readyForEvents()` (CLIENT_READY, opcode 53 →
+  `ClientReadyHandler`), and drops the queue if the client doesn't return within its timeout. Validated
+  against a real Geode 1.15 client (`ProtoGemCouchDurableClientIntegrationTest`: an event made while the
+  durable client is disconnected is replayed on reconnect). Multi-replica durable persistence (the queue
+  surviving replica death / reconnect-to-any-replica via Couchbase) is the documented follow-up.
+  **Other P3 remaining:** redundancy/MAKE_PRIMARY and PERIODIC_ACK draining / keepalive.
 - [x] **Server-side functions — graceful rejection** (validated by
   `ProtoGemCouchFunctionIntegrationTest`). The shim has none of the user's `Function` classes, so it
   cannot *run* functions; it now rejects them the way a real server rejects an unregistered function
