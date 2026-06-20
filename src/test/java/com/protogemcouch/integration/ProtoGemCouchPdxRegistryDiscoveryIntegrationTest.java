@@ -4,61 +4,58 @@ import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.cache.client.Pool;
+import org.apache.geode.cache.client.PoolManager;
 import org.apache.geode.pdx.PdxInstance;
-import org.apache.geode.pdx.PdxInstanceFactory;
+import org.apache.geode.pdx.internal.EnumInfo;
+import org.apache.geode.pdx.internal.PdxType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.math.BigDecimal;
-import java.math.BigInteger;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
+/**
+ * Validates bulk PDX registry discovery end-to-end against the shim with a real Geode 1.15 client:
+ * after a client registers PDX types (and an enum) by writing PdxInstances, the client's own registry
+ * sync ops read every type/enum back. These ops (GET_PDX_TYPES 101 / GET_PDX_ENUMS 102 /
+ * GET_PDX_ENUM_BY_ID 98) have no clean public API trigger, so the test drives the real client
+ * {@code GetPDXTypesOp}/{@code GetPDXEnumsOp}/{@code GetPDXEnumByIdOp} directly — their
+ * {@code processResponse} parsers are the authoritative oracle for the shim's reply bytes.
+ */
 @Tag("integration")
-@EnabledIfSystemProperty(named = "pdx.discovery", matches = "true")
 class ProtoGemCouchPdxRegistryDiscoveryIntegrationTest {
-    private static final String DEFAULT_HOST = "127.0.0.1";
-    private static final int DEFAULT_SHIM_PORT = 40405;
-    private static final int DEFAULT_HEALTH_PORT = 8081;
-    private static final String DEFAULT_REGION = "helloWorld";
-    private static final String DEFAULT_SHIM_CONTAINER = "protogemcouch-shim";
+
+    private static final String HOST = envOrDefault("IT_SHIM_HOST", "127.0.0.1");
+    private static final int SHIM_PORT = intEnv("IT_SHIM_PORT", 40405);
+    private static final int HEALTH_PORT = intEnv("IT_HEALTH_PORT", 8081);
+
+    private enum Status { ACTIVE, CLOSED }
 
     private ClientCache cache;
     private Region<String, Object> region;
 
     @BeforeEach
     void setUp() {
-        String host = envOrDefault("IT_SHIM_HOST", DEFAULT_HOST);
-        int shimPort = intEnv("IT_SHIM_PORT", DEFAULT_SHIM_PORT);
-        int healthPort = intEnv("IT_HEALTH_PORT", DEFAULT_HEALTH_PORT);
-        String regionName = envOrDefault("IT_REGION", DEFAULT_REGION);
-
-        waitForShimReadyOrContinue(host, healthPort, Duration.ofSeconds(30));
-
+        waitForReady("http://" + HOST + ":" + HEALTH_PORT + "/ready", Duration.ofSeconds(90));
         cache = new ClientCacheFactory()
-                .addPoolServer(host, shimPort)
-                .setPoolSubscriptionEnabled(false)
-                .setPdxReadSerialized(true)
                 .set("log-level", "warn")
+                .setPoolSubscriptionEnabled(false)
+                .addPoolServer(HOST, SHIM_PORT)
                 .create();
-
-        region = cache
-                .<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
-                .create(regionName);
+        region = cache.<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
+                .create("pdxdisc" + UUID.randomUUID().toString().replace("-", ""));
     }
 
     @AfterEach
@@ -69,205 +66,103 @@ class ProtoGemCouchPdxRegistryDiscoveryIntegrationTest {
     }
 
     @Test
-    void discoverSimplePdxInstanceRegistryProtocol() {
-        String suffix = UUID.randomUUID().toString();
-        String key = "it-pdx-discovery-simple-" + suffix;
+    void registrySyncReadsBackEveryRegisteredTypeAndEnum() throws Exception {
+        String orderType = "demo.Order." + UUID.randomUUID().toString().replace("-", "");
+        String customerType = "demo.Customer." + UUID.randomUUID().toString().replace("-", "");
 
-        assertDoesNotThrow(() -> {
-            PdxInstance value = pdxFactory("com.example.discovery.SimplePdx")
-                    .writeString("id", "customer-1")
-                    .writeString("name", "Rob")
-                    .writeInt("age", 42)
-                    .writeBoolean("active", true)
-                    .create();
+        // Register two distinct PDX types; the enum object field also registers a PDX enum.
+        PdxInstance order = cache.createPdxInstanceFactory(orderType)
+                .writeString("sku", "abc").writeInt("qty", 3)
+                .writeObject("status", Status.ACTIVE)
+                .create();
+        PdxInstance customer = cache.createPdxInstanceFactory(customerType)
+                .writeString("name", "acme").writeBoolean("vip", true)
+                .create();
+        region.put("o1", order);
+        region.put("c1", customer);
 
-            region.put(key, value);
+        Pool pool = PoolManager.getAll().values().iterator().next();
 
-            Object actual = region.get(key);
-
-            System.err.println();
-            System.err.println("========== PDX SIMPLE PUT/GET RESULT ==========");
-            System.err.println("actual type: " + (actual == null ? "null" : actual.getClass().getName()));
-
-            if (actual instanceof PdxInstance pdx) {
-                System.err.println("id: " + pdx.getField("id"));
-                System.err.println("name: " + pdx.getField("name"));
-                System.err.println("age: " + pdx.getField("age"));
-                System.err.println("active: " + pdx.getField("active"));
-            }
-
-            System.err.println("========== END PDX SIMPLE PUT/GET RESULT ==========");
-            System.err.println();
-        });
-
-        System.err.println();
-        System.err.println("========== PDX REGISTRY DISCOVERY SUCCESS: SIMPLE_PDX_INSTANCE ==========");
-        dumpShimLogs();
-        System.err.println("========== END PDX REGISTRY DISCOVERY SUCCESS: SIMPLE_PDX_INSTANCE ==========");
-        System.err.println();
-    }
-
-    @Test
-    void discoverPdxInstanceWithUtilityFieldsRegistryProtocol() {
-        String suffix = UUID.randomUUID().toString();
-        String key = "it-pdx-discovery-utilities-" + suffix;
-
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> {
-            PdxInstance value = pdxFactory("com.example.discovery.PdxWithUtilityFields")
-                    .writeString("id", "utility-doc-1")
-                    .writeObject("uuid", UUID.fromString("123e4567-e89b-12d3-a456-426614174000"))
-                    .writeObject("bigInteger", new BigInteger("123456789012345678901234567890"))
-                    .writeObject("bigDecimal", new BigDecimal("1234567890.123456789"))
-                    .create();
-
-            region.put(key, value);
-        });
-
-        dumpDiscoveryFailure("PDX_INSTANCE_WITH_UTILITY_FIELDS", thrown);
-    }
-
-    @Test
-    void discoverStandaloneEnumPdxRegistryProtocol() {
-        String suffix = UUID.randomUUID().toString();
-        String key = "it-pdx-discovery-standalone-enum-" + suffix;
-
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> {
-            region.put(key, DemoStatus.ACTIVE);
-        });
-
-        dumpDiscoveryFailure("STANDALONE_ENUM_PDX_REGISTRY", thrown);
-    }
-
-    private PdxInstanceFactory pdxFactory(String className) {
-        return cache.createPdxInstanceFactory(className);
-    }
-
-    private static void dumpDiscoveryFailure(String label, RuntimeException thrown) {
-        System.err.println();
-        System.err.println("========== PDX REGISTRY DISCOVERY FAILURE: " + label + " ==========");
-        System.err.println("Exception type: " + thrown.getClass().getName());
-        System.err.println("Exception message: " + thrown.getMessage());
-
-        Throwable cause = thrown.getCause();
-        int depth = 0;
-        while (cause != null && depth < 12) {
-            System.err.println("Cause[" + depth + "] type: " + cause.getClass().getName());
-            System.err.println("Cause[" + depth + "] message: " + cause.getMessage());
-            cause = cause.getCause();
-            depth++;
+        // GET_PDX_TYPES (101): both types come back, keyed by id, decoded to PdxType with our names.
+        Map<?, ?> types = executeOp("org.apache.geode.cache.client.internal.GetPDXTypesOp", pool, null);
+        boolean sawOrder = false;
+        boolean sawCustomer = false;
+        for (Object v : types.values()) {
+            String name = ((PdxType) v).getClassName();
+            sawOrder |= orderType.equals(name);
+            sawCustomer |= customerType.equals(name);
         }
+        assertTrue(sawOrder && sawCustomer,
+                "GET_PDX_TYPES must return both registered types; got " + types.values());
 
-        System.err.println();
-        System.err.println("========== protogemcouch-shim logs during " + label + " ==========");
-        dumpShimLogs();
-        System.err.println("========== end protogemcouch-shim logs ==========");
-        System.err.println("========== END PDX REGISTRY DISCOVERY FAILURE: " + label + " ==========");
-        System.err.println();
+        // GET_PDX_ENUMS (102): the Status enum comes back, decoded to EnumInfo.
+        Map<?, ?> enums = executeOp("org.apache.geode.cache.client.internal.GetPDXEnumsOp", pool, null);
+        assertTrue(!enums.isEmpty(), "GET_PDX_ENUMS must return the registered enum; got " + enums);
+        Object enumId = enums.keySet().iterator().next();
+        assertTrue(enums.get(enumId) instanceof EnumInfo, "enum value decodes to EnumInfo");
+
+        // GET_PDX_ENUM_BY_ID (98): the reverse lookup returns the same EnumInfo for that id.
+        Object byId = executeOp("org.apache.geode.cache.client.internal.GetPDXEnumByIdOp", pool, (Integer) enumId);
+        assertNotNull(byId, "GET_PDX_ENUM_BY_ID must return the EnumInfo for a known id");
+        assertEquals(enums.get(enumId).toString(), byId.toString(),
+                "reverse enum lookup matches the bulk-discovery entry");
     }
 
-    private static void waitForShimReadyOrContinue(String host, int healthPort, Duration timeout) {
+    /** Invoke an internal client PDX Op by reflection (no public API triggers these). */
+    @SuppressWarnings("unchecked")
+    private static <T> T executeOp(String opClass, Pool pool, Integer arg) throws Exception {
+        Class<?> op = Class.forName(opClass);
+        Class<?> execPool = Class.forName("org.apache.geode.cache.client.internal.ExecutablePool");
+        if (arg == null) {
+            Method m = op.getMethod("execute", execPool);
+            return (T) m.invoke(null, pool);
+        }
+        Method m = op.getMethod("execute", execPool, int.class);
+        return (T) m.invoke(null, pool, arg.intValue());
+    }
+
+    private static void waitForReady(String url, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
-
         while (System.nanoTime() < deadline) {
-            HttpURLConnection conn = null;
             try {
-                URI uri = URI.create("http://" + host + ":" + healthPort + "/health");
-                conn = (HttpURLConnection) uri.toURL().openConnection();
-                conn.setConnectTimeout(1_000);
-                conn.setReadTimeout(1_000);
-                conn.setRequestMethod("GET");
-
-                int status = conn.getResponseCode();
-                if (status >= 200 && status < 300) {
-                    return;
+                HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+                connection.setConnectTimeout(1500);
+                connection.setReadTimeout(1500);
+                connection.setRequestMethod("GET");
+                try {
+                    if (connection.getResponseCode() == 200) {
+                        return;
+                    }
+                } finally {
+                    connection.disconnect();
                 }
             } catch (Exception ignored) {
-                // Retry until timeout.
-            } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
+                // retry
             }
-
             try {
-                Thread.sleep(1_000);
+                Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return;
+                fail("interrupted waiting for shim readiness");
             }
         }
-
-        System.err.println();
-        System.err.println("========== protogemcouch-shim logs after non-fatal health timeout ==========");
-        dumpShimLogs();
-        System.err.println("========== end protogemcouch-shim logs after non-fatal health timeout ==========");
-        System.err.println("Continuing discovery despite health timeout.");
-        System.err.println();
+        fail("shim did not become ready before timeout: " + url);
     }
 
-    private static void dumpShimLogs() {
-        String containerName = envOrDefault("IT_SHIM_CONTAINER", DEFAULT_SHIM_CONTAINER);
-
-        ProcessBuilder pb = new ProcessBuilder(
-                "docker",
-                "logs",
-                "--tail",
-                "500",
-                containerName
-        );
-
-        pb.redirectErrorStream(true);
-
-        try {
-            Process process = pb.start();
-            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
-
-            String output;
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-            )) {
-                output = reader.lines().collect(Collectors.joining(System.lineSeparator()));
-            }
-
-            if (!finished) {
-                process.destroyForcibly();
-                System.err.println("docker logs command timed out");
-            }
-
-            if (output.isBlank()) {
-                System.err.println("(no shim logs captured)");
-            } else {
-                System.err.println(output);
-            }
-        } catch (IOException e) {
-            System.err.println("Unable to run docker logs: " + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            System.err.println("Interrupted while collecting docker logs: " + e.getMessage());
-        }
-    }
-
-    private static String envOrDefault(String name, String defaultValue) {
+    private static String envOrDefault(String name, String fallback) {
         String value = System.getenv(name);
-        return value == null || value.isBlank() ? defaultValue : value;
+        return value == null || value.isBlank() ? fallback : value;
     }
 
-    private static int intEnv(String name, int defaultValue) {
+    private static int intEnv(String name, int fallback) {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) {
-            return defaultValue;
+            return fallback;
         }
-
         try {
-            return Integer.parseInt(value);
+            return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
-            return defaultValue;
+            return fallback;
         }
-    }
-
-    private enum DemoStatus {
-        ACTIVE,
-        INACTIVE,
-        PENDING
     }
 }

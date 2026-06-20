@@ -101,6 +101,13 @@ class GoldenWireResponseTest {
         f.put("pdx-type-id-response.hex", GemResponseWriter.buildPdxTypeIdResponse(TX_ID, 7));
         f.put("pdx-type-by-id-response.hex", GemResponseWriter.buildPdxTypeByIdResponse(
                 TX_ID, new byte[] {0x01, 0x02, 0x03, 0x04}));
+        // --- PDX bulk registry discovery ---
+        LinkedHashMap<Integer, byte[]> pdxRegistry = new LinkedHashMap<>();
+        pdxRegistry.put(7, new byte[] {0x2d, 0x11, 0x22});
+        pdxRegistry.put(8, new byte[] {0x2d, 0x33});
+        f.put("pdx-registry-map-response.hex", GemResponseWriter.buildPdxRegistryMapResponse(TX_ID, pdxRegistry));
+        f.put("pdx-enum-by-id-response.hex", GemResponseWriter.buildPdxEnumByIdResponse(
+                TX_ID, new byte[] {0x01, 0x09, 0x41}));
         return f;
     }
 
@@ -146,6 +153,9 @@ class GoldenWireResponseTest {
         m.put(MessageTypes.GET_PDX_ID_FOR_TYPE, "pdx-type-id-response.hex");
         m.put(MessageTypes.GET_PDX_ID_FOR_ENUM, "pdx-type-id-response.hex");
         m.put(MessageTypes.GET_PDX_TYPE_BY_ID, "pdx-type-by-id-response.hex");
+        m.put(MessageTypes.GET_PDX_TYPES, "pdx-registry-map-response.hex");
+        m.put(MessageTypes.GET_PDX_ENUMS, "pdx-registry-map-response.hex");
+        m.put(MessageTypes.GET_PDX_ENUM_BY_ID, "pdx-enum-by-id-response.hex");
         return m;
     }
 

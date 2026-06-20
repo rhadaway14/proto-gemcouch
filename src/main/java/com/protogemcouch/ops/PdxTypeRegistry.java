@@ -68,6 +68,21 @@ public class PdxTypeRegistry {
         }
     }
 
+    /**
+     * Every registered type id mapped to its {@link PdxType} re-serialized in DataSerializer form, for
+     * the bulk GET_PDX_TYPES registry-discovery reply. Types that cannot be re-serialized are skipped.
+     */
+    public java.util.Map<Integer, byte[]> allSerializedTypes() {
+        java.util.LinkedHashMap<Integer, byte[]> out = new java.util.LinkedHashMap<>();
+        for (Integer id : typesById.keySet()) {
+            byte[] serialized = serializedPdxType(id);
+            if (serialized != null) {
+                out.put(id, serialized);
+            }
+        }
+        return out;
+    }
+
     public int size() {
         return typeIdsByFingerprint.size();
     }

@@ -128,7 +128,8 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | continuous queries | Supported | Register + events (create/update/destroy, stops-matching), PDX-field predicates, `executeWithInitialResults`. |
 | server-side functions | Rejected cleanly | The shim cannot run user `Function` code; `EXECUTE_FUNCTION` / `GET_FUNCTION_ATTRIBUTES` return a clean `ServerOperationException`. |
 | PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. |
-| PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version. Bulk registry discovery remains scoped. |
+| PDX registry discovery | Supported | Bulk type/enum sync (`GET_PDX_TYPES`, `GET_PDX_ENUMS`) returns the whole registry as a `Map<Integer,…>`; `GET_PDX_ENUM_BY_ID` is the reverse enum lookup. |
+| PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version. |
 | unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
 
 ## Supported Value Types

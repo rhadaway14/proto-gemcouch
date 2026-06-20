@@ -100,6 +100,12 @@ public final class HandlerRegistryFactory {
                 new GetPdxTypeByIdHandler(pdxTypeRegistry)
         );
 
+        // Bulk PDX registry discovery: a client syncing its whole registry pulls every type/enum at
+        // once (GET_PDX_TYPES / GET_PDX_ENUMS), plus the reverse enum lookup (GET_PDX_ENUM_BY_ID).
+        registry.register(MessageTypes.GET_PDX_TYPES, new GetPdxTypesHandler(pdxTypeRegistry));
+        registry.register(MessageTypes.GET_PDX_ENUMS, new GetPdxEnumsHandler(pdxEnumRegistry));
+        registry.register(MessageTypes.GET_PDX_ENUM_BY_ID, new GetPdxEnumByIdHandler(pdxEnumRegistry));
+
         return registry;
     }
 }
