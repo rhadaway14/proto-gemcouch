@@ -149,6 +149,12 @@ public class RawShimServer {
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public static void main(String[] args) throws Exception {
+        // Defense-in-depth against deserialization gadget attacks (CWE-502): block known gadget packages
+        // for every ObjectInputStream in the process — including the one Geode's DataSerializer uses
+        // internally — before any client bytes are read. The shim's own deserialization is additionally
+        // run under a strict allowlist (see SafeDeserialization). No-op if the operator set jdk.serialFilter.
+        com.protogemcouch.serialization.SafeDeserialization.installProcessWideGadgetFilter();
+
         healthState = new HealthState();
         healthState.markStarting();
 
