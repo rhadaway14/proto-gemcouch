@@ -34,6 +34,9 @@ Optional:
 - `HEALTH_PORT` default `8081`
 - `MAX_FRAME_BYTES` default `52428800` (inbound frame size cap; see `docs/SECURITY.md`)
 - `MAX_FRAME_PARTS` default `100000` (inbound frame part-count cap)
+- `MAX_PDX_TYPES` default `0` (unlimited) — cap on distinct PDX types the in-memory registry will hold;
+  registrations past the cap are rejected (metric `protogemcouch_pdx_registry_rejected_total` + audit)
+- `MAX_PDX_ENUMS` default `0` (unlimited) — same cap for distinct PDX enums
 - `ERROR_RESPONSE_MODE` default `exception` (`exception` = reply with a Geode EXCEPTION frame and
   keep the connection open, so the client raises a ServerOperationException; `close` = drop the
   connection on operation failure). The `exception` behavior is validated against a live Geode

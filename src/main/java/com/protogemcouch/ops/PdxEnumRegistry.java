@@ -13,6 +13,20 @@ public class PdxEnumRegistry {
     private final ConcurrentMap<Integer, byte[]> encodedById = new ConcurrentHashMap<>();
     private final AtomicInteger nextEnumId = new AtomicInteger(1);
 
+    /** Maximum distinct PDX enums to register; {@code 0} = unlimited (the default). */
+    private final int maxEnums;
+    /** Invoked once when a new-enum registration is rejected for hitting the cap (metric + audit). */
+    private final Runnable onCapExceeded;
+
+    public PdxEnumRegistry() {
+        this(0, () -> { });
+    }
+
+    public PdxEnumRegistry(int maxEnums, Runnable onCapExceeded) {
+        this.maxEnums = Math.max(0, maxEnums);
+        this.onCapExceeded = onCapExceeded == null ? () -> { } : onCapExceeded;
+    }
+
     public int getOrCreateEnumId(byte[] encodedEnumInfo) {
         if (encodedEnumInfo == null || encodedEnumInfo.length == 0) {
             throw new IllegalArgumentException("encodedEnumInfo must not be null or empty");
@@ -20,6 +34,15 @@ public class PdxEnumRegistry {
 
         String fingerprint = sha256Hex(encodedEnumInfo);
 
+        Integer known = enumIdsByFingerprint.get(fingerprint);
+        if (known != null) {
+            return known; // an already-registered enum is always served, regardless of the cap
+        }
+        if (maxEnums > 0 && enumIdsByFingerprint.size() >= maxEnums) {
+            onCapExceeded.run();
+            throw new PdxRegistryCapExceededException(
+                    "PDX enum registry cap reached (" + maxEnums + "); set MAX_PDX_ENUMS to raise it");
+        }
         int enumId = enumIdsByFingerprint.computeIfAbsent(
                 fingerprint,
                 ignored -> nextEnumId.getAndIncrement()

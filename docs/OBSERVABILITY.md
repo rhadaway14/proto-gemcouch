@@ -167,6 +167,40 @@ backend is too slow or the shim is under-provisioned for the load; investigate b
 consider raising `HANDLER_THREADS`. A nonzero `protogemcouch_connections_first_request_timeout_total`
 rate suggests clients (or probes/abuse) opening connections without completing a request.
 
+### Registry metrics (in-memory state)
+
+Sampled **gauges** for the shim's live in-memory registries (read at scrape time), plus a counter for
+PDX-registry cap rejections:
+
+```text
+protogemcouch_pdx_types                  # distinct PDX types currently registered
+protogemcouch_pdx_enums                  # distinct PDX enums currently registered
+protogemcouch_active_transactions        # client transactions currently buffered (in flight)
+protogemcouch_subscription_feeds         # open server->client subscription feed channels
+protogemcouch_registered_interests       # total registered interests across clients/regions
+protogemcouch_registered_cqs             # total registered continuous queries across clients
+protogemcouch_durable_clients            # durable subscription clients currently retained
+protogemcouch_durable_queue_depth        # total queued (undelivered) events across durable clients
+protogemcouch_pdx_registry_rejected_total  # PDX type/enum registrations rejected for hitting the cap
+```
+
+Useful for:
+
+```text
+spotting unbounded growth of the PDX type/enum registry (a client registering excessive distinct types)
+tracking transaction / subscription / CQ load
+catching a durable client falling behind (durable_queue_depth climbing) before it exhausts the queue
+confirming the optional PDX registry cap is engaging (pdx_registry_rejected_total > 0)
+```
+
+The PDX type/enum registry is unbounded by default; set `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` to cap it.
+When a registration is rejected at the cap, the shim increments
+`protogemcouch_pdx_registry_rejected_total` and emits a `pdx_registry_cap_exceeded` event on the
+`protogemcouch.audit` stream. Alerts for these (`ProtoGemCouchPdxRegistryRejections`,
+`ProtoGemCouchDurableQueueBacklog`) ship in `prometheus/protogemcouch-alerts.rules.yml`, and the
+"PDX & subscription registry sizes" / "Transactions, feeds & durable queue" panels are on the
+ProtoGemCouch Observability dashboard.
+
 ### Request metrics
 
 ```text

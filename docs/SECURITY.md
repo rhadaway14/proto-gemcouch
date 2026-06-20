@@ -227,10 +227,14 @@ resources, and keep the idle and first-request timeouts enabled on untrusted net
 
 **PDX type/enum registry growth.** To decode PDX values the shim remembers every PDX type and enum a
 client registers (as Geode itself does); the registry is in-memory and not evicted, so a client that
-registers a very large number of *distinct* PDX types grows it over time. Each registration is a normal
-op bounded by the frame-validation limits above, and the bounded container heap caps the blast radius
-(the process is memory-limited, not crash-prone); treat it as the same class as a client writing a lot
-of data, and keep `MAX_CONNECTIONS` / network exposure restricted on untrusted networks.
+registers a very large number of *distinct* PDX types would grow it over time. This is now **observable
+and boundable**: the `protogemcouch_pdx_types` / `protogemcouch_pdx_enums` gauges expose the live sizes
+(with an alert and dashboard panel), and the optional `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` caps (0 =
+unlimited, the default) reject new registrations past the cap — incrementing
+`protogemcouch_pdx_registry_rejected_total` and emitting a `pdx_registry_cap_exceeded` audit event —
+while still serving every already-registered type. Set the caps to a value comfortably above your
+application's legitimate distinct-type count on untrusted networks; the bounded container heap caps the
+blast radius regardless, and `MAX_CONNECTIONS` / network exposure should stay restricted.
 
 The idle timeout reaps inactive connections; the first-request deadline additionally closes
 slowloris-style connections that stay technically active by trickling bytes without ever completing

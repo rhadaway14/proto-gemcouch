@@ -124,6 +124,43 @@ public final class SubscriptionRegistry {
         }
     }
 
+    // --- observability accessors (sampled by the metrics gauges; weakly-consistent reads).
+    // feedCount() is defined further down with the feed bookkeeping.
+
+    /** Total registered interests across all clients and regions. */
+    public int interestCount() {
+        int total = 0;
+        for (java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>> perRegion : interests.values()) {
+            for (java.util.List<Interest> list : perRegion.values()) {
+                total += list.size();
+            }
+        }
+        return total;
+    }
+
+    /** Total registered continuous queries across all clients. */
+    public int cqCount() {
+        int total = 0;
+        for (java.util.concurrent.ConcurrentMap<String, Cq> perClient : cqs.values()) {
+            total += perClient.size();
+        }
+        return total;
+    }
+
+    /** Number of durable clients currently retained (connected or awaiting reconnect). */
+    public int durableClientCount() {
+        return durableClients.size();
+    }
+
+    /** Total queued (undelivered) events across all durable clients. */
+    public long durableQueueDepth() {
+        long total = 0;
+        for (DurableState state : durableClients.values()) {
+            total += state.pendingCount.get();
+        }
+        return total;
+    }
+
     // A stable fabricated membership identity for events from this shim (used by the client only as an
     // opaque dedup/version key), plus monotonic counters for EventID sequence and entry/region versions.
     private final byte[] memberId = ByteUtils.hex("0a0000bc0000e29a");
