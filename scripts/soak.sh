@@ -87,10 +87,21 @@ done
 
 echo "Starting soak: profile=${PROFILE} duration=${DURATION}s concurrency=${CONCURRENCY} sample=${SAMPLE_INTERVAL}s"
 
+# Subscriptions (interest + CQ event consumer) drive the eventing subsystem alongside the load — used
+# by the full-surface soak. The CQ engine (CqServiceImpl) lives in the test-scoped geode-cq, so when
+# subscriptions are on the benchmark must run with the test classpath scope.
+BENCH_SUBSCRIPTIONS="${BENCH_SUBSCRIPTIONS:-false}"
+EXEC_SCOPE_ARG=()
+if [[ "$BENCH_SUBSCRIPTIONS" == "true" ]]; then
+    EXEC_SCOPE_ARG=(-Dexec.classpathScope=test)
+fi
+
 BENCH_PROFILE="$PROFILE" BENCH_HOST="$HOST" BENCH_PORT="$SHIM_PORT" BENCH_REGION=helloWorld \
 BENCH_CONCURRENCY="$CONCURRENCY" BENCH_WARMUP_SECONDS="$WARMUP" BENCH_DURATION_SECONDS="$DURATION" \
 BENCH_KEYSPACE="$KEYSPACE" BENCH_SEED=true BENCH_SEED_COUNT="$SEED_COUNT" BENCH_PROGRESS_SECONDS=30 \
+BENCH_SUBSCRIPTIONS="$BENCH_SUBSCRIPTIONS" \
 mvn -q -o exec:java -Dexec.mainClass=com.protogemcouch.benchmark.ConcurrentBenchmarkRunner \
+    "${EXEC_SCOPE_ARG[@]}" \
     > /tmp/soak-bench-output.txt 2>&1 &
 BENCH_PID=$!
 

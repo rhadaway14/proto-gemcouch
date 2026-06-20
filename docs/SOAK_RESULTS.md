@@ -195,6 +195,50 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-20 — full-surface soak (CRUD + OQL + tx + getEntry + PDX + eventing) + heap-cap hardening
+
+The first soak to exercise the **whole request surface together** instead of CRUD only: the new
+`full-surface` benchmark profile mixes CRUD/bulk/metadata with **OQL queries, transactions, the
+in-transaction `getEntry`, and PDX writes**, and the soak runs an **interest + CQ consumer**
+(`BENCH_SUBSCRIPTIONS=true`) alongside the load so every write also drives the eventing subsystem.
+Driven by `scripts/full-surface-soak.sh` (concurrency 16, 30s samples, keyspace 1000).
+
+### Bug found by the soak: unbounded heap (and the hardening)
+
+The first full-surface run **FAILED** the memory-growth check (shim memory grew ~55% over 5 min). It
+was not a leak: the shim image set **no `-Xmx`**, so the JVM sized its heap from *host* RAM — under
+`docker-compose` (no container memory limit) that was ~25% of 62 GiB ≈ 15 GiB, so the heap simply
+expanded under the allocation-heavy query workload and never needed to GC. (`CommitHandler` /
+`RollbackHandler` both remove the transaction state on commit/rollback; connections were balanced; no
+actual leak.) Fix: the image now sets a **container-aware `-XX:MaxRAMPercentage=75.0`** and the
+docker-compose shim a `mem_limit: 1g` (matching the Helm chart's 1Gi limit), so the heap is bounded and
+the soak measures real stability. This also improves the k8s footprint — the heap now tracks the pod
+memory limit instead of falling back to the cgroup default.
+
+### Result (bounded heap, 300s)
+
+- Total operation requests: **127,084** over 300s (~272 full-surface ops/sec at concurrency 16).
+- **Server-side request errors: 0**, requests shed: 0, malformed frames: 0, first-request timeouts: 0.
+- **Shim memory: 592 MiB → 617 MiB (+4.2%)** — a stable plateau well under the 768 MiB heap cap (no leak).
+- Connections balanced (opened == closed; no connection leak).
+- **Eventing under load: 72,482 interest events** delivered to the consumer over the run (the feed /
+  interest / event-serialization path stayed healthy throughout).
+- `SOAK_VERDICT PASS`.
+
+### Notes on the workload
+
+- **OQL is the heaviest surface** — a query is a full region scan (no index), so under concurrent load
+  queries run sub-second and a small fraction exceed the client's read timeout (client-side, counted in
+  the benchmark's per-op errors; the **shim** records zero errors). This matches the documented
+  cold-path nature of scans (see `docs/CURRENT_LIMITATIONS.md`) and is why `full-surface` keeps the
+  query weight modest.
+- **CQ events show 0** in this harness because the in-process subscription consumer shares the
+  benchmark's `ClientCache` (a JVM singleton), so CQ delivery for the cache's own writes is
+  origin-suppressed; the interest-event path (72k events) and CQ *registration/matching* are still
+  exercised. Cross-client CQ delivery is validated by `ProtoGemCouchCqIntegrationTest`.
+- Throughput shows the usual co-located-dev-box decline (early/late ratio ~0.6); it is a warning, not a
+  gate, off dedicated infra (`SOAK_FAIL_ON_THROUGHPUT`).
+
 ## Run: 2026-06-02 — 15-minute soak (optimized build) + connection-accounting bug found & fixed
 
 A longer (15-minute) sustained soak against the build with the PUT_ALL optimization, driven by
