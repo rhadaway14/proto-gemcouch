@@ -19,6 +19,7 @@ import io.opentelemetry.context.Scope;
 import com.protogemcouch.ops.HandlerRegistryFactory;
 import com.protogemcouch.ops.OpcodeRegistry;
 import com.protogemcouch.ops.OperationHandler;
+import com.protogemcouch.ops.PdxRegistryCapExceededException;
 import com.protogemcouch.ops.UnknownOpcodeHandler;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.wire.FrameLimits;
@@ -740,6 +741,12 @@ public class RawShimServer {
 
                 span.recordException(e);
                 span.setStatus(StatusCode.ERROR);
+
+                // Surface a PDX registry-cap rejection as a first-class span attribute so a rejected
+                // type/enum registration is queryable in traces (Jaeger), not just metrics/audit logs.
+                if (e instanceof PdxRegistryCapExceededException) {
+                    span.setAttribute("protogemcouch.pdx_registry_cap_exceeded", true);
+                }
 
                 /*
                  * Centralized failure seam: the metric and structured log are recorded above, then

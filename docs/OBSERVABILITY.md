@@ -291,9 +291,10 @@ Grafana auto-loads these dashboards (folder **ProtoGemCouch**), from `grafana/da
   credentials; on the capacity rig use a Prometheus `basic_auth` credentials file / secret per node.
 - **ProtoGemCouch Logs & Traces** — built on the Loki and Jaeger datasources: log volume by level,
   completed operations and failed-request / malformed-frame rates derived from the logs, an audit-event
-  breakdown, live shim + audit log panels, and a recent-traces table (the traces table is populated
-  only with the tracing overlay up; click a trace to open its span tree in Explore). It has a
-  `container` variable to switch between the shim instances.
+  breakdown, a **PDX registry cap rejections by kind** panel (the rate of `pdx_registry_cap_exceeded`
+  audit events split by registry `kind` — types vs enums), live shim + audit log panels, and a
+  recent-traces table (the traces table is populated only with the tracing overlay up; click a trace to
+  open its span tree in Explore). It has a `container` variable to switch between the shim instances.
 
 ## Recommended dashboard panels
 
@@ -466,6 +467,13 @@ The shim emits OpenTelemetry traces: a span per Geode operation (`geode.<OPERATI
 `couchbase.putAll`, …). A trace therefore shows how much of an operation's latency was the shim vs. the
 backend — the breakdown that metrics alone don't give. Failed operations record the exception and set
 the span status to ERROR.
+
+Each operation span carries `geode.opcode`, `geode.operation`, `geode.tx_id`, and `geode.parts`
+attributes. When a request is rejected because a PDX type/enum registration would exceed the configured
+registry cap (`MAX_PDX_TYPES` / `MAX_PDX_ENUMS`), the span is additionally tagged
+`protogemcouch.pdx_registry_cap_exceeded=true`, so a rejected registration is queryable in traces —
+not just visible in the `pdx_registry_cap_exceeded` audit event and the
+`protogemcouch_pdx_registry_rejected_total` counter.
 
 **Off by default.** Tracing is only initialized when configured via the standard `OTEL_*` environment;
 otherwise the tracer is a no-op with no measurable overhead. Note: the Geode wire protocol carries no

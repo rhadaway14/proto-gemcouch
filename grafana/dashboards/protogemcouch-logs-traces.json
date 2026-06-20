@@ -4,7 +4,7 @@
   "tags": ["protogemcouch", "logs", "traces"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "templating": {
@@ -105,11 +105,29 @@
       ]
     },
     {
+      "id": 10,
+      "type": "timeseries",
+      "title": "PDX registry cap rejections by kind (per minute)",
+      "description": "Rate of pdx_registry_cap_exceeded audit events, split by registry kind (types/enums). Non-zero means a client tried to register past MAX_PDX_TYPES/MAX_PDX_ENUMS — see the matching Prometheus alert ProtoGemCouchPdxRegistryRejections.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (kind) (count_over_time({logger=\"protogemcouch.audit\"} | logfmt | event=\"pdx_registry_cap_exceeded\" [1m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ]
+    },
+    {
       "id": 6,
       "type": "logs",
       "title": "Shim logs (live)",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 22 },
       "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none" },
       "targets": [
         {
@@ -124,7 +142,7 @@
       "type": "logs",
       "title": "Security audit stream",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 22 },
       "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none" },
       "targets": [
         {
@@ -138,7 +156,7 @@
       "id": 8,
       "type": "row",
       "title": "Traces (Jaeger) — requires the docker-compose.tracing.yml overlay",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }
     },
     {
       "id": 9,
@@ -146,7 +164,7 @@
       "title": "Recent traces",
       "description": "Recent operation traces from Jaeger. Click a trace ID to open the full span tree in Explore.",
       "datasource": { "type": "jaeger", "uid": "jaeger" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 33 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": { "showHeader": true },
       "targets": [
