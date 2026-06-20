@@ -15,15 +15,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 state observable and bounded, and lift the top "scalars only" parity limit. All items are
 additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026-06-23 start.
 
-### 1.1.0-M1 — Operability: registry observability + bounds · target 2026-07-03
-- [ ] Prometheus gauges for the in-memory registries: PDX type & enum registry size, active
-  transactions, registered interests/CQs, durable-queue depth (none are exposed today — `/metrics`
-  carries only connection counters).
-- [ ] Optional cap (+ `audit` event + metric) on the PDX type/enum registry so a client cannot grow it
-  unbounded (the growth consideration noted in `docs/SECURITY.md`).
-- [ ] Grafana panels + Alertmanager rules for the new gauges.
-- Exit: gauges in `/metrics` + dashboard; cap unit/integration-tested; `SECURITY.md`/`OBSERVABILITY.md`
-  updated. Risk: low — quickest concrete win, and it makes the soak/security findings observable.
+### 1.1.0-M1 — Operability: registry observability + bounds · **DONE** (merged, ahead of the 2026-07-03 target)
+- [x] Prometheus gauges for the in-memory registries: PDX type & enum registry size, active
+  transactions, subscription feeds, registered interests/CQs, durable clients + durable-queue depth
+  (sampled at scrape; also in the JSON snapshot).
+- [x] Optional cap (+ `audit` event + `protogemcouch_pdx_registry_rejected_total` metric) on the PDX
+  type/enum registry via `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` (0 = unlimited); already-registered types are
+  still served.
+- [x] Grafana panels (registry sizes) + Alertmanager rules (`ProtoGemCouchPdxRegistryRejections`,
+  `ProtoGemCouchDurableQueueBacklog`).
+- Validated: `PdxRegistryCapTest`, `MetricsRegistryGaugeTest`, `ProtoGemCouchRegistryMetricsIntegrationTest`
+  (/metrics exposes the gauges end-to-end); docs updated (`OBSERVABILITY.md`, `SECURITY.md`, `RUNBOOK.md`).
 
 ### 1.1.0-M2 — OQL query pushdown (headline) · target 2026-08-01
 - [ ] Push equality/range predicates + `LIMIT` down to Couchbase (KV range or N1QL + a managed
