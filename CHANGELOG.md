@@ -8,6 +8,10 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Fixed
+- **Container-aware bounded heap** — the runtime image now starts the JVM with
+  `-XX:MaxRAMPercentage=75.0` and the docker-compose shim sets `mem_limit: 1g`. Previously the image set
+  no `-Xmx`, so a shim run without a container memory limit (e.g. plain docker-compose) let the heap
+  size from *host* RAM and balloon to gigabytes under load. Surfaced by the new full-surface soak.
 - **Top-level JDK collections no longer corrupt to `byte[]`** — a `LinkedList`, `HashSet`, `TreeMap`
   (and the other standalone container DSCODEs: `HashTable`, `Vector`, `IdentityHashMap`,
   `LinkedHashSet`, `Stack`, `TreeSet`, `ConcurrentHashMap`, plus `TimeUnit`/`Timestamp`) stored as a

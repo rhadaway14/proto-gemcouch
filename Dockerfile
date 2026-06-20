@@ -18,4 +18,9 @@ USER 10001:10001
 EXPOSE 40405
 EXPOSE 8081
 
-ENTRYPOINT ["java", "-jar", "/app/protogemcouch.jar"]
+# Bound the heap to a share of the container's memory limit (cgroup-aware) rather than the JVM default
+# of 25% of *host* RAM — without this, a shim run without a container memory limit (e.g. plain
+# docker-compose) lets the heap balloon to gigabytes, and one with a limit under-uses it. 75% leaves
+# headroom for Netty direct buffers, metaspace, and thread stacks. Operators set the actual ceiling via
+# the container memory limit (the Helm chart's resources.limits.memory; docker-compose mem_limit).
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/protogemcouch.jar"]

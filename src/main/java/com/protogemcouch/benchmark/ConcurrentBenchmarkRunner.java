@@ -1,9 +1,11 @@
 package com.protogemcouch.benchmark;
 
+import org.apache.geode.cache.CacheTransactionManager;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.pdx.PdxInstance;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -23,40 +25,58 @@ public class ConcurrentBenchmarkRunner {
 
         printConfig(config);
 
+        boolean enableSubscriptions = Boolean.parseBoolean(envOrDefault("BENCH_SUBSCRIPTIONS", "false"));
+        SubscriptionConsumer subscriptions = null;
         ClientCache cache = null;
         try {
+            // ClientCache is a JVM singleton, so the subscription consumer shares this cache (and region);
+            // the pool's subscription feed must be enabled here for interest/CQ event delivery to work.
             cache = new ClientCacheFactory()
                     .addPoolServer(config.getHost(), config.getPort())
-                    .setPoolSubscriptionEnabled(false)
+                    .setPoolSubscriptionEnabled(enableSubscriptions)
                     .set("log-level", "warn")
                     .create();
 
-            Region<String, String> region = cache
-                    .<String, String>createClientRegionFactory(ClientRegionShortcut.PROXY)
+            Region<String, Object> region = cache
+                    .<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
                     .create(config.getRegionName());
 
             if (config.isSeedBeforeRun()) {
                 seed(region, config);
             }
 
+            // Optionally drive the subscription + CQ event-delivery path alongside the request load, so
+            // a full-surface soak also stresses the eventing subsystem (feeds, interest, CQ matching).
+            if (enableSubscriptions) {
+                subscriptions = SubscriptionConsumer.attach(cache, region, config);
+            }
+
             if (!config.getWarmupDuration().isZero() && !config.getWarmupDuration().isNegative()) {
                 System.out.println("Starting warmup...");
-                BenchmarkResult warmup = runPhase(region, config, config.getWarmupDuration(), "warmup", false);
+                BenchmarkResult warmup = runPhase(cache, region, config, config.getWarmupDuration(), "warmup", false);
                 printSummary(config, warmup);
             }
 
             System.out.println("Starting measured run...");
-            BenchmarkResult measured = runPhase(region, config, config.getDuration(), "measured", true);
+            BenchmarkResult measured = runPhase(cache, region, config, config.getDuration(), "measured", true);
             printSummary(config, measured);
-            printMachineSummary(measured);
+            if (subscriptions != null) {
+                System.out.printf("Subscription consumer: events=%d cqEvents=%d errors=%d%n",
+                        subscriptions.events(), subscriptions.cqEvents(), subscriptions.errors());
+            }
+            printMachineSummary(measured, subscriptions);
         } finally {
+            if (subscriptions != null) {
+                subscriptions.close();
+            }
             if (cache != null) {
                 cache.close();
             }
         }
     }
 
-    private static BenchmarkResult runPhase(Region<String, String> region,
+    private static BenchmarkResult runPhase(ClientCache cache,
+                                            Region<String, Object> region,
                                             BenchmarkConfig config,
                                             Duration duration,
                                             String phase,
@@ -74,7 +94,7 @@ public class ConcurrentBenchmarkRunner {
         for (int i = 0; i < config.getConcurrency(); i++) {
             int workerId = i;
             Thread thread = new Thread(
-                    () -> runWorker(region, config, stats, stop, done, workerId),
+                    () -> runWorker(cache, region, config, stats, stop, done, workerId),
                     phase + "-worker-" + workerId
             );
             thread.setDaemon(true);
@@ -104,7 +124,8 @@ public class ConcurrentBenchmarkRunner {
         return new BenchmarkResult(startMillis, endMillis, stats, phase);
     }
 
-    private static void runWorker(Region<String, String> region,
+    private static void runWorker(ClientCache cache,
+                                  Region<String, Object> region,
                                   BenchmarkConfig config,
                                   Map<OperationType, LatencyStats> stats,
                                   AtomicBoolean stop,
@@ -118,7 +139,7 @@ public class ConcurrentBenchmarkRunner {
                 long start = System.nanoTime();
 
                 try {
-                    executeOperation(region, config, random, op);
+                    executeOperation(cache, region, config, random, op);
                     long elapsed = System.nanoTime() - start;
                     stats.get(op).recordSuccess(elapsed);
                 } catch (Exception e) {
@@ -130,7 +151,7 @@ public class ConcurrentBenchmarkRunner {
         }
     }
 
-    private static void seed(Region<String, String> region, BenchmarkConfig config) {
+    private static void seed(Region<String, Object> region, BenchmarkConfig config) {
         System.out.println("Seeding " + config.getSeedCount() + " keys...");
         for (int i = 0; i < config.getSeedCount(); i++) {
             region.put("bench-key-" + i, "seed-value-" + i);
@@ -138,7 +159,8 @@ public class ConcurrentBenchmarkRunner {
         System.out.println("Seeding complete.");
     }
 
-    private static void executeOperation(Region<String, String> region,
+    private static void executeOperation(ClientCache cache,
+                                         Region<String, Object> region,
                                          BenchmarkConfig config,
                                          Random random,
                                          OperationType op) {
@@ -160,7 +182,7 @@ public class ConcurrentBenchmarkRunner {
             }
 
             case PUT_ALL -> {
-                Map<String, String> entries = new LinkedHashMap<>();
+                Map<String, Object> entries = new LinkedHashMap<>();
                 entries.put(key, randomValue());
                 entries.put(randomKey(random, config.getKeySpaceSize()), randomValue());
                 entries.put(randomKey(random, config.getKeySpaceSize()), randomValue());
@@ -171,6 +193,55 @@ public class ConcurrentBenchmarkRunner {
 
             case KEY_SET -> {
                 Set<String> ignored = region.keySetOnServer();
+            }
+
+            case QUERY -> {
+                // Bounded OQL: a value-equality WHERE returns at most one row, so the query engine +
+                // WHERE evaluation + result framing are exercised without scanning the whole keyspace.
+                try {
+                    cache.getQueryService()
+                            .newQuery("SELECT * FROM /" + config.getRegionName()
+                                    + " r WHERE r = 'seed-value-" + random.nextInt(config.getKeySpaceSize()) + "'")
+                            .execute();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            case TRANSACTION -> {
+                CacheTransactionManager tx = cache.getCacheTransactionManager();
+                tx.begin();
+                try {
+                    region.put(key, randomValue());
+                    region.put(randomKey(random, config.getKeySpaceSize()), randomValue());
+                    tx.commit();
+                } finally {
+                    if (tx.exists()) {
+                        tx.rollback(); // never leave an open tx bound to this worker thread
+                    }
+                }
+            }
+
+            case GET_ENTRY -> {
+                // getEntry only reaches the server inside a transaction.
+                CacheTransactionManager tx = cache.getCacheTransactionManager();
+                tx.begin();
+                try {
+                    region.getEntry(key);
+                    tx.commit();
+                } finally {
+                    if (tx.exists()) {
+                        tx.rollback();
+                    }
+                }
+            }
+
+            case PDX_PUT -> {
+                PdxInstance pdx = cache.createPdxInstanceFactory("bench.Doc")
+                        .writeString("s", randomValue())
+                        .writeInt("n", random.nextInt())
+                        .create();
+                region.put("pdx-key-" + random.nextInt(config.getKeySpaceSize()), pdx);
             }
         }
     }
@@ -202,6 +273,11 @@ public class ConcurrentBenchmarkRunner {
         return "value-" + UUID.randomUUID();
     }
 
+    static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
     private static void printConfig(BenchmarkConfig config) {
         System.out.println("=== ProtoGemCouch Benchmark Config ===");
         System.out.println("Host: " + config.getHost() + ":" + config.getPort());
@@ -214,6 +290,7 @@ public class ConcurrentBenchmarkRunner {
         System.out.println("Seed before run: " + config.isSeedBeforeRun());
         System.out.println("Seed count: " + config.getSeedCount());
         System.out.println("Progress interval: " + config.getProgressInterval());
+        System.out.println("Subscriptions: " + envOrDefault("BENCH_SUBSCRIPTIONS", "false"));
         System.out.println();
     }
 
@@ -232,18 +309,22 @@ public class ConcurrentBenchmarkRunner {
     /**
      * One machine-readable line for the automated perf-regression gate (scripts/perf-gate.sh) to
      * parse — total ops, error count, throughput, and the worst per-operation p99 (ms). Kept stable
-     * and grep-friendly; do not reformat without updating the gate parser.
+     * and grep-friendly; do not reformat without updating the gate parser. A full-surface soak with a
+     * subscription consumer appends its event totals so the soak gate can assert eventing kept flowing.
      */
-    private static void printMachineSummary(BenchmarkResult result) {
+    private static void printMachineSummary(BenchmarkResult result, SubscriptionConsumer subscriptions) {
         double maxP99Millis = 0.0;
         for (LatencyStats s : result.getPerOperation().values()) {
             if (s.getTotalCount() > 0) {
                 maxP99Millis = Math.max(maxP99Millis, nanosToMillis(s.percentile(99)));
             }
         }
+        long subEvents = subscriptions == null ? -1 : subscriptions.events();
+        long subCqEvents = subscriptions == null ? -1 : subscriptions.cqEvents();
         System.out.printf(
-                "PERF_RESULT ops_per_sec=%.2f total=%d errors=%d max_p99_ms=%.3f%n",
-                result.opsPerSecond(), result.totalOperations(), result.totalErrors(), maxP99Millis);
+                "PERF_RESULT ops_per_sec=%.2f total=%d errors=%d max_p99_ms=%.3f sub_events=%d sub_cq_events=%d%n",
+                result.opsPerSecond(), result.totalOperations(), result.totalErrors(), maxP99Millis,
+                subEvents, subCqEvents);
     }
 
     private static void printSummary(BenchmarkConfig config, BenchmarkResult result) {
