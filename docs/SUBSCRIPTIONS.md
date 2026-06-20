@@ -144,6 +144,13 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     **Deferred (documented):** multi-replica durable persistence — the queue surviving replica death or a
     reconnect to a different replica (would be Couchbase-backed); a durable client can't unregister
     interest mid-session; and the per-client wire timeout is honored but capped by `DURABLE_MAX_QUEUE`.
+  - **P3 — redundancy / keepalive DONE.** A real redundancy-enabled, keepalive-pinging client
+    (`tools/RedundancyKeepaliveProbe`) produces no unhandled opcodes: client PINGs (5) are acked,
+    MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK (52) is drained. Subscription
+    redundancy is a graceful no-op for the single-logical-backend shim (like single-hop). The keepalive
+    fix that matters: **feeds are exempt from the idle-connection reaper** (`IS_FEED` marker checked by
+    `IdleConnectionHandler`), so a long-idle feed waiting for events is not silently reaped; dead feeds
+    are detected at the TCP layer.
 - **P2:** regex + key-list interest, LOCAL_INVALIDATE, the KEYS_VALUES GII response, UNREGISTER,
   PERIODIC_ACK draining, SERVER_TO_CLIENT_PING.
 - **P3 (only if needed):** durable clients, redundancy/MAKE_PRIMARY, conflation, and a cross-replica

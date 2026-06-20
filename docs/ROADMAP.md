@@ -330,7 +330,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   (`buildExecuteCqWithIrReply`; the client op extends `QueryOpImpl`), validated byte-for-byte
   (`CqWithIrResponseShapeTest`) and end-to-end (`executeWithInitialResultsReturnsCurrentMatchingEntries`).
   See `docs/CONTINUOUS_QUERIES.md`. **Remaining:** multiple CQs per event, CQ stats, durable CQs.
-- [~] **Register interest / subscriptions / events** — client subscription queue and server→client
+- [x] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners). **P1 + P2 DONE** (server→client push
   works end-to-end), validated against a real Geode 1.15 client by 8 gates in
   `ProtoGemCouchSubscriptionIntegrationTest`: the shim accepts the feed (mode 101) + control (107)
@@ -364,7 +364,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   against a real Geode 1.15 client (`ProtoGemCouchDurableClientIntegrationTest`: an event made while the
   durable client is disconnected is replayed on reconnect). Multi-replica durable persistence (the queue
   surviving replica death / reconnect-to-any-replica via Couchbase) is the documented follow-up.
-  **Other P3 remaining:** redundancy/MAKE_PRIMARY and PERIODIC_ACK draining / keepalive.
+  **Redundancy/MAKE_PRIMARY + PERIODIC_ACK/keepalive DONE:** captured a real redundancy-enabled,
+  keepalive-pinging subscription client (`RedundancyKeepaliveProbe`) — it produces no unhandled
+  opcodes: client PINGs (5) are acked, MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK
+  (52) is drained (`PeriodicAckHandler`); subscription redundancy is a graceful no-op for the
+  single-logical-backend shim (like single-hop). The substantive keepalive fix: **subscription/durable
+  feeds are now exempt from the idle-connection reaper** (`IdleConnectionHandler` + the `IS_FEED`
+  marker), so a long-idle feed waiting for events is no longer silently reaped; dead feeds are detected
+  at the TCP layer. **P3 complete** — this closes the register-interest/subscriptions/CQ subsystem
+  (single-instance + cross-replica backplane); the remaining subscription scope-expansion is
+  multi-replica *durable* persistence (Couchbase-backed), tracked above.
 - [x] **Server-side functions — graceful rejection** (validated by
   `ProtoGemCouchFunctionIntegrationTest`). The shim has none of the user's `Function` classes, so it
   cannot *run* functions; it now rejects them the way a real server rejects an unregistered function

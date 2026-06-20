@@ -27,6 +27,20 @@ class IdleConnectionHandlerTest {
     }
 
     @Test
+    void keepsAnIdleSubscriptionFeedAlive() {
+        AtomicInteger idleCalls = new AtomicInteger();
+        EmbeddedChannel channel = new EmbeddedChannel(
+                new IdleConnectionHandler(remote -> idleCalls.incrementAndGet()));
+        channel.attr(com.protogemcouch.subscription.SubscriptionRegistry.IS_FEED).set(Boolean.TRUE);
+
+        channel.pipeline().fireUserEventTriggered(IdleStateEvent.ALL_IDLE_STATE_EVENT);
+
+        assertEquals(0, idleCalls.get(), "a feed's idle event is not a reap");
+        assertTrue(channel.isOpen(), "a subscription/durable feed is exempt from idle reaping (keepalive)");
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
     void ignoresUnrelatedUserEvents() {
         AtomicInteger idleCalls = new AtomicInteger();
         EmbeddedChannel channel = new EmbeddedChannel(

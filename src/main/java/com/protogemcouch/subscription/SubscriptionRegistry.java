@@ -59,6 +59,14 @@ public final class SubscriptionRegistry {
     public static final AttributeKey<Integer> DURABLE_TIMEOUT =
             AttributeKey.valueOf("protogemcouch.subscription.durableTimeout");
 
+    /**
+     * Marks a server&rarr;client subscription feed (mode 101). A feed is long-lived and legitimately
+     * idle while waiting for events, so it is exempt from the idle-connection reaper (keepalive); dead
+     * feeds are detected at the TCP layer. Set when the feed is registered.
+     */
+    public static final AttributeKey<Boolean> IS_FEED =
+            AttributeKey.valueOf("protogemcouch.subscription.isFeed");
+
     private final Set<Channel> feeds = ConcurrentHashMap.newKeySet();
     // Per-client interest: client id -> region -> the interests that client registered there (the union
     // of all-keys / specific keys / regex). A feed receives an event only when one of its client's
@@ -184,6 +192,7 @@ public final class SubscriptionRegistry {
 
     public void addFeed(Channel channel) {
         feeds.add(channel);
+        channel.attr(IS_FEED).set(Boolean.TRUE); // exempt from idle reaping (keepalive)
         String durableId = channel.attr(DURABLE_ID).get();
         if (durableId != null && !durableId.isBlank()) {
             attachDurableFeed(durableId, channel);
