@@ -8,6 +8,11 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **CQ completeness** — each of a client's matching continuous queries now fires for a single mutation
+  (multiple CQs per event), client-side `CqQuery.getStatistics()` counts the delivered events, and
+  **durable CQs** are supported: a durable client's CQ is retained across disconnect and CQ events that
+  match while it is away are queued and replayed on reconnect (reusing the durable-client queue).
+  Validated against a real Geode 1.15 client.
 - **Subscription feed keepalive** — server→client subscription/durable feeds are now exempt from the
   idle-connection reaper, so a long-idle feed waiting for events is no longer silently closed (dead
   feeds are still detected at the TCP layer). Completes the subscription P3 tail: client PINGs are

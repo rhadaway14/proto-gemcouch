@@ -102,7 +102,14 @@ tool does. So a CQ integration test needs `geode-cq` as a **test-scoped** depend
   byte golden test `CqWithIrResponseShapeTest` (empty + 2 entries) + integration gate
   `executeWithInitialResultsReturnsCurrentMatchingEntries`.
 - **P2:** EXECUTECQ_WITH_IR initial result set (done), "stops-matching" → CQ DESTROY (prior-match
-  tracking, done), PDX-field CQ predicates (done), multiple CQs per event, CQ stats.
-- **P3:** durable CQs, monitoring, and the cross-replica story.
+  tracking, done), PDX-field CQ predicates (done), multiple CQs per event (done — each of a client's
+  matching CQs fires for one mutation), CQ stats (done — client-side `CqQuery.getStatistics()` counts
+  the delivered events).
+- **P3:** durable CQs (DONE) — a durable client's CQ is retained across disconnect (CLOSECQ on its
+  keepalive close is ignored) and CQ events matching while it is away are queued and replayed on
+  reconnect, reusing the durable-client queue (`SubscriptionRegistry.deliverOrQueueCq`); validated by
+  `ProtoGemCouchDurableClientIntegrationTest`. The cross-replica story is handled by the eventing
+  backplane (CQ events broadcast as `RemoteEvent.Kind.CQ_*`). Remaining: server-side CQ
+  monitoring/stats, and durable-CQ multi-replica persistence (tracked with durable clients).
 
 `tools/CqCapture` reproduces the capture (run with `geode-cq` on the classpath).

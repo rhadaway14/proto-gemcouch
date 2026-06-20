@@ -310,6 +310,12 @@ public final class SubscriptionRegistry {
         if (clientId == null || cqName == null) {
             return;
         }
+        // A durable client sends CLOSECQ as part of its keepalive close; retain its CQ across the
+        // disconnect so CQ events queue for replay (until the durable timeout). (First-cut limitation:
+        // a durable client can't stop/close a CQ mid-session.)
+        if (durableClients.containsKey(clientId)) {
+            return;
+        }
         java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(clientId);
         if (clientCqs != null) {
             clientCqs.remove(cqName);
@@ -481,19 +487,14 @@ public final class SubscriptionRegistry {
         if (cqs.isEmpty() || value == null) {
             return;
         }
-        for (Channel channel : feeds) {
-            if (!channel.isActive()) {
-                continue;
-            }
-            String feedClientId = channel.attr(CLIENT_ID).get();
-            if (feedClientId == null || feedClientId.equals(originClientId)) {
+        // Iterate every client with CQs (so a single mutation fires each of a client's matching CQs, and
+        // a disconnected durable client's CQ events are queued for replay rather than lost).
+        for (java.util.Map.Entry<String, java.util.concurrent.ConcurrentMap<String, Cq>> entry : cqs.entrySet()) {
+            String clientId = entry.getKey();
+            if (clientId.equals(originClientId)) {
                 continue; // self-suppression
             }
-            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(feedClientId);
-            if (clientCqs == null) {
-                continue;
-            }
-            for (Cq cq : clientCqs.values()) {
+            for (Cq cq : entry.getValue().values()) {
                 if (!region.equals(cq.region())) {
                     continue;
                 }
@@ -501,16 +502,14 @@ public final class SubscriptionRegistry {
                 boolean priorMatches = priorValue != null && cq.query().matches(priorValue, cqFieldResolver);
                 if (newMatches) {
                     int op = priorMatches ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
-                    sendMarkerIfNeeded(channel);
-                    channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildCqEvent(
-                            op, region, key, value, nextVersionTag(), nextEventId(), cq.cqName(), op)));
+                    deliverOrQueueCq(clientId, GemResponseWriter.buildCqEvent(
+                            op, region, key, value, nextVersionTag(), nextEventId(), cq.cqName(), op));
                     log.info(StructuredLog.event("subscription_cq_event_pushed", "cq", cq.cqName(),
                             "op", priorMatches ? "update" : "create", "region", region, "key", key));
                 } else if (priorMatches) {
                     // The updated value no longer matches: the entry leaves the result set (CQ DESTROY).
-                    sendMarkerIfNeeded(channel);
-                    channel.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildCqDestroy(
-                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY)));
+                    deliverOrQueueCq(clientId, GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY));
                     log.info(StructuredLog.event("subscription_cq_event_pushed", "cq", cq.cqName(),
                             "op", "destroy-stops-matching", "region", region, "key", key));
                 }
@@ -518,18 +517,45 @@ public final class SubscriptionRegistry {
         }
     }
 
-    /** True if any open feed's client has a CQ registered on this region (gates the prior-value read on remove). */
+    /** Deliver a CQ event live to the client's ready feed, or queue it for a disconnected durable client. */
+    private void deliverOrQueueCq(String clientId, byte[] message) {
+        Channel feed = liveReadyFeed(clientId);
+        if (feed != null) {
+            sendMarkerIfNeeded(feed);
+            feed.writeAndFlush(Unpooled.wrappedBuffer(message));
+            return;
+        }
+        DurableState durable = durableClients.get(clientId);
+        if (durable != null) {
+            enqueueDurable(durable, message); // disconnected / not-yet-ready durable client
+        }
+        // else: a non-durable client with no live feed — dropped (the client is gone)
+    }
+
+    /** This client's active feed if it is ready to receive live events, else null (queue instead). */
+    private Channel liveReadyFeed(String clientId) {
+        if (clientId == null) {
+            return null;
+        }
+        for (Channel channel : feeds) {
+            if (channel.isActive() && clientId.equals(channel.attr(CLIENT_ID).get())) {
+                DurableState durable = durableClients.get(clientId);
+                return (durable != null && !durable.ready) ? null : channel;
+            }
+        }
+        return null;
+    }
+
+    /** True if any client (connected or a retained durable client) has a CQ on this region — gates the
+     *  prior-value read on remove so a CQ DESTROY can be computed. */
     public boolean hasCqOnRegion(String region) {
         if (cqs.isEmpty() || region == null) {
             return false;
         }
-        for (Channel channel : feeds) {
-            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(channel.attr(CLIENT_ID).get());
-            if (clientCqs != null) {
-                for (Cq cq : clientCqs.values()) {
-                    if (region.equals(cq.region())) {
-                        return true;
-                    }
+        for (java.util.concurrent.ConcurrentMap<String, Cq> clientCqs : cqs.values()) {
+            for (Cq cq : clientCqs.values()) {
+                if (region.equals(cq.region())) {
+                    return true;
                 }
             }
         }
@@ -554,24 +580,15 @@ public final class SubscriptionRegistry {
         if (cqs.isEmpty() || priorValue == null) {
             return;
         }
-        for (Channel channel : feeds) {
-            if (!channel.isActive()) {
+        for (java.util.Map.Entry<String, java.util.concurrent.ConcurrentMap<String, Cq>> entry : cqs.entrySet()) {
+            String clientId = entry.getKey();
+            if (clientId.equals(originClientId)) {
                 continue;
             }
-            String feedClientId = channel.attr(CLIENT_ID).get();
-            if (feedClientId == null || feedClientId.equals(originClientId)) {
-                continue;
-            }
-            java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(feedClientId);
-            if (clientCqs == null) {
-                continue;
-            }
-            for (Cq cq : clientCqs.values()) {
+            for (Cq cq : entry.getValue().values()) {
                 if (region.equals(cq.region()) && cq.query().matches(priorValue, cqFieldResolver)) {
-                    sendMarkerIfNeeded(channel);
-                    byte[] msg = GemResponseWriter.buildCqDestroy(
-                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY);
-                    channel.writeAndFlush(Unpooled.wrappedBuffer(msg));
+                    deliverOrQueueCq(clientId, GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), cq.cqName(), MessageTypes.LOCAL_DESTROY));
                     log.info(StructuredLog.event(
                             "subscription_cq_event_pushed", "cq", cq.cqName(), "op", "destroy",
                             "region", region, "key", key));
