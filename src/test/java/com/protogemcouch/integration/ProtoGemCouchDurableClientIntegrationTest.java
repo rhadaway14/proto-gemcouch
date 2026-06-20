@@ -6,6 +6,10 @@ import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.cache.query.CqAttributesFactory;
+import org.apache.geode.cache.query.CqEvent;
+import org.apache.geode.cache.query.CqListener;
+import org.apache.geode.cache.query.QueryService;
 import org.apache.geode.cache.util.CacheListenerAdapter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -92,6 +96,77 @@ class ProtoGemCouchDurableClientIntegrationTest {
         } finally {
             d2.close(false);
         }
+    }
+
+    @Test
+    void durableClientReplaysCqEventsMissedWhileDisconnected() throws Exception {
+        String region = "dcq" + UUID.randomUUID().toString().replace("-", "");
+        String durableId = "ITDCQ" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String cqName = "durCq";
+        String cqText = "SELECT * FROM /" + region; // no predicate -> matches any value (incl. a String)
+
+        // Phase 1: durable client registers a CQ, is ready, then closes keeping its queue.
+        ClientCache d1 = durableCache(durableId);
+        d1.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(region);
+        QueryService qs1 = d1.getQueryService();
+        CqAttributesFactory caf1 = new CqAttributesFactory();
+        caf1.addCqListener(noopCqListener());
+        qs1.newCq(cqName, cqText, caf1.create()).execute();
+        d1.readyForEvents();
+        Thread.sleep(1000);
+        d1.close(true);
+
+        // Phase 2: a CQ-matching mutation arrives while the durable client is disconnected.
+        runPutOnce(region, "cqmissed", "v");
+
+        // Phase 3: reconnect, re-register the CQ with a listener; readyForEvents must replay the CQ event.
+        CountDownLatch fired = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+        ClientCache d2 = durableCache(durableId);
+        try {
+            d2.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(region);
+            QueryService qs2 = d2.getQueryService();
+            CqAttributesFactory caf2 = new CqAttributesFactory();
+            caf2.addCqListener(new CqListener() {
+                @Override
+                public void onEvent(CqEvent event) {
+                    key.set(event.getKey());
+                    fired.countDown();
+                }
+
+                @Override
+                public void onError(CqEvent event) {
+                }
+
+                @Override
+                public void close() {
+                }
+            });
+            qs2.newCq(cqName, cqText, caf2.create()).execute();
+            d2.readyForEvents();
+
+            assertTrue(fired.await(20, TimeUnit.SECONDS),
+                    "durable CQ replays the event it missed while disconnected");
+            assertEquals("cqmissed", key.get());
+        } finally {
+            d2.close(false);
+        }
+    }
+
+    private static CqListener noopCqListener() {
+        return new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     private static ClientCache durableCache(String durableId) {

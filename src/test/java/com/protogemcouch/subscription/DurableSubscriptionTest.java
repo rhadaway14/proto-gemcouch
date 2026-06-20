@@ -1,5 +1,6 @@
 package com.protogemcouch.subscription;
 
+import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
 import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,37 @@ class DurableSubscriptionTest {
         registry.unregisterInterest("d3", "/r1");
         registry.publishWrite("/r1", "k", StoredValue.stringValue("v"), false, "other");
         assertNotNull(feed.readOutbound(), "a durable client keeps its interest through unregister-on-close");
+    }
+
+    @Test
+    void durableCqEventsAreQueuedWhileDisconnectedAndReplayed() {
+        SubscriptionRegistry registry = new SubscriptionRegistry();
+        EmbeddedChannel feed1 = durableFeed(registry, "dcq");
+        registry.registerCq("dcq", "cq1", OqlQuery.parse("SELECT * FROM /r1"));
+        registry.onClientReady("dcq");
+
+        // Disconnect; a CQ-matching mutation arrives while away -> queued, not lost.
+        feed1.close();
+        registry.publishCqEvent("/r1", "k1", StoredValue.stringValue("v"), null, "other");
+
+        // Reconnect + ready -> the missed CQ event replays (marker, then the CQ event).
+        EmbeddedChannel feed2 = durableFeed(registry, "dcq");
+        assertNull(feed2.readOutbound(), "no replay before readyForEvents()");
+        registry.onClientReady("dcq");
+        assertNotNull(feed2.readOutbound(), "CLIENT_MARKER on reconnect");
+        assertNotNull(feed2.readOutbound(), "the CQ event missed while disconnected is replayed");
+    }
+
+    @Test
+    void durableClientRetainsCqThroughCloseCqOnClose() {
+        SubscriptionRegistry registry = new SubscriptionRegistry();
+        EmbeddedChannel feed = durableFeed(registry, "dcq2");
+        registry.registerCq("dcq2", "cq1", OqlQuery.parse("SELECT * FROM /r1"));
+        registry.onClientReady("dcq2");
+        // A durable client sends CLOSECQ on its keepalive close — its CQ must survive it.
+        registry.closeCq("dcq2", "cq1");
+        registry.publishCqEvent("/r1", "k", StoredValue.stringValue("v"), null, "other");
+        assertNotNull(feed.readOutbound(), "a durable client keeps its CQ through close-cq-on-close");
     }
 
     @Test

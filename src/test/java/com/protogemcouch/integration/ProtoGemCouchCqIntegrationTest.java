@@ -150,6 +150,69 @@ class ProtoGemCouchCqIntegrationTest {
     }
 
     @Test
+    void multipleCqsOnOneClientEachFireForAMatchingMutation() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch cqA = new CountDownLatch(1);
+        CountDownLatch cqB = new CountDownLatch(1);
+        QueryService qs = cache.getQueryService();
+
+        CqAttributesFactory cafA = new CqAttributesFactory();
+        cafA.addCqListener(countingListener(cqA));
+        qs.newCq("cqA", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", cafA.create()).execute();
+
+        CqAttributesFactory cafB = new CqAttributesFactory();
+        cafB.addCqListener(countingListener(cqB));
+        qs.newCq("cqB", "SELECT * FROM /" + regionName + " r WHERE r.amount > 5", cafB.create()).execute();
+
+        // amount 20 matches both predicates -> both CQs must fire for the one mutation.
+        runPutMap(regionName, "both", 20);
+
+        assertTrue(cqA.await(20, TimeUnit.SECONDS), "cqA (>10) fired for the matching mutation");
+        assertTrue(cqB.await(20, TimeUnit.SECONDS), "cqB (>5) also fired for the same mutation");
+    }
+
+    @Test
+    void cqStatisticsCountReceivedEvents() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch matched = new CountDownLatch(1);
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(countingListener(matched));
+        CqQuery cq = qs.newCq("statCq", "SELECT * FROM /" + regionName + " r WHERE r.amount > 10", caf.create());
+        cq.execute();
+
+        runPutMap(regionName, "x", 20);
+        assertTrue(matched.await(20, TimeUnit.SECONDS), "CQ event received");
+        Thread.sleep(500); // let the client's CqStatistics settle
+
+        assertTrue(cq.getStatistics().numEvents() >= 1,
+                "CQ statistics count the received event (numEvents=" + cq.getStatistics().numEvents() + ")");
+    }
+
+    private static CqListener countingListener(CountDownLatch latch) {
+        return new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+    }
+
+    @Test
     void cqListenerFiresForPredicateMatchingPdxObject() throws Exception {
         String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
         cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);

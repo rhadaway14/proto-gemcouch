@@ -317,7 +317,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   writes (no per-op expiry in Couchbase transactions); transactional putIfAbsent/replace/remove(k,v)
   buffer as plain put/remove (no in-tx compare semantics); JTA `TX_SYNCHRONIZATION` (opcode 90) and
   tx failover are not handled.
-- [~] **Continuous Queries (CQ)** — registration + event delivery. **P1 DONE**: EXECUTECQ (42)
+- [x] **Continuous Queries (CQ)** — registration + event delivery. **P1 DONE**: EXECUTECQ (42)
   compiles the OQL with the shim's own `OqlQuery` and registers it per client; matching PUT/REMOVE
   push CQ events (LOCAL_CREATE/UPDATE/DESTROY with the `[numCqElems, cqName, cqOp]` section) to the
   client's feed, so a real Geode 1.15 client's `CqListener` fires for create/update/destroy filtered
@@ -329,7 +329,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   returns the region's current matching entries as a chunked `Struct{key,value}` query-style response
   (`buildExecuteCqWithIrReply`; the client op extends `QueryOpImpl`), validated byte-for-byte
   (`CqWithIrResponseShapeTest`) and end-to-end (`executeWithInitialResultsReturnsCurrentMatchingEntries`).
-  See `docs/CONTINUOUS_QUERIES.md`. **Remaining:** multiple CQs per event, CQ stats, durable CQs.
+  See `docs/CONTINUOUS_QUERIES.md`. **P3 DONE:** *multiple CQs per event* (each of a client's matching
+  CQs fires for one mutation — `multipleCqsOnOneClientEachFireForAMatchingMutation`); *CQ statistics*
+  (client-side `CqQuery.getStatistics()` counts the delivered events — `cqStatisticsCountReceivedEvents`);
+  and *durable CQs* — a durable client's CQ is retained across disconnect (CLOSECQ on its keepalive close
+  is ignored) and CQ events that match while it is away are queued and replayed on reconnect
+  (`ProtoGemCouchDurableClientIntegrationTest.durableClientReplaysCqEventsMissedWhileDisconnected`),
+  reusing the durable-client queue. **CQ practically complete** (single-instance + cross-replica
+  backplane); remaining is CQ monitoring/stats *server-side* and durable-CQ multi-replica persistence
+  (tracked with durable clients).
 - [x] **Register interest / subscriptions / events** — client subscription queue and server→client
   notifications (a subsystem; prerequisite for CQ and listeners). **P1 + P2 DONE** (server→client push
   works end-to-end), validated against a real Geode 1.15 client by 8 gates in
