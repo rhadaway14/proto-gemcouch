@@ -17,6 +17,16 @@ minor versions as parity expands.
   value that merely starts with one of those marker bytes is not mis-tagged.
 
 ### Added
+- **Cross-version client matrix (M6)** — hardened and documented protocol-version negotiation across
+  the whole Geode version line. `HandshakeVersionMatrixTest` drives the authoritative version→ordinal
+  table (8.1=35 … 1.15.0=150) through parse + accept/refuse, covering both the single-byte (≤127) and
+  `0xFF`-token (>127) ordinal encodings; `ProtoGemCouchVersionNegotiationIntegrationTest` validates
+  end-to-end against the live shim that a lower-version client (a real handshake with the ordinal
+  swapped to Geode 1.14) is cleanly refused with `REPLY_REFUSED`. The compatibility matrix now carries
+  the full ordinal table and the widening caveat (the shim emits 1.15.x wire forms, so widening to a
+  lower minor needs operator wire-validation), and `scripts/cross-version-matrix.sh` runs the core
+  suite under a chosen client `geode.version`. Also fixed a mislabeled ordinal in the existing
+  version-policy unit test (110 is 1.11.0, not 1.14.0 — 1.14.0 = 125).
 - **Top-level value-type coverage validated** — the full value-type profile now has real-client
   evidence of exact round-trip as a *top-level* region value (not only nested in a Map/PDX): the JDK
   utility scalars (`UUID`/`BigInteger`/`BigDecimal`/JDK & custom `enum`/`Instant`/`LocalDate`/

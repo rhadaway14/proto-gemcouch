@@ -47,8 +47,8 @@ class HandshakeVersionPolicyTest {
                 HandshakeVersionPolicy.parseSupportedOrdinals(null));
         assertTrue(policy.isSupported(HandshakeVersionPolicy.GEODE_1_15_ORDINAL));
         assertTrue(policy.isSupported(150));
-        assertFalse(policy.isSupported(110));   // 1.14.x
-        assertFalse(policy.isSupported(75));     // older
+        assertFalse(policy.isSupported(125));   // 1.14.0
+        assertFalse(policy.isSupported(75));     // 1.4.0 (older)
         assertFalse(policy.isSupported(HandshakeVersionPolicy.UNKNOWN_ORDINAL));
     }
 
