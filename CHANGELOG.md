@@ -17,7 +17,10 @@ All notable changes to ProtoGemCouch are documented here. The format follows
   emitting a `pdx_registry_cap_exceeded` audit event, while already-registered types are still served.
   Ships with Grafana panels, two Alertmanager rules (`ProtoGemCouchPdxRegistryRejections`,
   `ProtoGemCouchDurableQueueBacklog`), and docs (`OBSERVABILITY.md`, `SECURITY.md`). Addresses the
-  registry-growth observability follow-up flagged in the 1.0.0 security review.
+  registry-growth observability follow-up flagged in the 1.0.0 security review. A cap rejection is now
+  also surfaced on the logs/traces side: a dedicated **"PDX registry cap rejections by kind"** Loki
+  panel on the Logs & Traces dashboard, and a `protogemcouch.pdx_registry_cap_exceeded=true` attribute
+  on the OpenTelemetry operation span so the rejection is queryable in traces (Jaeger).
 
 ## [1.0.0] - 2026-06-20
 
