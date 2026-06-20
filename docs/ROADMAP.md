@@ -478,13 +478,18 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ### 3c. Protocol completeness
 
-- [x] **Golden-wire regression library per opcode** — every handled opcode's reply frame is locked
-  byte-for-byte to a committed hex fixture (`src/test/resources/golden-wire/`, asserted by
-  `GoldenWireResponseTest`), and a coverage test ties the fixture set to `OpcodeRegistry` so a new
-  opcode can't ship without a golden lock. Per-value-type GET encodings stay locked by the `*ShapeTest`
-  suite; request-side decoding by the fuzz/shape + integration suites. (Remaining for full "golden wire":
-  capturing real-client *request* byte fixtures per opcode — lower ROI, the decode path is already
-  fuzz- and integration-covered.)
+- [x] **Golden-wire regression library per opcode — reply AND request side.** Every handled opcode's
+  reply frame is locked byte-for-byte to a committed hex fixture (`src/test/resources/golden-wire/`,
+  `GoldenWireResponseTest`), and the matching **request** frame — a real Geode 1.15 client message
+  captured by `tools.RequestWireCapture` — is locked under `src/test/resources/golden-wire-requests/`
+  and decoded through the actual `GemFrameDecoder` by `GoldenWireRequestTest` (asserts the opcode + a
+  self-consistent part list against the exact bytes a real client sends). Both sides have a coverage
+  test tying the fixture set to `OpcodeRegistry`, so a newly handled opcode can't ship without locking
+  its reply and request shapes (or an explicit exemption with a reason). The request library locks the
+  core data-path / query / interest / transaction / region-lifecycle opcodes; subscription-CQ, PDX
+  registry, and ack/control opcodes are documented exemptions (captured by their dedicated tools /
+  covered by integration + the reply golden). Per-value-type GET encodings stay locked by the
+  `*ShapeTest` suite.
 - [x] **Protocol version negotiation** — the shim parses the client protocol version ordinal from the
   handshake and accepts only supported versions (default: the wire-validated 1.15.x line, ordinal 150;
   widenable via `SUPPORTED_VERSION_ORDINALS`). An unsupported version is refused cleanly with a Geode

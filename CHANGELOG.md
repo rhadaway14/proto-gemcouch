@@ -17,6 +17,14 @@ minor versions as parity expands.
   value that merely starts with one of those marker bytes is not mis-tagged.
 
 ### Added
+- **Golden-wire request fixtures (M6)** — the decode side of the golden-wire library. Real Geode 1.15
+  client request frames for the core opcodes (GET/PUT/REMOVE, contains/size/keySet, putAll/getAll,
+  query + parameters, invalidate/clear/destroyRegion, register/unregister interest + key list, getEntry,
+  commit/rollback, getFunctionAttributes) are captured by `tools.RequestWireCapture` and locked under
+  `src/test/resources/golden-wire-requests/`; `GoldenWireRequestTest` decodes each through the real
+  `GemFrameDecoder` and asserts the opcode + a consistent part list, with a coverage guard tying the
+  fixtures to `OpcodeRegistry` (subscription-CQ, PDX-registry, and ack/control opcodes are documented
+  exemptions). A request-parser regression is now caught against the exact bytes a real client sends.
 - **Cross-version client matrix (M6)** — hardened and documented protocol-version negotiation across
   the whole Geode version line. `HandshakeVersionMatrixTest` drives the authoritative version→ordinal
   table (8.1=35 … 1.15.0=150) through parse + accept/refuse, covering both the single-byte (≤127) and
