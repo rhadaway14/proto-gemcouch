@@ -41,6 +41,7 @@ public final class MessageTypes {
     public static final int COMMIT = 85;
     public static final int COMMIT_ERROR = 86;
     public static final int ROLLBACK = 87;
+    public static final int TX_FAILOVER = 88;
     public static final int TX_SYNCHRONIZATION = 90;
 
     /*

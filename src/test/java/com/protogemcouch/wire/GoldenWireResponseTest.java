@@ -70,6 +70,9 @@ class GoldenWireResponseTest {
                 TX_ID, List.of("k1", "k2"), orderedMap("k1", "v1", "k2", "v2")));
         f.put("putall-response.hex", GemResponseWriter.buildPutAllChunkedResponse(TX_ID));
         f.put("putall-error-response.hex", GemResponseWriter.buildPutAllErrorResponse(TX_ID, "keys [k9] failed"));
+        f.put("getentry-present-response.hex", GemResponseWriter.buildGetEntryResponse(
+                TX_ID, "k1", StoredValue.stringValue("v1")));
+        f.put("getentry-not-found-response.hex", GemResponseWriter.buildGetEntryNotFoundResponse(TX_ID));
         // --- transactions ---
         f.put("commit-response.hex", GemResponseWriter.buildCommitResponse(TX_ID));
         f.put("rollback-response.hex", GemResponseWriter.buildRollbackResponse(TX_ID));
@@ -122,11 +125,12 @@ class GoldenWireResponseTest {
         m.put(MessageTypes.KEY_SET, "keyset-response.hex");
         m.put(MessageTypes.GET_ALL_70, "getall-response.hex");
         m.put(MessageTypes.PUT_ALL, "putall-response.hex");
-        m.put(MessageTypes.GET_ENTRY, "get-null-response.hex");
+        m.put(MessageTypes.GET_ENTRY, "getentry-present-response.hex");
         m.put(MessageTypes.QUERY, "query-response.hex");
         m.put(MessageTypes.QUERY_WITH_PARAMETERS, "query-response.hex");
         m.put(MessageTypes.COMMIT, "commit-response.hex");
         m.put(MessageTypes.ROLLBACK, "rollback-response.hex");
+        m.put(MessageTypes.TX_FAILOVER, "simple-ack-response.hex");
         m.put(MessageTypes.REGISTER_INTEREST, "register-interest-reply.hex");
         m.put(MessageTypes.REGISTER_INTEREST_LIST, "register-interest-reply.hex");
         m.put(MessageTypes.UNREGISTER_INTEREST, "unregister-interest-reply.hex");

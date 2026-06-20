@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -143,6 +144,49 @@ class ProtoGemCouchTransactionIntegrationTest {
 
         assertTrue(removed, "remove(k,v) in a tx returns true on a value match");
         assertNull(region.get("k"), "remove(k,v) in a tx removes the entry on a value match");
+    }
+
+    @Test
+    void getEntryInsideTransactionReturnsCommittedEntry() {
+        region.put("ge", "v"); // committed before the tx
+
+        txMgr.begin();
+        Region.Entry<String, Object> entry = region.getEntry("ge");
+        txMgr.commit();
+
+        assertNotNull(entry, "getEntry in a tx returns an Entry for a present key");
+        assertEquals("ge", entry.getKey());
+        assertEquals("v", entry.getValue(), "the Entry carries the committed value");
+    }
+
+    @Test
+    void getEntryInsideTransactionReturnsNullForAbsentKey() {
+        txMgr.begin();
+        Region.Entry<String, Object> entry = region.getEntry("nope");
+        txMgr.commit();
+
+        assertNull(entry, "getEntry in a tx returns null for an absent key");
+    }
+
+    @Test
+    void getEntryInsideTransactionSeesBufferedWrite() {
+        txMgr.begin();
+        region.put("buffered", "n"); // buffered, not yet committed
+        Region.Entry<String, Object> entry = region.getEntry("buffered");
+        assertNotNull(entry, "read-your-writes: getEntry sees the tx's own buffered put");
+        assertEquals("n", entry.getValue());
+        txMgr.commit();
+    }
+
+    @Test
+    void getEntryInsideTransactionReflectsBufferedRemove() {
+        region.put("gone", "x"); // committed before the tx
+
+        txMgr.begin();
+        region.remove("gone");
+        Region.Entry<String, Object> entry = region.getEntry("gone");
+        assertNull(entry, "read-your-writes: a buffered remove hides a committed key from getEntry");
+        txMgr.commit();
     }
 
     @Test

@@ -8,6 +8,19 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **`Region.getEntry(key)` (GET_ENTRY, opcode 89)** — now returns a real Geode `EntrySnapshot` so the
+  client's `Entry.getValue()` reads back the stored value (present key) or `null` (absent key), instead
+  of a value object the client couldn't cast. Discovered that a non-transactional `getEntry` on a
+  client `PROXY` region is answered locally and never reaches the server, so opcode 89 is only sent
+  **inside a transaction** — the handler honors read-your-writes there (buffered put/remove). The reply
+  bytes were captured from a real Geode 1.15.1 server (`tools/GetEntryCapture`) and are reproduced
+  byte-for-byte (`GetEntryResponseShapeTest`, golden-wire-locked), validated end-to-end against a real
+  Geode 1.15 client (`ProtoGemCouchTransactionIntegrationTest`).
+- **`TX_FAILOVER` (opcode 88) handling** — a single-hop-enabled client (the default) nominates a
+  transaction-host server with `TX_FAILOVER` before a transactional `getEntry`; since the shim's
+  partition metadata is a graceful no-op the client always sends it, and the single-backend shim is
+  always the host, so it is now acked (`TxFailoverHandler`). Previously unhandled, which made a
+  single-hop transactional `getEntry` retry forever and hang.
 - **In-transaction compare semantics** — `putIfAbsent` / `replace` / `replace(k,old,new)` / `remove(k,v)`
   inside a client transaction now honor their compare against the transaction's effective view
   (read-your-writes over committed state) and return the Geode-accurate old value / boolean, instead of
