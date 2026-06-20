@@ -41,6 +41,24 @@ tests:
               summary: "ProtoGemCouch is shedding requests (handler queue saturated)"
               description: "The handler queue is full and requests are being shed. Raise HANDLER_THREADS / HANDLER_MAX_PENDING_TASKS, or scale out."
 
+  # The PDX registry is rejecting registrations: a rising counter gives a positive increase, firing
+  # ProtoGemCouchPdxRegistryRejections.
+  - interval: 1m
+    input_series:
+      - series: 'protogemcouch_pdx_registry_rejected_total{job="protogemcouch", instance="protogemcouch:8081"}'
+        values: "0+3x12"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: ProtoGemCouchPdxRegistryRejections
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: protogemcouch
+              instance: protogemcouch:8081
+            exp_annotations:
+              summary: "ProtoGemCouch PDX registry is rejecting registrations (cap reached)"
+              description: "The PDX type/enum registry hit its configured cap and rejected at least one registration in 10m. Raise MAX_PDX_TYPES/MAX_PDX_ENUMS if this is legitimate traffic, or investigate a client registering excessive distinct types."
+
   # Healthy shim: up, serving traffic, no errors, no shedding -> none of these alerts fire.
   - interval: 1m
     input_series:

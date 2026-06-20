@@ -6,6 +6,19 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **In-memory registry observability + bounds (1.1.0-M1)** — new sampled Prometheus gauges expose the
+  shim's live in-memory state, which previously had no metrics: `protogemcouch_pdx_types`,
+  `protogemcouch_pdx_enums`, `protogemcouch_active_transactions`, `protogemcouch_subscription_feeds`,
+  `protogemcouch_registered_interests`, `protogemcouch_registered_cqs`, `protogemcouch_durable_clients`,
+  and `protogemcouch_durable_queue_depth` (and in the JSON snapshot). The PDX type/enum registry can now
+  be bounded with the optional `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` caps (0 = unlimited, the default): a
+  registration past the cap is rejected, incrementing `protogemcouch_pdx_registry_rejected_total` and
+  emitting a `pdx_registry_cap_exceeded` audit event, while already-registered types are still served.
+  Ships with Grafana panels, two Alertmanager rules (`ProtoGemCouchPdxRegistryRejections`,
+  `ProtoGemCouchDurableQueueBacklog`), and docs (`OBSERVABILITY.md`, `SECURITY.md`). Addresses the
+  registry-growth observability follow-up flagged in the 1.0.0 security review.
+
 ## [1.0.0] - 2026-06-20
 
 First general-availability release. The supported surface is the compatibility contract in

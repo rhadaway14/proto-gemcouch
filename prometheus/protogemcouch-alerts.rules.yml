@@ -91,3 +91,27 @@ groups:
         annotations:
           summary: "ProtoGemCouch slowloris first-request timeouts"
           description: "Connections are being closed for not completing their first request in time (slowloris guard)."
+
+  - name: protogemcouch-registries
+    rules:
+      # The in-memory PDX type/enum registry hit its configured cap (MAX_PDX_TYPES / MAX_PDX_ENUMS) and
+      # rejected a registration. A client registering an unbounded number of distinct PDX types, or a
+      # cap set too low for legitimate traffic — cross-check the protogemcouch.audit stream.
+      - alert: ProtoGemCouchPdxRegistryRejections
+        expr: increase(protogemcouch_pdx_registry_rejected_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch PDX registry is rejecting registrations (cap reached)"
+          description: "The PDX type/enum registry hit its configured cap and rejected at least one registration in 10m. Raise MAX_PDX_TYPES/MAX_PDX_ENUMS if this is legitimate traffic, or investigate a client registering excessive distinct types."
+
+      # A durable client is far behind on its event queue — it may be disconnected or slow, and its
+      # queued events consume heap until it returns or its timeout expires (DURABLE_MAX_QUEUE bounds it).
+      - alert: ProtoGemCouchDurableQueueBacklog
+        expr: protogemcouch_durable_queue_depth > 10000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ProtoGemCouch durable-client event backlog is high"
+          description: "protogemcouch_durable_queue_depth has exceeded 10000 queued events for 10m — a durable client is disconnected or not keeping up. Tune the threshold to your DURABLE_MAX_QUEUE."

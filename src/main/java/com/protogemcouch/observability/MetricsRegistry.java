@@ -5,9 +5,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.LongSupplier;
 
 public class MetricsRegistry {
 
@@ -22,8 +24,19 @@ public class MetricsRegistry {
     private final LongAdder unknownOpcodes = new LongAdder();
     private final LongAdder requestErrors = new LongAdder();
     private final LongAdder malformedFrames = new LongAdder();
+    private final LongAdder pdxRegistryRejected = new LongAdder();
 
     private final Map<Integer, OpMetrics> perOpcode = new ConcurrentHashMap<>();
+
+    /**
+     * Sampled-at-scrape gauges for live, non-cumulative state (the in-memory registry sizes). Each is a
+     * supplier read when metrics are rendered, so the value is always current without the registries
+     * having to push updates. Registered once at startup via {@link #registerGauge}.
+     */
+    private final List<Gauge> gauges = new CopyOnWriteArrayList<>();
+
+    private record Gauge(String name, String help, LongSupplier supplier) {
+    }
 
     /**
      * Cumulative histogram bucket upper bounds for operation latency, expressed in nanoseconds for
@@ -84,6 +97,20 @@ public class MetricsRegistry {
 
     public void recordMalformedFrame() {
         malformedFrames.increment();
+    }
+
+    /** A PDX type/enum registration was rejected because the registry was at its configured cap. */
+    public void recordPdxRegistryRejected() {
+        pdxRegistryRejected.increment();
+    }
+
+    /**
+     * Register a sampled gauge (current value read at scrape time). Use for live in-memory state such
+     * as registry sizes. {@code name} is the full Prometheus metric name (e.g.
+     * {@code protogemcouch_pdx_types}); call once at startup.
+     */
+    public void registerGauge(String name, String help, LongSupplier supplier) {
+        gauges.add(new Gauge(name, help, supplier));
     }
 
     public void recordRequestStart(int opcode) {
@@ -163,8 +190,19 @@ public class MetricsRegistry {
                 "handshake_version_rejected", handshakeVersionRejected.sum(),
                 "unknown_opcodes", unknownOpcodes.sum(),
                 "request_errors", requestErrors.sum(),
-                "malformed_frames", malformedFrames.sum()
+                "malformed_frames", malformedFrames.sum(),
+                "pdx_registry_rejected", pdxRegistryRejected.sum()
         ));
+
+        if (!gauges.isEmpty()) {
+            Object[] kv = new Object[gauges.size() * 2];
+            for (int i = 0; i < gauges.size(); i++) {
+                Gauge gauge = gauges.get(i);
+                kv[i * 2] = gauge.name().replaceFirst("^protogemcouch_", "");
+                kv[i * 2 + 1] = gauge.supplier().getAsLong();
+            }
+            lines.add(StructuredLog.event("metrics_gauges", kv));
+        }
 
         sortedOpcodeEntries().forEach(entry -> {
             int opcode = entry.getKey();
@@ -229,7 +267,19 @@ public class MetricsRegistry {
         out.append("\"unknownOpcodes\":").append(unknownOpcodes.sum()).append(',');
         out.append("\"requestErrors\":").append(requestErrors.sum()).append(',');
         out.append("\"malformedFrames\":").append(malformedFrames.sum()).append(',');
+        out.append("\"pdxRegistryRejected\":").append(pdxRegistryRejected.sum()).append(',');
         out.append("\"requestsShed\":").append(requestsShed.sum());
+        out.append("},");
+
+        out.append("\"gauges\":{");
+        boolean firstGauge = true;
+        for (Gauge gauge : gauges) {
+            if (!firstGauge) {
+                out.append(',');
+            }
+            firstGauge = false;
+            out.append('"').append(jsonEscape(gauge.name())).append("\":").append(gauge.supplier().getAsLong());
+        }
         out.append("},");
 
         out.append("\"operations\":[");
@@ -336,6 +386,17 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_malformed_frames_total", "Total inbound frames rejected as malformed or oversized.");
         appendMetricType(out, "protogemcouch_malformed_frames_total", "counter");
         appendMetric(out, "protogemcouch_malformed_frames_total", malformedFrames.sum());
+
+        appendMetricHelp(out, "protogemcouch_pdx_registry_rejected_total", "Total PDX type/enum registrations rejected for exceeding the configured registry cap.");
+        appendMetricType(out, "protogemcouch_pdx_registry_rejected_total", "counter");
+        appendMetric(out, "protogemcouch_pdx_registry_rejected_total", pdxRegistryRejected.sum());
+
+        // Sampled gauges for live in-memory registry sizes (read at scrape time).
+        for (Gauge gauge : gauges) {
+            appendMetricHelp(out, gauge.name(), gauge.help());
+            appendMetricType(out, gauge.name(), "gauge");
+            appendMetric(out, gauge.name(), gauge.supplier().getAsLong());
+        }
 
         appendOperationMetricHeaders(out);
 

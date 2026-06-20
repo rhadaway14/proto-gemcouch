@@ -1,6 +1,8 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.observability.AuditLog;
+import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
 import com.protogemcouch.wire.MessageTypes;
@@ -11,14 +13,29 @@ public final class HandlerRegistryFactory {
     }
 
     public static OpcodeRegistry create(Repository repository) {
-        return create(repository, new SubscriptionRegistry());
+        return create(repository, new SubscriptionRegistry(), null);
     }
 
     public static OpcodeRegistry create(Repository repository, SubscriptionRegistry subscriptions) {
+        return create(repository, subscriptions, null);
+    }
+
+    /**
+     * Build the opcode registry. When {@code metrics} is non-null, sampled gauges for the in-memory
+     * registry sizes (PDX types/enums, active transactions, subscription feeds/interests/CQs, durable
+     * clients/queue depth) are registered, and the PDX type/enum registries are bounded by the optional
+     * {@code MAX_PDX_TYPES} / {@code MAX_PDX_ENUMS} caps (0 = unlimited) with a metric + audit on reject.
+     */
+    public static OpcodeRegistry create(Repository repository, SubscriptionRegistry subscriptions,
+                                        MetricsRegistry metrics) {
         OpcodeRegistry registry = new OpcodeRegistry();
 
-        PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry();
-        PdxEnumRegistry pdxEnumRegistry = new PdxEnumRegistry();
+        int maxPdxTypes = intEnv("MAX_PDX_TYPES", 0);
+        int maxPdxEnums = intEnv("MAX_PDX_ENUMS", 0);
+        PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry(maxPdxTypes,
+                () -> onPdxRegistryReject(metrics, "type", maxPdxTypes));
+        PdxEnumRegistry pdxEnumRegistry = new PdxEnumRegistry(maxPdxEnums,
+                () -> onPdxRegistryReject(metrics, "enum", maxPdxEnums));
         TransactionRegistry transactions = new TransactionRegistry();
 
         registry.register(MessageTypes.GET, new GetHandler(repository, transactions));
@@ -106,6 +123,46 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.GET_PDX_ENUMS, new GetPdxEnumsHandler(pdxEnumRegistry));
         registry.register(MessageTypes.GET_PDX_ENUM_BY_ID, new GetPdxEnumByIdHandler(pdxEnumRegistry));
 
+        if (metrics != null) {
+            // Sampled at scrape time, so operators can watch (and alert on) the in-memory state these
+            // registries hold — the growth/observability follow-up from the 1.0.0 security review.
+            metrics.registerGauge("protogemcouch_pdx_types",
+                    "Distinct PDX types currently registered.", () -> (long) pdxTypeRegistry.size());
+            metrics.registerGauge("protogemcouch_pdx_enums",
+                    "Distinct PDX enums currently registered.", () -> (long) pdxEnumRegistry.size());
+            metrics.registerGauge("protogemcouch_active_transactions",
+                    "Client transactions currently buffered (in flight).", () -> (long) transactions.activeCount());
+            metrics.registerGauge("protogemcouch_subscription_feeds",
+                    "Open server-to-client subscription feed channels.", () -> (long) subscriptions.feedCount());
+            metrics.registerGauge("protogemcouch_registered_interests",
+                    "Total registered interests across clients and regions.", () -> (long) subscriptions.interestCount());
+            metrics.registerGauge("protogemcouch_registered_cqs",
+                    "Total registered continuous queries across clients.", () -> (long) subscriptions.cqCount());
+            metrics.registerGauge("protogemcouch_durable_clients",
+                    "Durable subscription clients currently retained.", () -> (long) subscriptions.durableClientCount());
+            metrics.registerGauge("protogemcouch_durable_queue_depth",
+                    "Total queued (undelivered) events across durable clients.", subscriptions::durableQueueDepth);
+        }
+
         return registry;
+    }
+
+    private static void onPdxRegistryReject(MetricsRegistry metrics, String kind, int cap) {
+        if (metrics != null) {
+            metrics.recordPdxRegistryRejected();
+        }
+        AuditLog.event("pdx_registry_cap_exceeded", "kind", kind, "cap", cap);
+    }
+
+    private static int intEnv(String name, int fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 }

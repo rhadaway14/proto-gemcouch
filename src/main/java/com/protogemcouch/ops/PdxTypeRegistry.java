@@ -25,12 +25,35 @@ public class PdxTypeRegistry {
     private final ConcurrentMap<Integer, PdxType> typesById = new ConcurrentHashMap<>();
     private final AtomicInteger nextTypeId = new AtomicInteger(1);
 
+    /** Maximum distinct PDX types to register; {@code 0} = unlimited (the default). */
+    private final int maxTypes;
+    /** Invoked once when a new-type registration is rejected for hitting the cap (metric + audit). */
+    private final Runnable onCapExceeded;
+
+    public PdxTypeRegistry() {
+        this(0, () -> { });
+    }
+
+    public PdxTypeRegistry(int maxTypes, Runnable onCapExceeded) {
+        this.maxTypes = Math.max(0, maxTypes);
+        this.onCapExceeded = onCapExceeded == null ? () -> { } : onCapExceeded;
+    }
+
     public int getOrCreateTypeId(byte[] encodedPdxType) {
         if (encodedPdxType == null || encodedPdxType.length == 0) {
             throw new IllegalArgumentException("encodedPdxType must not be null or empty");
         }
 
         String fingerprint = sha256Hex(encodedPdxType);
+        Integer known = typeIdsByFingerprint.get(fingerprint);
+        if (known != null) {
+            return known; // an already-registered type is always served, regardless of the cap
+        }
+        if (maxTypes > 0 && typeIdsByFingerprint.size() >= maxTypes) {
+            onCapExceeded.run();
+            throw new PdxRegistryCapExceededException(
+                    "PDX type registry cap reached (" + maxTypes + "); set MAX_PDX_TYPES to raise it");
+        }
         int typeId = typeIdsByFingerprint.computeIfAbsent(
                 fingerprint, ignored -> nextTypeId.getAndIncrement());
 

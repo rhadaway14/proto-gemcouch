@@ -225,7 +225,7 @@ public class RawShimServer {
             subscriptions = new com.protogemcouch.subscription.SubscriptionRegistry();
             // Cross-replica eventing transport (default: no-op single-instance; EVENT_BACKPLANE=redis opts in).
             subscriptions.setBackplane(com.protogemcouch.subscription.EventBackplaneFactory.fromEnvironment());
-            opcodeRegistry = HandlerRegistryFactory.create(repository, subscriptions);
+            opcodeRegistry = HandlerRegistryFactory.create(repository, subscriptions, metrics);
             unknownOpcodeHandler = new UnknownOpcodeHandler();
 
             startMetricsReporter();
