@@ -4,6 +4,7 @@ import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
+import com.protogemcouch.tx.TxState;
 import com.protogemcouch.serialization.GeodeSerialization;
 import com.protogemcouch.serialization.NestedValueSupport;
 import com.protogemcouch.serialization.StoredValue;
@@ -115,17 +116,54 @@ public class PutHandler implements OperationHandler {
 
         String docId = DocumentKeyUtil.docId(region, key);
 
-        // Transactional put: buffer the write in the transaction's state instead of applying it now;
-        // it is applied to storage on COMMIT (and discarded on ROLLBACK). All put variants buffer as
-        // a plain write — transactional putIfAbsent/replace compare-semantics are a documented gap.
+        // Transactional put: buffer the write in the transaction's state instead of applying it now; it
+        // is applied to storage on COMMIT (and discarded on ROLLBACK). putIfAbsent/replace honor their
+        // compare semantics against the transaction's effective view (read-your-writes over committed
+        // state) and reply with the Geode-accurate old value / boolean, just like the non-tx path. The
+        // compare is evaluated at buffer time against the current snapshot (a bounded approximation of
+        // Geode's optimistic commit-time conflict check).
         if (frame.getTransactionId() >= 0) {
             int txId = frame.getTransactionId();
-            transactions.getOrCreate(ctx.channel().id().asLongText(), txId).put(docId, value);
-            log.info(StructuredLog.event(
-                    "handler_put_tx_buffered",
-                    "region", region, "key", key, "docId", docId,
-                    "valueType", value.type(), "txId", txId));
-            ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildPutResponse(txId)));
+            TxState tx = transactions.getOrCreate(ctx.channel().id().asLongText(), txId);
+            byte[] response;
+            switch (operation) {
+                case OP_PUT_IF_ABSENT -> {
+                    StoredValue effective = effectiveValue(tx, docId); // only the compare ops read prior state
+                    if (effective == null) {
+                        tx.put(docId, value);
+                    }
+                    response = oldValueReply(txId, effective); // returns the existing value, else null
+                    logRouted("tx_put_if_absent", region, key, docId, value, txId,
+                            effective == null ? "inserted" : "present");
+                }
+                case OP_REPLACE -> {
+                    StoredValue effective = effectiveValue(tx, docId);
+                    if (hasExpectedOldValue) {
+                        boolean replaced = effective != null && effective.equals(expectedOldValue);
+                        if (replaced) {
+                            tx.put(docId, value);
+                        }
+                        response = GemResponseWriter.buildPutResponseWithOldValue(
+                                txId, StoredValue.booleanValue(replaced));
+                        logRouted("tx_replace_compare", region, key, docId, value, txId, String.valueOf(replaced));
+                    } else {
+                        if (effective != null) {
+                            tx.put(docId, value);
+                        }
+                        response = oldValueReply(txId, effective); // prior value if present, else null
+                        logRouted("tx_replace", region, key, docId, value, txId,
+                                effective == null ? "absent" : "replaced");
+                    }
+                }
+                default -> {
+                    // Plain put: buffer without reading prior state (so an oversized key still fails only
+                    // at commit, like before).
+                    tx.put(docId, value);
+                    response = GemResponseWriter.buildPutResponse(txId);
+                    logRouted("tx_put", region, key, docId, value, txId, "buffered");
+                }
+            }
+            ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
             return;
         }
 
@@ -178,6 +216,18 @@ public class PutHandler implements OperationHandler {
         }
 
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /**
+     * The value a transaction currently sees for {@code docId} (read-your-writes): a buffered PUT's
+     * value, {@code null} for a buffered REMOVE (the tx deleted it), else the committed value.
+     */
+    private StoredValue effectiveValue(TxState tx, String docId) {
+        TxState.Op op = tx.lookup(docId);
+        if (op != null) {
+            return op.kind() == TxState.Kind.PUT ? op.value() : null;
+        }
+        return repository.get(docId);
     }
 
     /** PUT reply that returns the prior value, or the plain (no-old-value) reply when it was null. */

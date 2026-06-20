@@ -4,6 +4,7 @@ import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.subscription.SubscriptionRegistry;
 import com.protogemcouch.tx.TransactionRegistry;
+import com.protogemcouch.tx.TxState;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
 import com.protogemcouch.util.DocumentKeyUtil;
@@ -50,11 +51,32 @@ public class RemoveHandler implements OperationHandler {
         String docId = DocumentKeyUtil.docId(region, key);
         int txId = frame.getTransactionId();
 
+        // remove(key, value): DESTROY carries the expected value in part[2] and op 0x2e in part[3].
+        boolean isCompareRemove = parts > 3
+                && firstByte(frame.getParts().get(3).getPayload()) == OP_REMOVE_IF_VALUE
+                && frame.getParts().get(2).getPayload() != null
+                && frame.getParts().get(2).getPayload().length > 0;
+        StoredValue expected = isCompareRemove
+                ? PutHandler.decodePutValue(frame.getParts().get(2).getPayload(), txId) : null;
+
         // Transactional remove: buffer the delete in the transaction's state; it is applied on COMMIT
-        // and discarded on ROLLBACK. Buffered as a plain remove (compare-remove semantics within a
-        // transaction are a documented gap).
+        // and discarded on ROLLBACK. remove(k,v) honors its compare semantics against the transaction's
+        // effective view (read-your-writes over committed state).
         if (txId >= 0) {
-            transactions.getOrCreate(ctx.channel().id().asLongText(), txId).remove(docId);
+            TxState tx = transactions.getOrCreate(ctx.channel().id().asLongText(), txId);
+            if (isCompareRemove) {
+                StoredValue effective = effectiveValue(tx, docId);
+                boolean removed = expected != null && effective != null && effective.equals(expected);
+                if (removed) {
+                    tx.remove(docId);
+                }
+                log.info(StructuredLog.event("handler_remove_if_value_tx",
+                        "region", region, "key", key, "docId", docId, "removed", removed, "txId", txId));
+                ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                        GemResponseWriter.buildRemoveResponseWithEntryNotFound(txId, !removed)));
+                return;
+            }
+            tx.remove(docId);
             log.info(StructuredLog.event(
                     "handler_remove_tx_buffered",
                     "region", region, "key", key, "docId", docId, "txId", txId));
@@ -62,14 +84,7 @@ public class RemoveHandler implements OperationHandler {
             return;
         }
 
-        // remove(key, value): DESTROY carries the expected value in part[2] and op 0x2e in part[3].
-        boolean isCompareRemove = parts > 3
-                && firstByte(frame.getParts().get(3).getPayload()) == OP_REMOVE_IF_VALUE
-                && frame.getParts().get(2).getPayload() != null
-                && frame.getParts().get(2).getPayload().length > 0;
-
         if (isCompareRemove) {
-            StoredValue expected = PutHandler.decodePutValue(frame.getParts().get(2).getPayload(), txId);
             boolean removed = expected != null && repository.removeIfValue(docId, expected);
             // entryNotFound = !removed: on a value mismatch (or miss) the client raises
             // EntryNotFoundException, which Region.remove(k,v) maps to a false return.
@@ -91,6 +106,15 @@ public class RemoveHandler implements OperationHandler {
         subscriptions.publishDestroy(region, key, originClientId);
         subscriptions.publishCqDestroy(region, key, priorValue, originClientId);
         ctx.writeAndFlush(Unpooled.wrappedBuffer(GemResponseWriter.buildRemoveResponse(txId)));
+    }
+
+    /** The value a transaction currently sees for {@code docId} (buffered write, or committed). */
+    private StoredValue effectiveValue(TxState tx, String docId) {
+        TxState.Op op = tx.lookup(docId);
+        if (op != null) {
+            return op.kind() == TxState.Kind.PUT ? op.value() : null;
+        }
+        return repository.get(docId);
     }
 
     private static int firstByte(byte[] payload) {
