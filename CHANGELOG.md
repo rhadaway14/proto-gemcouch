@@ -8,6 +8,13 @@ minor versions as parity expands.
 ## [Unreleased]
 
 ### Added
+- **Full PDX registry discovery** — a client can now bulk-sync the whole PDX registry: GET_PDX_TYPES
+  (opcode 101) and GET_PDX_ENUMS (102) return every registered type/enum as a `Map<Integer, ...>`, and
+  GET_PDX_ENUM_BY_ID (98) is the reverse enum lookup (the enum-side counterpart of GET_PDX_TYPE_BY_ID).
+  The shim serves them from its PDX registries (the enum registry now retains each client's serialized
+  `EnumInfo`). The map reply shape was captured from a real Geode 1.15.1 server, golden-wire-locked, and
+  validated end-to-end against a real Geode 1.15 client whose own `GetPDXTypesOp`/`GetPDXEnumsOp`/
+  `GetPDXEnumByIdOp` read back every registered type and enum.
 - **`Region.getEntry(key)` (GET_ENTRY, opcode 89)** — now returns a real Geode `EntrySnapshot` so the
   client's `Entry.getValue()` reads back the stored value (present key) or `null` (absent key), instead
   of a value object the client couldn't cast. Discovered that a non-transactional `getEntry` on a

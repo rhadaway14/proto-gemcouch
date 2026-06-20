@@ -522,6 +522,45 @@ public final class GemResponseWriter {
                 List.of(new Part(serializedPdxType, (byte) 1)));
     }
 
+    /**
+     * Bulk PDX registry-discovery reply (GET_PDX_TYPES opcode 101 / GET_PDX_ENUMS opcode 102): a
+     * RESPONSE whose single object part is a Geode {@code HashMap} of {@code id -> serialized object}
+     * (a {@code PdxType} for types, an {@code EnumInfo} for enums). The map is the Geode HASH_MAP form
+     * — marker {@code 0x43}, a compact size, then each entry as an {@code Integer} key
+     * ({@code 0x39} + the 4-byte id) followed by the value's already-serialized object bytes. The
+     * client reads it back into a {@code Map<Integer, ...>} to sync its whole registry. Captured from a
+     * real Geode 1.15.1 server (see {@code tools/GetPdxRegistryCapture}).
+     */
+    public static byte[] buildPdxRegistryMapResponse(int txId, Map<Integer, byte[]> idToSerialized) {
+        ByteBuf obj = Unpooled.buffer();
+        byte[] payload;
+        try {
+            obj.writeByte(GEODE_HASH_MAP_CODE);                 // 0x43 HashMap
+            writeGeodeArrayLength(obj, idToSerialized.size());  // compact entry count
+            for (Map.Entry<Integer, byte[]> entry : idToSerialized.entrySet()) {
+                obj.writeBytes(geodeSerializedInteger(entry.getKey())); // 0x39 + 4-byte id
+                obj.writeBytes(entry.getValue());                       // serialized PdxType / EnumInfo
+            }
+            payload = toByteArrayAndRelease(obj);
+        } catch (RuntimeException e) {
+            obj.release();
+            throw e;
+        }
+        return buildMessage(MessageTypes.RESPONSE, txId, List.of(new Part(payload, (byte) 1)));
+    }
+
+    /**
+     * GET_PDX_ENUM_BY_ID reply (opcode 98): the reverse enum lookup — a RESPONSE carrying the single
+     * serialized {@code EnumInfo} object the client registered, so a client can decode a PDX enum value
+     * it did not itself write. Same one-object-part frame as {@link #buildPdxTypeByIdResponse}.
+     */
+    public static byte[] buildPdxEnumByIdResponse(int txId, byte[] serializedEnumInfo) {
+        return buildMessage(
+                MessageTypes.RESPONSE,
+                txId,
+                List.of(new Part(serializedEnumInfo, (byte) 1)));
+    }
+
     public static byte[] buildPdxTypeIdResponse(int txId, int typeId) {
         /*
          * GetPDXIdForTypeOp expects a raw BYTE part and calls Part.getInt().

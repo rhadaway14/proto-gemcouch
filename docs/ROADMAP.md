@@ -439,9 +439,18 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
   `ProtoGemCouchPdxSchemaEvolutionIntegrationTest`: three versions coexist, each round-trips with its
   own fields, an evolved field is queryable only on the versions that have it, and projecting it yields
   just those versions. (The mechanism already supported this; this closes the gap by validating it.)
-- [ ] Full PDX registry discovery — bulk type/enum registry sync (GET_PDX_TYPES / region-init type
-  preload) beyond the per-type forward (`GET_PDX_ID_FOR_TYPE`) + reverse (`GET_PDX_TYPE_BY_ID`)
-  lookups that are already supported.
+- [x] **Full PDX registry discovery** — bulk type/enum registry sync. A client syncing its whole PDX
+  registry pulls every type (GET_PDX_TYPES, opcode 101) and every enum (GET_PDX_ENUMS, 102) as a
+  `Map<Integer, ...>`, plus the reverse enum lookup (GET_PDX_ENUM_BY_ID, 98 — the enum-side counterpart
+  of GET_PDX_TYPE_BY_ID). The shim serves these from its `PdxTypeRegistry`/`PdxEnumRegistry` (the enum
+  registry now keeps each client's serialized `EnumInfo` so it can re-serve it verbatim). The map reply
+  is the Geode HASH_MAP form (`0x43` + count + `Integer` key + serialized `PdxType`/`EnumInfo` value),
+  captured from a real Geode 1.15.1 server (`tools/GetPdxRegistryCapture`), golden-wire-locked, the
+  framing byte-asserted by `PdxRegistryDiscoveryShapeTest`, and validated end-to-end against a real
+  Geode 1.15 client (`ProtoGemCouchPdxRegistryDiscoveryIntegrationTest`: the client's own
+  `GetPDXTypesOp`/`GetPDXEnumsOp`/`GetPDXEnumByIdOp` read back every registered type/enum). Completes
+  the PDX registry surface alongside the per-type forward (`GET_PDX_ID_FOR_TYPE`) + reverse
+  (`GET_PDX_TYPE_BY_ID`) lookups.
 - [~] Nested complex types inside `HashMap<String,Object>`. **Done:** a generic `Object[]`, an
   `ArrayList`, a nested `Map<String,Object>` (all recursive, with supported elements), and the JDK
   scalar extras `UUID` / `BigInteger` / `BigDecimal` / `enum` nested inside a map now decode

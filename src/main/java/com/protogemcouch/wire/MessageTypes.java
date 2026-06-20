@@ -107,6 +107,16 @@ public final class MessageTypes {
      */
     public static final int GET_PDX_TYPE_BY_ID = 92;
 
+    /**
+     * Bulk PDX registry discovery. A client syncing its whole PDX registry asks for every type
+     * (GET_PDX_TYPES) and every enum (GET_PDX_ENUMS) as a {@code Map<Integer, ...>}; GET_PDX_ENUM_BY_ID
+     * is the reverse enum lookup (the enum-side counterpart of GET_PDX_TYPE_BY_ID). See the
+     * GetPdxTypes/GetPdxEnums/GetPdxEnumByIdHandler.
+     */
+    public static final int GET_PDX_ENUM_BY_ID = 98;
+    public static final int GET_PDX_TYPES = 101;
+    public static final int GET_PDX_ENUMS = 102;
+
     public static final int GET_ALL_70 = 100;
 
     // Response opcodes
