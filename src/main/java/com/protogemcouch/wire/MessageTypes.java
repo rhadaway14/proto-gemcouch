@@ -72,6 +72,12 @@ public final class MessageTypes {
      */
     public static final int PERIODIC_ACK = 52;
 
+    /**
+     * A durable client signals it is ready to receive events ({@code ClientCache.readyForEvents()}),
+     * sent on the control connection. The shim replays the client's queued events (captured: opcode 53).
+     */
+    public static final int CLIENT_READY = 53;
+
     public static final int EXECUTECQ = 42;
     public static final int EXECUTECQ_WITH_IR = 43;
     public static final int STOPCQ = 44;

@@ -61,6 +61,8 @@ public final class HandlerRegistryFactory {
         registry.register(MessageTypes.CLOSECQ, closeCq);
         // Subscription/CQ clients periodically ack received events; drain without a reply.
         registry.register(MessageTypes.PERIODIC_ACK, new PeriodicAckHandler());
+        // A durable client's readyForEvents() — replay its queued events, then resume live delivery.
+        registry.register(MessageTypes.CLIENT_READY, new ClientReadyHandler(subscriptions));
 
         // The shim cannot run user Function code; reject function execution gracefully so a real
         // client raises a clean ServerOperationException instead of crashing/hanging.
