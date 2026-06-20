@@ -413,7 +413,9 @@ Before non-lab deployment:
 
 ## Current limitations
 
-This is not yet a fully hardened security-reviewed product.
+The security posture has been reviewed for the 1.0.0 GA (this document, plus the deserialization /
+resource-guard / TLS hardening passes). That internal review is **not a substitute for an independent
+third-party audit**, and additional, environment-specific hardening may be warranted.
 
 Future security work:
 - stronger TLS story for all traffic

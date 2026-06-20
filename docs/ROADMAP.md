@@ -1,11 +1,71 @@
 # ProtoGemCouch Roadmap
 
-A living backlog for taking the shim from a **Level 3 scoped production candidate** to **Level 4
-production-ready**, and (separately) for broadening GemFire/Geode SDK parity.
+A living backlog. **ProtoGemCouch reached 1.0.0 GA on 2026-06-20** — the road-to-1.0 work (Level 4
+production-readiness and the supportable GemFire/Geode SDK parity surface) is recorded as DONE in the
+sections below. The **current focus is the 1.1.0 backlog** immediately following. The contract for what
+is supported today is `docs/COMPATABILITY_MATRIX.md`.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ---
+
+## Current focus — 1.1.0 backlog (target GA 2026-09-04)
+
+1.1.0 is the **performance + operability + parity-depth** release: make OQL fast, make the in-memory
+state observable and bounded, and lift the top "scalars only" parity limit. All items are
+additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026-06-23 start.
+
+### 1.1.0-M1 — Operability: registry observability + bounds · target 2026-07-03
+- [ ] Prometheus gauges for the in-memory registries: PDX type & enum registry size, active
+  transactions, registered interests/CQs, durable-queue depth (none are exposed today — `/metrics`
+  carries only connection counters).
+- [ ] Optional cap (+ `audit` event + metric) on the PDX type/enum registry so a client cannot grow it
+  unbounded (the growth consideration noted in `docs/SECURITY.md`).
+- [ ] Grafana panels + Alertmanager rules for the new gauges.
+- Exit: gauges in `/metrics` + dashboard; cap unit/integration-tested; `SECURITY.md`/`OBSERVABILITY.md`
+  updated. Risk: low — quickest concrete win, and it makes the soak/security findings observable.
+
+### 1.1.0-M2 — OQL query pushdown (headline) · target 2026-08-01
+- [ ] Push equality/range predicates + `LIMIT` down to Couchbase (KV range or N1QL + a managed
+  secondary index) for top-level and PDX **scalar** fields; fall back to the current full-region scan
+  for unsupported predicates. (The full-surface soak measured ~474 ms full-scan queries — the biggest
+  performance win available.)
+- [ ] Managed-index lifecycle (create-on-first-use / documented operator step), behind a feature flag
+  for safe rollout.
+- [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99
+  threshold.
+- Exit: query correctness unchanged vs a real Geode client; soak shows the p99 drop; `docs/OQL.md`
+  updated. Risk: medium (changes the query path) — the critical path of 1.1.0.
+
+### 1.1.0-M3 — Parity: PDX nested/object/array field querying · target 2026-08-22
+- [ ] Extend the shared PDX-aware field resolver so `WHERE` / projection / `ORDER BY` and CQ predicates
+  reach **object and array** PDX fields (path access, e.g. `order.address.zip`), lifting the documented
+  "scalars only" limit.
+- [ ] Real-client validation (query + CQ); update `COMPATABILITY_MATRIX.md`.
+- Swap option: if users lean HA over query-depth, substitute **multi-replica durable subscriptions**
+  (Couchbase-backed durable queues that survive replica failover) for this milestone.
+
+### 1.1.0-M4 — Hardening + RC → 1.1.0 GA · freeze 2026-08-31 · RC 2026-09-02 · GA 2026-09-04
+- [ ] Cross-version client matrix **in CI** with real 1.14.x / 1.13.x client jars (blocked offline
+  locally) to widen the validated client support beyond 1.15.x.
+- [ ] Keyset-metadata (`SIZE`/`KEY_SET`/`PUT_ALL`) operating-envelope re-characterization at large
+  keyspaces (the documented cold-path).
+- [ ] Full-surface soak re-run with pushdown enabled; security re-review of the new query/index path;
+  `CHANGELOG.md` `[1.1.0]`; cut `v1.1.0-rc1` → verify gates → cut `v1.1.0` GA + GitHub Release.
+
+### Deferred to the 1.2.0 backlog
+Multi-replica durable subscriptions (if not chosen for M3); JTA `TX_SYNCHRONIZATION` (op 90, only if a
+JTA-coordinated client enters scope); an algorithmic keyset-metadata-at-scale improvement (beyond the
+M4 envelope); 4+-shim horizontal-scale characterization; broader DataSerializer marker coverage /
+arbitrary object graphs; hot TLS cert reload (currently a zero-downtime rolling restart).
+
+### Housekeeping (not gated to a milestone)
+- [ ] Enable **Dependency Graph** in the GitHub repo settings so the CI `dependency-submission` step
+  stops failing (CodeQL — the actual static gate — already passes). Do before M1 so CI is fully green.
+
+---
+
+## Road to 1.0 (completed — historical record)
 
 ## 1. Done
 
@@ -518,7 +578,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ---
 
-## Suggested sequencing
+## Road-to-1.0 sequencing (completed)
+
+The order the pre-1.0 work was delivered in (all done as of the 1.0.0 GA):
 
 1. Keyset-metadata concurrency + multi-replica HA (correctness blocker for horizontal scale).
 2. Kubernetes deployment + secret management + graceful-shutdown validation.
