@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,6 +59,39 @@ public final class OqlQuery {
     /** Whether the query has an ORDER BY (so the response must preserve row order). */
     public boolean hasOrderBy() {
         return !orderBy.isEmpty();
+    }
+
+    /** A {@code field = '<value>'} equality eligible for backend (N1QL) pushdown. */
+    public record FieldStringEquality(String field, String value) {}
+
+    /** A simple, single-segment field name safe to embed as an identifier in a pushdown path. */
+    private static final Pattern SIMPLE_FIELD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+    /**
+     * If this query's WHERE is a single AND-group of string-literal equality conditions on simple
+     * top-level fields, return those equalities so the backend can pre-filter candidate documents;
+     * otherwise empty (the caller then scans the whole region). Projection and ORDER BY are deliberately
+     * ignored here: the caller always re-applies {@link #matches}/{@link #projectRow}/{@link #sort} to
+     * the pushdown candidates, so the matcher stays authoritative and the result is identical to a scan.
+     *
+     * <p>Conservative on purpose — anything beyond a plain AND of {@code field = 'string'} (OR groups,
+     * ranges, {@code <>}, numeric/boolean/null literals, dotted/nested fields) yields empty and falls
+     * back to the scan, so pushdown can never change query results.
+     */
+    public Optional<List<FieldStringEquality>> pushdownStringEqualities() {
+        if (orGroups.size() != 1) {
+            return Optional.empty(); // no WHERE (size 0) or an OR is present (size > 1)
+        }
+        List<FieldStringEquality> equalities = new ArrayList<>();
+        for (Condition condition : orGroups.get(0)) {
+            if (condition.op != Operator.EQ
+                    || !condition.literal.isPlainString()
+                    || !SIMPLE_FIELD.matcher(condition.field).matches()) {
+                return Optional.empty();
+            }
+            equalities.add(new FieldStringEquality(condition.field, condition.literal.asText()));
+        }
+        return equalities.isEmpty() ? Optional.empty() : Optional.of(equalities);
     }
 
     /**
@@ -447,6 +481,20 @@ public final class OqlQuery {
             } catch (NumberFormatException e) {
                 return new Literal(null, t, null, false);
             }
+        }
+
+        /**
+         * A "plain string" literal: a quoted string, or an unquoted bareword that is not a number,
+         * boolean, or null. These compare by string value in {@link #equalsValue}, so they are the
+         * literals safe to push down as a string-equality predicate.
+         */
+        boolean isPlainString() {
+            return !isNull && number == null && bool == null && text != null;
+        }
+
+        /** The literal's text form (defined for {@link #isPlainString()} literals). */
+        String asText() {
+            return text;
         }
 
         boolean equalsValue(Object actual) {

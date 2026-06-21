@@ -28,12 +28,16 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   (/metrics exposes the gauges end-to-end); docs updated (`OBSERVABILITY.md`, `SECURITY.md`, `RUNBOOK.md`).
 
 ### 1.1.0-M2 — OQL query pushdown (headline) · target 2026-08-01
-- [ ] Push equality/range predicates + `LIMIT` down to Couchbase (KV range or N1QL + a managed
-  secondary index) for top-level and PDX **scalar** fields; fall back to the current full-region scan
-  for unsupported predicates. (The full-surface soak measured ~474 ms full-scan queries — the biggest
-  performance win available.)
-- [ ] Managed-index lifecycle (create-on-first-use / documented operator step), behind a feature flag
-  for safe rollout.
+- [x] **Slice 1 — string-equality pushdown via N1QL.** Decision: N1QL + a managed secondary index
+  (values are already stored as JSON; the dev/test cluster runs `data,index,query`). A single `AND` of
+  `field = 'string'` conditions pushes a region-scoped, **superset** N1QL predicate (covers both map
+  encodings + all non-map/PDX docs) with `REQUEST_PLUS` consistency; the shim's matcher re-filters
+  authoritatively, so results are identical to the scan and anything ineligible/any error falls back to
+  it. Behind the **`OQL_PUSHDOWN`** flag (default off). Validated end-to-end against a real Geode client
+  (`ProtoGemCouchQueryPushdownIntegrationTest`, incl. PDX + mixed regions) + `OqlQueryPushdownTest`.
+- [ ] Extend predicates: numeric/range equality, then `LIMIT`; PDX **scalar**-field pushdown (M3 path).
+- [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
+  optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99
   threshold.
 - Exit: query correctness unchanged vs a real Geode client; soak shows the p99 drop; `docs/OQL.md`

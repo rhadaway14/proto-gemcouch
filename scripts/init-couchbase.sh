@@ -135,6 +135,24 @@ done
 
 echo "Bucket ${CB_BUCKET} is visible."
 
+# Create a primary index so the OQL-pushdown path (N1QL) can execute in the dev/test cluster. The
+# shim's pushdown query is region-scoped and will use this primary index for candidate selection.
+# NOTE: a primary index is for dev/test convenience only — production should create targeted GSIs on
+# the queried fields (see docs/OQL.md) and avoid a primary index. Idempotent via IF NOT EXISTS.
+echo "Ensuring a primary index on ${CB_BUCKET} (dev/test N1QL pushdown) ..."
+i=0
+until curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" "http://${CB_HOST}:8093/query/service" \
+    --data-urlencode "statement=CREATE PRIMARY INDEX IF NOT EXISTS ON ${CB_BUCKET}" >/dev/null 2>&1; do
+  i=$((i+1))
+  echo "Query service / primary index not ready yet, retry ${i} ..."
+  sleep 5
+
+  if [ "$i" -ge 24 ]; then
+    echo "Timed out creating the primary index (non-fatal: pushdown will fall back to scan)."
+    break
+  fi
+done
+
 # Export the cluster certificate so TLS clients (e.g. the backend-TLS shim) can trust it.
 # No-op unless a /shared-certs volume is mounted.
 if [ -d /shared-certs ]; then

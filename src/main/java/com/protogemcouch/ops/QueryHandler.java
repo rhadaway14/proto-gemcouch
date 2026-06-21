@@ -15,13 +15,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Handles Geode OQL queries (QUERY, opcode 34). First-cut scope: {@code SELECT * FROM /region},
  * returning all of the region's values as a chunked query response. Unsupported queries return a
  * chunked query error (raised client-side as a {@code ServerOperationException}).
+ *
+ * <p>When pushdown is enabled (the {@code OQL_PUSHDOWN} flag) and the query is a plain AND of
+ * string-equality conditions, the backend pre-filters candidate documents (N1QL) instead of the shim
+ * scanning the whole region. The candidate set is only ever a superset, and the matcher/projection/sort
+ * below run unchanged on it, so results are identical to the scan; anything not eligible, or any backend
+ * problem, falls back to the full-region scan.
  */
 public class QueryHandler implements OperationHandler {
 
@@ -29,11 +37,17 @@ public class QueryHandler implements OperationHandler {
 
     private final Repository repository;
     private final OqlQuery.FieldResolver fieldResolver;
+    private final boolean pushdownEnabled;
 
     public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver) {
+        this(repository, fieldResolver, false);
+    }
+
+    public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver, boolean pushdownEnabled) {
         this.repository = repository;
         // PDX-aware resolver (shared with CQ matching): reads PDX object fields, else map-typed values.
         this.fieldResolver = fieldResolver;
+        this.pushdownEnabled = pushdownEnabled;
     }
 
     @Override
@@ -62,12 +76,30 @@ public class QueryHandler implements OperationHandler {
         }
 
         String region = query.regionPath();
-        List<String> keys = repository.keySet(region);
-        Map<String, StoredValue> all = repository.getAll(region, keys);
+
+        // Candidate source: pushed-down (backend pre-filtered) when eligible, else the full-region scan.
+        // Either way the candidates are a superset; query.matches() below is authoritative.
+        boolean pushdownUsed = false;
+        Collection<StoredValue> candidates = null;
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldStringEquality>> equalities = query.pushdownStringEqualities();
+            if (equalities.isPresent()) {
+                Optional<List<StoredValue>> pushed =
+                        repository.queryPushdownByStringEquality(region, equalities.get());
+                if (pushed.isPresent()) {
+                    candidates = pushed.get();
+                    pushdownUsed = true;
+                }
+            }
+        }
+        if (candidates == null) {
+            List<String> keys = repository.keySet(region);
+            candidates = repository.getAll(region, keys).values();
+        }
 
         // Filter, then ORDER BY (on the source values), then project.
         List<StoredValue> matched = new ArrayList<>();
-        for (StoredValue value : all.values()) {
+        for (StoredValue value : candidates) {
             if (value != null && query.matches(value, fieldResolver)) {
                 matched.add(value);
             }
@@ -97,7 +129,8 @@ public class QueryHandler implements OperationHandler {
         }
 
         log.info(StructuredLog.event(
-                "handler_query_ok", "query", oql, "region", region, "rows", rowCount, "txId", txId));
+                "handler_query_ok", "query", oql, "region", region, "rows", rowCount,
+                "pushdown", pushdownUsed, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
     }
 

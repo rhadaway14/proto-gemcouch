@@ -54,7 +54,10 @@ public final class HandlerRegistryFactory {
         // predicate on a PDX object field resolves identically whether one-shot or continuous.
         PdxAwareFieldResolver pdxFieldResolver = new PdxAwareFieldResolver(pdxTypeRegistry);
         subscriptions.setCqFieldResolver(pdxFieldResolver);
-        QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver);
+        // OQL pushdown is opt-in (default off): when on, eligible queries pre-filter at the backend
+        // instead of scanning the whole region. Off keeps the exact, validated scan behavior.
+        boolean pushdownEnabled = boolEnv("OQL_PUSHDOWN", false);
+        QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver, pushdownEnabled);
         registry.register(MessageTypes.QUERY, queryHandler);
         registry.register(MessageTypes.QUERY_WITH_PARAMETERS, queryHandler);
         registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository, transactions));
@@ -164,5 +167,13 @@ public final class HandlerRegistryFactory {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private static boolean boolEnv(String name, boolean fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return Boolean.parseBoolean(value.trim());
     }
 }

@@ -138,4 +138,11 @@ public class TracingRepository implements Repository {
     public List<String> keySet(String region) {
         return traced("keySet", "region", region, () -> delegate.keySet(region));
     }
+
+    @Override
+    public java.util.Optional<List<StoredValue>> queryPushdownByStringEquality(
+            String region, List<com.protogemcouch.query.OqlQuery.FieldStringEquality> conditions) {
+        return traced("queryPushdown", "region", region,
+                () -> delegate.queryPushdownByStringEquality(region, conditions));
+    }
 }

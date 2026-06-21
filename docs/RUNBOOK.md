@@ -37,6 +37,10 @@ Optional:
 - `MAX_PDX_TYPES` default `0` (unlimited) — cap on distinct PDX types the in-memory registry will hold;
   registrations past the cap are rejected (metric `protogemcouch_pdx_registry_rejected_total` + audit)
 - `MAX_PDX_ENUMS` default `0` (unlimited) — same cap for distinct PDX enums
+- `OQL_PUSHDOWN` default `false` — when `true`, eligible OQL queries (a single `AND` of string-equality
+  conditions) pre-filter at Couchbase via N1QL instead of scanning the whole region in the shim; needs a
+  secondary index for speed and results are identical to the scan (see `docs/OQL.md`). Off keeps the
+  exact, validated full-scan behavior.
 - `ERROR_RESPONSE_MODE` default `exception` (`exception` = reply with a Geode EXCEPTION frame and
   keep the connection open, so the client raises a ServerOperationException; `close` = drop the
   connection on operation failure). The `exception` behavior is validated against a live Geode

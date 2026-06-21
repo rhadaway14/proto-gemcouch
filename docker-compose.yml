@@ -180,6 +180,35 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Pushdown shim instance: OQL_PUSHDOWN=true, so eligible OQL queries pre-filter at Couchbase (N1QL)
+  # instead of scanning the whole region in the shim. Shares the same Couchbase; validated by
+  # ProtoGemCouchQueryPushdownIntegrationTest (which asserts results are identical to the scan path).
+  protogemcouch-pushdown:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-pushdown
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40414:40405"
+      - "8090:8090"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8090"
+      OQL_PUSHDOWN: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8090/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # TLS-enabled shim instance for validating inbound TLS against a real Geode SSL client.
   # Shares the same Couchbase; the plaintext shim above remains for all other integration tests.
   protogemcouch-tls:
