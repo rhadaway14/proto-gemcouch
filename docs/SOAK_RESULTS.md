@@ -195,6 +195,42 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-21 — keyset-metadata at-scale characterization (1.1.0-M4)
+
+Quantifies the keyset-metadata **cold path** at large keyspaces. The shim tracks each region's keys in a
+single per-region keyset document (`__protogemcouch::keyset::<region>` — a JSON array of every key, since
+Couchbase KV cannot enumerate keys). Measured with `tools.KeysetScaleProbe` (a fresh region seeded via
+`putAll` in 1000-key batches; median of 5 at each checkpoint), dockerized Couchbase, ~7-char keys.
+
+| region keys | `KEY_SET` | `SIZE` | single `PUT` | single `REMOVE` |
+|---|---|---|---|---|
+| 5,000  | 9.4 ms  | 4.2 ms | 3.9 ms | 10.8 ms |
+| 20,000 | 11.7 ms | 4.5 ms | 4.8 ms | 12.4 ms |
+| 50,000 | 20.9 ms | 7.7 ms | 3.2 ms | 21.4 ms |
+
+**Cost model (confirmed):**
+- `KEY_SET` and `SIZE` read (and `KEY_SET` ships) the whole keyset doc → **O(keyspace)**; `SIZE` is cheaper
+  (count only, less wire). `REMOVE` and `PUT_ALL` (and transactional puts) CAS read-modify-write the whole
+  doc → **O(keyspace)** per op. A single **`PUT` stays flat (~3–5 ms)** — a contention-free server-side
+  sub-document `arrayAddUnique`, not a read-modify-write.
+- **GET/PUT/CONTAINS by key are unaffected** (direct KV, O(1)); only the keyset-metadata operations scale
+  with region size.
+
+**Document-size ceiling.** At 50,015 keys the keyset doc was **~478 KiB (~9.8 bytes/key ≈ key length + 3)**.
+Couchbase's hard 20 MiB per-document limit therefore caps a region at roughly **`20 MiB / (avg_key_len + 3)`
+keys** — about **2.1M keys for ~7-char keys**, **~910k for 20-char**, **~395k for 50-char**. Past that,
+`PUT`/`PUT_ALL` into that region fail because the keyset doc can no longer grow. Note: the keyset doc is
+written directly and is **not** subject to `CB_MAX_VALUE_BYTES` (that guards value documents); only the
+20 MiB hard limit applies.
+
+**Operating envelope / guidance.**
+- Treat `KEY_SET`, `SIZE`, `CLEAR`, and large `PUT_ALL`/`REMOVE` bursts as **administrative cold-path**
+  operations, not hot-path application calls — they are stable but grow linearly with region size.
+- For sub-10 ms `KEY_SET`/`SIZE`, keep regions used that way in the **low tens of thousands of keys**.
+- Very large regions (hundreds of thousands → ~1–2M keys) are fine for **CRUD by key** (O(1)); only the
+  metadata operations get expensive and approach the per-region key-count ceiling above.
+- Re-run the characterization any time with `tools.KeysetScaleProbe` (see its javadoc).
+
 ## Run: 2026-06-21 — full-surface soak with OQL pushdown enabled (1.1.0-M4 hardening)
 
 The full-surface soak re-run against an **`OQL_PUSHDOWN=true`** shim (the 1.1.0-M2/M3 query path), to
