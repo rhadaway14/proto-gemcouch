@@ -48,8 +48,13 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   writes a queryable `pdxFields` scalar sidecar at write time; the N1QL predicate filters PDX docs on it
   (or keeps un-enriched PDX docs as candidates via `pdxFields IS MISSING`), so a PDX-heavy region is now
   selective, not swept. Real-client validated (6/10 active PDX selected; PDX with a non-scalar field).
-- [ ] `LIMIT`-without-`WHERE` pushdown; optional partial-predicate push (push the eligible subset of an
-  AND-group, scan-filter the rest).
+- [x] **Slice 5 — `LIMIT`-without-`WHERE` push + partial-predicate push.** `SELECT * FROM /r LIMIT n`
+  now pushes a region-scoped capped query (no full-region scan); and a mixed `AND` pushes its eligible
+  subset (skipping ineligible conditions) with the shim re-applying the full `WHERE` — both validated
+  real-client. (`OqlQuery.pushdownPredicates` returns the eligible subset; `hasWhere()` gates the
+  region-`LIMIT` push.)
+- [ ] **Perf-gate query-p99**: query-weighted benchmark profile + a perf-gate threshold to quantify the
+  cumulative pushdown win and guard against regressions (the M2 capstone).
 - [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
   optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99

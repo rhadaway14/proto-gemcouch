@@ -82,6 +82,29 @@ class OqlQueryPushdownTest {
     }
 
     @Test
+    void partialPushReturnsOnlyTheEligibleSubsetOfAnAndGroup() {
+        // The ineligible numeric <> is skipped; only the eligible string equality is pushed (the matcher
+        // still applies the full WHERE), so a mixed AND is selective instead of falling back to a scan.
+        Optional<List<OqlQuery.FieldPredicate>> e =
+                preds("SELECT * FROM /r WHERE status = 'active' AND amount <> 5");
+        assertTrue(e.isPresent());
+        assertEquals(1, e.get().size());
+        assertEquals("status", e.get().get(0).field());
+    }
+
+    @Test
+    void andGroupWithNoEligibleConditionIsNotPushed() {
+        assertFalse(preds("SELECT * FROM /r WHERE a <> 1 AND b <> 2").isPresent());
+    }
+
+    @Test
+    void hasWhereReflectsThePresenceOfAWhereClause() {
+        assertFalse(OqlQuery.parse("SELECT * FROM /r").hasWhere());
+        assertFalse(OqlQuery.parse("SELECT * FROM /r LIMIT 5").hasWhere());
+        assertTrue(OqlQuery.parse("SELECT * FROM /r WHERE status = 'active'").hasWhere());
+    }
+
+    @Test
     void numericInequalityAndStringRangeAreNotEligible() {
         assertFalse(preds("SELECT * FROM /r WHERE amount <> 42").isPresent(), "numeric != not pushed");
         assertFalse(preds("SELECT * FROM /r WHERE amount != 42").isPresent(), "numeric != not pushed");

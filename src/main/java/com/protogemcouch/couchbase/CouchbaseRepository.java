@@ -65,6 +65,7 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_OPAQUE_GEODE_TYPE_NAME = "opaqueGeodeTypeName";
     private static final String FIELD_KEYS = "keys";
     private static final String FIELD_PDX_FIELDS = "pdxFields";
+    private static final String TYPE_INVALIDATED = "invalidated";
     private static final String KEYSET_META_PREFIX = "__protogemcouch::keyset::";
 
     /** Bounded retries for compare-and-swap atomic operations under concurrent contention. */
@@ -1086,13 +1087,40 @@ public class CouchbaseRepository implements Repository {
     @Override
     public Optional<List<StoredValue>> queryPushdownByPredicates(
             String region, List<OqlQuery.FieldPredicate> predicates, int limit) {
-        if (predicates == null || predicates.isEmpty()) {
+        boolean noPredicates = predicates == null || predicates.isEmpty();
+        // No predicates is only worth a backend round-trip when there's a row cap to push (a LIMIT with
+        // no WHERE) — otherwise an unbounded region scan via N1QL has no edge over keySet + getAll.
+        if (noPredicates && limit <= 0) {
             return Optional.empty();
         }
 
         JsonObject params = JsonObject.create();
         params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
 
+        String where;
+        if (noPredicates) {
+            // Region-scoped LIMIT (no WHERE): the matcher accepts every live value, so exclude only the
+            // invalidated markers (which decode to null) to keep the capped page all-matching.
+            where = "META(c).id LIKE $prefix AND c.`type` != \"" + TYPE_INVALIDATED + "\"";
+        } else {
+            where = buildPredicateWhere(predicates, params);
+            if (where == null) {
+                return Optional.empty(); // an unvalidated field name slipped through
+            }
+        }
+
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+        if (limit > 0) {
+            statement += " LIMIT " + limit;
+        }
+
+        return executePushdown(statement, params, region, noPredicates ? 0 : predicates.size());
+    }
+
+    /** Build the PDX-aware WHERE for a non-empty predicate list, binding params; null on a bad field. */
+    private String buildPredicateWhere(List<OqlQuery.FieldPredicate> predicates, JsonObject params) {
         // Two parallel predicate sets sharing the same bound params: one over the map paths
         // (object-map `value.f.value` + string-map `value.f`), one over the PDX scalar sidecar
         // (`pdxFields.f`). A map doc matches the first; a PDX doc matches the second (or has no sidecar);
@@ -1103,7 +1131,7 @@ public class CouchbaseRepository implements Repository {
             OqlQuery.FieldPredicate predicate = predicates.get(i);
             String field = predicate.field();
             if (field == null || !SAFE_FIELD.matcher(field).matches()) {
-                return Optional.empty(); // defense-in-depth: never interpolate an unvalidated identifier
+                return null; // defense-in-depth: never interpolate an unvalidated identifier
             }
             String envelopePath = "c.`value`.`" + field + "`.`value`"; // object-map scalar
             String barePath = "c.`value`.`" + field + "`";             // string-map scalar
@@ -1132,22 +1160,17 @@ public class CouchbaseRepository implements Repository {
             }
         }
 
-        String where = "META(c).id LIKE $prefix AND ("
+        return "META(c).id LIKE $prefix AND ("
                 + " (" + mapPreds + ")"
                 + " OR (c.`type` = \"" + TYPE_PDX_INSTANCE + "\" AND ((" + pdxPreds
                 + ") OR c.`pdxFields` IS MISSING))"
                 + " OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
                 + TYPE_STRING_HASH_MAP + "\", \"" + TYPE_PDX_INSTANCE + "\"] )";
+    }
 
-        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
-                + "`.`" + collection.name() + "`";
-        String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
-        // Cap rows at the backend when the caller asked for it (safe only with no ORDER BY; the caller
-        // refetches unbounded if this capped page does not yield enough matches). limit is a parsed int.
-        if (limit > 0) {
-            statement += " LIMIT " + limit;
-        }
-
+    /** Run a pushdown statement (REQUEST_PLUS), decode rows to candidate values; empty on any failure. */
+    private Optional<List<StoredValue>> executePushdown(
+            String statement, JsonObject params, String region, int predicateCount) {
         try {
             // REQUEST_PLUS so the query observes every mutation up to now — matching the KV scan path's
             // read-your-writes behavior. Without it N1QL defaults to not_bounded and a query right after
@@ -1166,13 +1189,13 @@ public class CouchbaseRepository implements Repository {
             }
             log.info(StructuredLog.event(
                     "repository_query_pushdown_ok", "region", region,
-                    "predicates", predicates.size(), "candidates", candidates.size()));
+                    "predicates", predicateCount, "candidates", candidates.size()));
             return Optional.of(candidates);
         } catch (Exception e) {
             // No usable index, query service down, or any other issue: fall back to the scan.
             log.warn(StructuredLog.event(
                     "repository_query_pushdown_unavailable", "region", region,
-                    "predicates", predicates.size(), "error", e.getMessage()));
+                    "predicates", predicateCount, "error", e.getMessage()));
             return Optional.empty();
         }
     }

@@ -112,18 +112,21 @@ public final class OqlQuery {
     /** A simple, single-segment field name safe to embed as an identifier in a pushdown path. */
     private static final Pattern SIMPLE_FIELD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
+    /** Whether the query has a WHERE clause (an empty WHERE matches every value). */
+    public boolean hasWhere() {
+        return !orGroups.isEmpty();
+    }
+
     /**
-     * If this query's WHERE is a single AND-group of pushdown-eligible conditions on simple top-level
-     * fields, return them so the backend can pre-filter candidate documents; otherwise empty (the caller
-     * then scans the whole region). Eligible conditions are <strong>string equality</strong>
-     * ({@code field = 'string'}) and <strong>numeric comparison</strong>
-     * ({@code field = <num>} / {@code < <= > >=} a numeric literal). Projection and ORDER BY are ignored
-     * here: the caller always re-applies {@link #matches}/{@link #projectRow}/{@link #sort} to the
-     * candidates, so the matcher stays authoritative and the result is identical to a scan.
-     *
-     * <p>Conservative on purpose — OR groups, {@code <>}/{@code !=}, string ranges, boolean/null literals,
-     * and dotted/nested fields all yield empty and fall back to the scan, so pushdown never changes
-     * query results.
+     * For a single AND-group WHERE, return the <em>eligible subset</em> of its conditions for backend
+     * pre-filtering — string equality ({@code field = 'string'}) and numeric comparison
+     * ({@code field = <num>} / {@code < <= > >=} a numeric literal) on simple top-level fields. Ineligible
+     * conditions in the group (OR is handled separately; also {@code <>}/{@code !=}, string ranges,
+     * boolean/null literals, dotted/nested fields) are <strong>skipped</strong>, not fatal: pushing a
+     * subset of an AND is still a superset, and the caller always re-applies the full
+     * {@link #matches}/{@link #projectRow}/{@link #sort} to the candidates, so the matcher stays
+     * authoritative and the result is identical to a scan. Returns empty for an OR query, no WHERE, or
+     * when no condition in the group is eligible (then the caller scans).
      */
     public Optional<List<FieldPredicate>> pushdownPredicates() {
         if (orGroups.size() != 1) {
@@ -132,20 +135,18 @@ public final class OqlQuery {
         List<FieldPredicate> predicates = new ArrayList<>();
         for (Condition condition : orGroups.get(0)) {
             if (!SIMPLE_FIELD.matcher(condition.field).matches()) {
-                return Optional.empty();
+                continue; // dotted/nested field: not pushable, but the matcher still applies it
             }
             if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
                 predicates.add(FieldPredicate.stringEquality(condition.field, condition.literal.asText()));
             } else if (condition.literal.isNumeric()) {
                 PushdownOp op = numericOp(condition.op);
-                if (op == null) {
-                    return Optional.empty(); // numeric <> / != is not pushed (rarely selective)
+                if (op != null) { // numeric =/</<=/>/>= ; skip numeric <>//!= (rarely selective)
+                    predicates.add(FieldPredicate.numericComparison(
+                            condition.field, op, condition.literal.numberValue(), condition.literal.asText()));
                 }
-                predicates.add(FieldPredicate.numericComparison(
-                        condition.field, op, condition.literal.numberValue(), condition.literal.asText()));
-            } else {
-                return Optional.empty(); // string range, boolean, null, etc. -> scan
             }
+            // else (string range, boolean, null, ...): skip — the matcher re-filters authoritatively.
         }
         return predicates.isEmpty() ? Optional.empty() : Optional.of(predicates);
     }
