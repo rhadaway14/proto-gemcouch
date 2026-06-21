@@ -64,6 +64,12 @@ Optional:
     PUT_ALL server error naming the failed keys (rather than silently dropping or rolling back).
   - When a region has a TTL, `size`/`keySet` verify which keys still exist and evict expired ones
     from the keyset metadata, so they stay correct (at the cost of an existence check per key).
+  - **Cold-path cost + per-region ceiling.** `SIZE`/`KEY_SET`/`REMOVE`/`PUT_ALL` are **O(region size)**
+    (they read or CAS-rewrite the whole per-region keyset document); a single `PUT` is contention-free
+    (sub-document append) and `GET`/`PUT`/`CONTAINS` by key are O(1). The keyset document also imposes a
+    hard per-region key-count ceiling — Couchbase's 20 MiB limit caps a region at roughly
+    `20 MiB / (avg_key_length + 3)` keys (~2.1M for short keys). Keep regions whose `KEY_SET`/`SIZE` are
+    on the hot path in the low tens of thousands; measured numbers in `docs/SOAK_RESULTS.md`.
 - `CB_MAX_VALUE_BYTES` default `20971520` (max encoded value-document size; Couchbase's hard
   per-document ceiling is 20 MiB). A value whose encoded document exceeds this is rejected up front,
   before any backend write, with a clean `ServerOperationException` — so an oversized value never

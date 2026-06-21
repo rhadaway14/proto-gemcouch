@@ -40,10 +40,14 @@ code, no full native wire parity.
 **Queryable only at the top level / scalar fields.** OQL and CQ predicates resolve top-level scalar
 fields of `HashMap<String,Object>` and PDX values. **Not queryable** (preserved opaquely — they
 round-trip but their fields aren't readable): customer **Serializable POJOs**, **custom
-DataSerializable** values, **PDX OBJECT/array fields**, and **nested complex values requiring the
-user's classes**. The keyset-metadata operations (`REMOVE`/`PUT_ALL`/`SIZE`/`KEY_SET`) are a separate,
-much more expensive performance class and become pathological at very large keyspaces — treat them as
-cold-path, not hot-path (see `docs/SOAK_RESULTS.md`).
+DataSerializable** values, **PDX object-array fields** (arrays of nested PDX — scalar arrays and nested
+object paths *are* queryable as of 1.1.0-M3), and **nested complex values requiring the user's classes**.
+The keyset-metadata operations (`REMOVE`/`PUT_ALL`/`SIZE`/`KEY_SET`) are a separate, much more expensive
+performance class: each is **O(region size)** (the per-region keyset document is read/rewritten whole),
+so treat them as cold-path, not hot-path. The single per-region keyset document also imposes a hard
+**per-region key-count ceiling** — Couchbase's 20 MiB document limit caps a region at roughly
+`20 MiB / (avg_key_length + 3)` keys (~2.1M for short keys, ~400k for 50-char keys); CRUD by key is
+unaffected. Quantified in `docs/SOAK_RESULTS.md` (keyset-metadata at-scale characterization).
 
 **Scope-expansion items still open** (tracked in `ROADMAP.md` §3): full PDX registry discovery + schema
 evolution beyond the per-type path; `DataSerializable` *field* access (needs the classes); arbitrary

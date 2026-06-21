@@ -91,8 +91,12 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
 ### 1.1.0-M4 — Hardening + RC → 1.1.0 GA · freeze 2026-08-31 · RC 2026-09-02 · GA 2026-09-04
 - [ ] Cross-version client matrix **in CI** with real 1.14.x / 1.13.x client jars (blocked offline
   locally) to widen the validated client support beyond 1.15.x.
-- [ ] Keyset-metadata (`SIZE`/`KEY_SET`/`PUT_ALL`) operating-envelope re-characterization at large
-  keyspaces (the documented cold-path).
+- [x] **Keyset-metadata at-scale re-characterization — DONE.** Quantified the cold path with
+  `tools.KeysetScaleProbe`: `KEY_SET`/`SIZE`/`REMOVE`/`PUT_ALL` are O(region size) (whole-keyset-doc
+  read or CAS-rewrite) while single `PUT` stays flat (sub-doc append) and CRUD-by-key is O(1). Measured
+  ~9→21 ms `KEY_SET`/`REMOVE` over 5k→50k keys; the per-region keyset doc imposes a hard key-count
+  ceiling at Couchbase's 20 MiB limit (~`20 MiB / (key_len + 3)` keys, ~2.1M for short keys), not gated
+  by `CB_MAX_VALUE_BYTES`. Documented in `docs/SOAK_RESULTS.md`, `CURRENT_LIMITATIONS.md`, `RUNBOOK.md`.
 - [x] **Full-surface soak re-run with pushdown enabled + security re-review of the new query/index path —
   DONE.** Soak against an `OQL_PUSHDOWN=true` shim (queryable values + GSI, subscriptions on): 155k ops,
   **0 shim request errors**, 8,277 pushdown queries / 0 fallbacks, 138k interest events, no connection
