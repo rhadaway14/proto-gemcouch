@@ -195,6 +195,32 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-21 — full-surface soak with OQL pushdown enabled (1.1.0-M4 hardening)
+
+The full-surface soak re-run against an **`OQL_PUSHDOWN=true`** shim (the 1.1.0-M2/M3 query path), to
+harden the new pushdown / `pdxFields` sidecar / nested-field code under sustained concurrent load before
+the 1.1.0 RC. Driven by `BENCH_QUERYABLE_VALUES=true scripts/full-surface-soak.sh` against the pushdown
+shim (geode 40414 / health 8090) with a GSI on the queried field, concurrency 8, 240s, subscriptions on.
+
+### Result (240s, pushdown on)
+
+- Total operations: **155,447**; **server-side request errors: 0** (`protogemcouch_request_errors_total = 0`,
+  every per-operation error counter 0, 0 `request_failed` log events), requests shed: 0.
+- **Pushdown exercised under load: 8,277 N1QL pushdown queries, 0 fallbacks** — the query/index path
+  stayed healthy throughout; query p99 ~132 ms.
+- **No connection leak** (active-connection growth −9); **eventing under load: 138,148 interest events**,
+  0 subscription errors.
+- `SOAK_VERDICT PASS`.
+- The benchmark's client-side error counter showed ~185 (≈0.12% of ops): these are **OQL query
+  client-side read-timeouts** under heavy concurrency (the documented cold path), not shim errors — they
+  surface only as `error=null` response-write WARNs when a timed-out client drops its connection. The
+  authoritative shim error metric is 0.
+
+A **security re-review** of the new query/index path accompanied this run (no N1QL injection — literals
+are parameterized and field names strictly validated before interpolation; the `pdxFields` sidecar is
+size-bounded; the `getRaw` reflection is hardcoded + exception-guarded; nested-path recursion is bounded
+by the query string). See `docs/SECURITY.md` ("OQL query / pushdown / index path").
+
 ## Run: 2026-06-20 — full-surface soak (CRUD + OQL + tx + getEntry + PDX + eventing) + heap-cap hardening
 
 The first soak to exercise the **whole request surface together** instead of CRUD only: the new
