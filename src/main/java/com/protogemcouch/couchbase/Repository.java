@@ -7,6 +7,7 @@ import com.protogemcouch.util.DocumentKeyUtil;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 public interface Repository {
 
@@ -167,5 +168,16 @@ public interface Repository {
     default Optional<List<StoredValue>> queryPushdownByPredicates(
             String region, List<OqlQuery.FieldPredicate> predicates, int limit) {
         return Optional.empty();
+    }
+
+    /**
+     * Install an extractor that, given a stored PDX instance's wire bytes, returns its scalar fields
+     * (name→value). When set, the backend writes those fields as a queryable sidecar next to the opaque
+     * PDX bytes so {@link #queryPushdownByPredicates} can filter PDX documents by field (instead of
+     * sweeping them all in via the non-map escape). Wired only when pushdown is enabled; the default is
+     * a no-op (no sidecar). The opaque bytes are unchanged, so value round-trips are unaffected.
+     */
+    default void setPdxScalarExtractor(Function<byte[], Map<String, Object>> extractor) {
+        // no-op by default
     }
 }

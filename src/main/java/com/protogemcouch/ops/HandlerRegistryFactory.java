@@ -57,6 +57,12 @@ public final class HandlerRegistryFactory {
         // OQL pushdown is opt-in (default off): when on, eligible queries pre-filter at the backend
         // instead of scanning the whole region. Off keeps the exact, validated scan behavior.
         boolean pushdownEnabled = boolEnv("OQL_PUSHDOWN", false);
+        if (pushdownEnabled) {
+            // Make PDX values queryable at the backend: extract their scalar fields at write time into a
+            // `pdxFields` sidecar so N1QL can filter PDX documents by field (not just sweep them all in).
+            repository.setPdxScalarExtractor(
+                    bytes -> PdxFieldAccessor.readScalarFields(bytes, pdxTypeRegistry));
+        }
         QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver, pushdownEnabled);
         registry.register(MessageTypes.QUERY, queryHandler);
         registry.register(MessageTypes.QUERY_WITH_PARAMETERS, queryHandler);

@@ -44,8 +44,12 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   guarded by an unbounded refetch when a capped page does not yield enough matches. `ORDER BY`+`LIMIT`
   applies the cap in-shim after the sort. Real-client validated (pushed cap, `LIMIT` > matches, scan
   `LIMIT`, top-N, non-map guard).
-- [ ] PDX **scalar**-field pushdown (M3 path); `LIMIT`-without-`WHERE` pushdown; optional
-  partial-predicate push (push the eligible subset of an AND-group, scan-filter the rest).
+- [x] **Slice 4 — PDX scalar-field pushdown.** PDX is stored opaquely, so when pushdown is on the shim
+  writes a queryable `pdxFields` scalar sidecar at write time; the N1QL predicate filters PDX docs on it
+  (or keeps un-enriched PDX docs as candidates via `pdxFields IS MISSING`), so a PDX-heavy region is now
+  selective, not swept. Real-client validated (6/10 active PDX selected; PDX with a non-scalar field).
+- [ ] `LIMIT`-without-`WHERE` pushdown; optional partial-predicate push (push the eligible subset of an
+  AND-group, scan-filter the rest).
 - [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
   optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99

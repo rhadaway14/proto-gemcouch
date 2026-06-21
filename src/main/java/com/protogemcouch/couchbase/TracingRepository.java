@@ -145,4 +145,10 @@ public class TracingRepository implements Repository {
         return traced("queryPushdown", "region", region,
                 () -> delegate.queryPushdownByPredicates(region, predicates, limit));
     }
+
+    @Override
+    public void setPdxScalarExtractor(
+            java.util.function.Function<byte[], java.util.Map<String, Object>> extractor) {
+        delegate.setPdxScalarExtractor(extractor);
+    }
 }

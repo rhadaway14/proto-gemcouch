@@ -7,6 +7,17 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL PDX scalar-field pushdown (1.1.0-M2, slice 4)** — PDX values are stored opaquely (base64 of the
+  PDX wire bytes), so their fields weren't directly queryable and a PDX-heavy region's pushdown swept in
+  every PDX doc. When `OQL_PUSHDOWN` is on, the shim now writes a queryable **`pdxFields` scalar sidecar**
+  next to the opaque bytes at write time (extracted via the PDX type registry; numbers as numbers,
+  String/Char/Date by string form), and the N1QL predicate filters PDX documents on it — so PDX queries
+  get the same selectivity as map queries. Correctness is preserved: a PDX doc written before pushdown
+  was enabled has no sidecar and is kept as a candidate (`pdxFields IS MISSING`) and re-filtered by the
+  shim; only scalar fields are stored (OBJECT/array PDX fields remain unqueryable, as in the scan path);
+  and the opaque bytes are untouched so value round-trips are unaffected. Real-client validated
+  (`ProtoGemCouchQueryPushdownIntegrationTest` — selective PDX equality/range, PDX with a non-scalar
+  field) + `PdxFieldAccessorTest` (sidecar extraction).
 - **OQL `LIMIT` support + pushdown (1.1.0-M2, slice 3)** — `LIMIT n` is now parsed and applied (it was
   previously rejected as an unsupported query). It is applied in-shim to the result rows after
   `WHERE`/`ORDER BY`/projection, and — for a pushdown-eligible query with no `ORDER BY` — also pushed to

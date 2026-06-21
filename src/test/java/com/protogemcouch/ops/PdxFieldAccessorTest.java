@@ -4,9 +4,11 @@ import com.protogemcouch.util.ByteUtils;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Validates PDX field reading using real PdxType + instance bytes captured from a Geode 1.15 server
@@ -40,6 +42,29 @@ class PdxFieldAccessorTest {
 
         assertEquals("closed", PdxFieldAccessor.read(instance, registry, "status"));
         assertEquals(10, PdxFieldAccessor.read(instance, registry, "amount"));
+    }
+
+    @Test
+    void readScalarFieldsExtractsAllScalarsForTheSidecar() {
+        PdxTypeRegistry registry = new PdxTypeRegistry();
+        int typeId = registry.getOrCreateTypeId(PDX_TYPE);
+        byte[] instance = pdxInstance(typeId, FIELD_DATA);
+
+        Map<String, Object> fields = PdxFieldAccessor.readScalarFields(instance, registry);
+        assertEquals("closed", fields.get("status"));
+        assertEquals(10, fields.get("amount"));
+        assertEquals(2, fields.size(), "both scalar fields extracted");
+    }
+
+    @Test
+    void readScalarFieldsReturnsEmptyForUnknownTypeOrNonPdx() {
+        PdxTypeRegistry registry = new PdxTypeRegistry();
+        int typeId = registry.getOrCreateTypeId(PDX_TYPE);
+
+        assertTrue(PdxFieldAccessor.readScalarFields(pdxInstance(999, FIELD_DATA), registry).isEmpty(),
+                "unknown type id -> no sidecar");
+        assertTrue(PdxFieldAccessor.readScalarFields(new byte[] {0x01, 0x02}, registry).isEmpty(),
+                "not a PDX instance -> no sidecar");
     }
 
     @Test

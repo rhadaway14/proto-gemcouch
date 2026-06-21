@@ -7,6 +7,8 @@ import org.apache.geode.pdx.internal.PdxType;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Reads a named field from a stored PDX instance using Geode's own PdxReaderImpl (so the PDX
@@ -48,6 +50,45 @@ final class PdxFieldAccessor {
         } catch (Exception | LinkageError e) {
             return null;
         }
+    }
+
+    /**
+     * Read every scalar field of a stored PDX instance into a name→value map (insertion-ordered), for
+     * building a queryable sidecar. OBJECT/array fields are skipped (the same fields {@link #read} can't
+     * resolve), and any unreadable field is skipped. Returns an empty map when the type is not known or
+     * the instance is malformed — in which case the document gets no sidecar and is filtered the slow
+     * (correct) way.
+     */
+    static Map<String, Object> readScalarFields(byte[] instance, PdxTypeRegistry registry) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        if (instance == null || instance.length < 9 || (instance[0] & 0xff) != 0x5d) {
+            return fields;
+        }
+        int length = readInt(instance, 1);
+        int typeId = readInt(instance, 5);
+        int dataStart = 9;
+        if (length < 0 || dataStart + length > instance.length) {
+            return fields;
+        }
+        PdxType type = registry.getPdxType(typeId);
+        if (type == null) {
+            return fields;
+        }
+
+        byte[] fieldData = Arrays.copyOfRange(instance, dataStart, dataStart + length);
+        try {
+            for (PdxField pdxField : type.getFields()) {
+                PdxReaderImpl reader = new PdxReaderImpl(
+                        type, new DataInputStream(new ByteArrayInputStream(fieldData)), fieldData.length);
+                Object scalar = readScalar(reader, pdxField);
+                if (scalar != null) {
+                    fields.put(pdxField.getFieldName(), scalar);
+                }
+            }
+        } catch (Exception | LinkageError e) {
+            return new LinkedHashMap<>(); // best-effort: no sidecar on any failure
+        }
+        return fields;
     }
 
     private static Object readScalar(PdxReaderImpl reader, PdxField field) {
