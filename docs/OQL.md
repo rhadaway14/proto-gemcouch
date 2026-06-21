@@ -178,6 +178,24 @@ scalar-field equality/range and a PDX instance carrying a non-scalar field) plus
 (eligibility, partial subset, `hasWhere`), `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest`
 (scalar-field extraction for the sidecar).
 
+**Measured win + perf-gate.** A query-weighted benchmark (`query-heavy` profile + `BENCH_QUERYABLE_VALUES`,
+which seeds map values with a top-level `k` field and runs `SELECT * FROM /r WHERE k = N`) quantifies the
+pushdown payoff. On a local dockerized Couchbase (8 workers, 2000-key region, an indexed pushdown vs the
+full-region scan):
+
+| mode | throughput | query p99 |
+|---|---|---|
+| pushdown **off** (full scan) | ~25 ops/sec | ~490 ms |
+| pushdown **on** (indexed N1QL) | ~150 ops/sec | ~100 ms |
+
+≈ **6× throughput and ~5× lower query p99** (the gap widens with region size — scan is O(region), the
+indexed pushdown is O(matches)). A new perf-gate run guards this: `scripts/perf-gate.sh` with
+`PERF_BASELINE=scripts/perf-baseline.query.env` against a pushdown-enabled shim enforces a query-p99
+ceiling and a throughput floor set just above the scan rate (so a silent regression back to scanning trips
+the gate). The benchmark emits `query_p99_ms` on its `PERF_RESULT` line; the gate runs in CI
+(`.github/workflows/perf-gate.yml`) on a weekly schedule and on `v*` release tags, with tight rig
+thresholds in `scripts/perf-baseline.rig.env`.
+
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
 ### Request — easy

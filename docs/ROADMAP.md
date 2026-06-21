@@ -53,8 +53,15 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   subset (skipping ineligible conditions) with the shim re-applying the full `WHERE` — both validated
   real-client. (`OqlQuery.pushdownPredicates` returns the eligible subset; `hasWhere()` gates the
   region-`LIMIT` push.)
-- [ ] **Perf-gate query-p99**: query-weighted benchmark profile + a perf-gate threshold to quantify the
-  cumulative pushdown win and guard against regressions (the M2 capstone).
+- [x] **Slice 6 (capstone) — perf-gate query-p99.** New `query-heavy` benchmark profile +
+  `BENCH_QUERYABLE_VALUES` mode (seeds map values with a top-level `k` field and runs `WHERE k = N`, a
+  real pushdown-eligible query). The runner emits `query_p99_ms`; `scripts/perf-gate.sh` enforces a
+  `PERF_MAX_QUERY_P99_MS` ceiling (and a throughput floor set just above the scan rate, so a silent
+  regression to scanning trips it). A CI query-gate (`.github/workflows/perf-gate.yml`) runs it against
+  the pushdown shim with an indexed field. Measured local win: ≈6× throughput / ~5× lower query p99
+  (pushdown on vs full-scan). `scripts/perf-baseline.query.env` (CI) + `perf-baseline.rig.env` (tight).
+- Exit: **M2 COMPLETE** — query correctness unchanged vs a real Geode client across all slices; the
+  pushdown win is measured and perf-gated.
 - [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
   optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99

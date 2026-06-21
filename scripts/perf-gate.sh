@@ -48,11 +48,15 @@ if [ "$ready" -ne 1 ]; then
     exit 2
 fi
 
-echo "perf-gate: running benchmark (profile=$PERF_PROFILE concurrency=$PERF_CONCURRENCY warmup=${PERF_WARMUP_SECONDS}s measured=${PERF_DURATION_SECONDS}s)"
+# Queryable-values mode makes the QUERY op filter a real top-level field (so the OQL pushdown path is
+# exercised). Off by default; the query-gate run turns it on.
+PERF_QUERYABLE_VALUES=${PERF_QUERYABLE_VALUES:-false}
+
+echo "perf-gate: running benchmark (profile=$PERF_PROFILE concurrency=$PERF_CONCURRENCY warmup=${PERF_WARMUP_SECONDS}s measured=${PERF_DURATION_SECONDS}s queryable=$PERF_QUERYABLE_VALUES)"
 OUTPUT=$(BENCH_HOST="$HOST" BENCH_PORT="$SHIM_PORT" BENCH_REGION="$REGION" BENCH_PROFILE="$PERF_PROFILE" \
     BENCH_CONCURRENCY="$PERF_CONCURRENCY" BENCH_WARMUP_SECONDS="$PERF_WARMUP_SECONDS" \
     BENCH_DURATION_SECONDS="$PERF_DURATION_SECONDS" BENCH_KEYSPACE="$PERF_KEYSPACE" \
-    BENCH_SEED_COUNT="$PERF_SEED_COUNT" \
+    BENCH_SEED_COUNT="$PERF_SEED_COUNT" BENCH_QUERYABLE_VALUES="$PERF_QUERYABLE_VALUES" \
     java -cp "$JAR" com.protogemcouch.benchmark.ConcurrentBenchmarkRunner 2>/dev/null)
 
 RESULT=$(echo "$OUTPUT" | grep -E '^PERF_RESULT ' | tail -1)
@@ -66,6 +70,7 @@ echo "perf-gate: $RESULT"
 ops=$(echo "$RESULT" | sed -nE 's/.*ops_per_sec=([0-9.]+).*/\1/p')
 errors=$(echo "$RESULT" | sed -nE 's/.*errors=([0-9]+).*/\1/p')
 p99=$(echo "$RESULT" | sed -nE 's/.*max_p99_ms=([0-9.]+).*/\1/p')
+query_p99=$(echo "$RESULT" | sed -nE 's/.* query_p99_ms=(-?[0-9.]+).*/\1/p')
 
 fail=0
 if awk "BEGIN{exit !($ops < $PERF_MIN_OPS_PER_SEC)}"; then
@@ -76,13 +81,21 @@ if awk "BEGIN{exit !($p99 > $PERF_MAX_P99_MS)}"; then
     echo "perf-gate: FAIL worst p99 ${p99}ms is above ceiling ${PERF_MAX_P99_MS}ms" >&2
     fail=1
 fi
+# Query-specific tail-latency ceiling — enforced only when the profile actually ran queries
+# (query_p99_ms >= 0) and a ceiling is configured. Guards the OQL (pushdown) query path.
+if [ -n "${PERF_MAX_QUERY_P99_MS:-}" ] && awk "BEGIN{exit !(${query_p99:--1} >= 0)}"; then
+    if awk "BEGIN{exit !($query_p99 > $PERF_MAX_QUERY_P99_MS)}"; then
+        echo "perf-gate: FAIL query p99 ${query_p99}ms is above ceiling ${PERF_MAX_QUERY_P99_MS}ms" >&2
+        fail=1
+    fi
+fi
 if [ "${errors:-0}" -gt "$PERF_MAX_ERRORS" ]; then
     echo "perf-gate: FAIL $errors operation errors (max allowed $PERF_MAX_ERRORS)" >&2
     fail=1
 fi
 
 if [ "$fail" -eq 0 ]; then
-    echo "perf-gate: PASS (ops_per_sec=$ops >= $PERF_MIN_OPS_PER_SEC, max_p99_ms=$p99 <= $PERF_MAX_P99_MS, errors=$errors)"
+    echo "perf-gate: PASS (ops_per_sec=$ops >= $PERF_MIN_OPS_PER_SEC, max_p99_ms=$p99 <= $PERF_MAX_P99_MS, query_p99_ms=${query_p99:-n/a} <= ${PERF_MAX_QUERY_P99_MS:-n/a}, errors=$errors)"
     exit 0
 fi
 echo "perf-gate: FAIL — see thresholds in scripts/perf-baseline.env" >&2

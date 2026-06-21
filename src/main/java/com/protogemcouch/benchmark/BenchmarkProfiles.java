@@ -15,9 +15,23 @@ public final class BenchmarkProfiles {
             case "bulk-heavy" -> bulkHeavy();
             case "mixed" -> mixed();
             case "metadata-heavy" -> metadataHeavy();
+            case "query-heavy" -> queryHeavy();
             case "full-surface" -> fullSurface();
             default -> mixed();
         };
+    }
+
+    /**
+     * OQL-dominant: a query-weighted profile so the perf-gate measures the query path's p99 under load.
+     * Paired with {@code BENCH_QUERYABLE_VALUES=true}, the queries filter a real top-level field, so the
+     * profile exercises (and the gate guards) the OQL pushdown path, not just CRUD.
+     */
+    private static Map<OperationType, Integer> queryHeavy() {
+        Map<OperationType, Integer> weights = new EnumMap<>(OperationType.class);
+        weights.put(OperationType.QUERY, 70);
+        weights.put(OperationType.GET, 20);
+        weights.put(OperationType.PUT, 10);
+        return weights;
     }
 
     /**

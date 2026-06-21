@@ -154,9 +154,29 @@ public class ConcurrentBenchmarkRunner {
     private static void seed(Region<String, Object> region, BenchmarkConfig config) {
         System.out.println("Seeding " + config.getSeedCount() + " keys...");
         for (int i = 0; i < config.getSeedCount(); i++) {
-            region.put("bench-key-" + i, "seed-value-" + i);
+            if (config.isQueryableValues()) {
+                // A map with a unique top-level `k`, so `WHERE k = N` selects ~one row (a real,
+                // pushdown-eligible query) instead of a whole-value scan that matches nothing.
+                Map<String, Object> doc = new LinkedHashMap<>();
+                doc.put("k", i);
+                doc.put("v", "seed-value-" + i);
+                region.put("bench-key-" + i, doc);
+            } else {
+                region.put("bench-key-" + i, "seed-value-" + i);
+            }
         }
         System.out.println("Seeding complete.");
+    }
+
+    /** A put value matching the seed shape: a queryable map in queryable mode, else a random string. */
+    private static Object benchPutValue(BenchmarkConfig config, Random random) {
+        if (config.isQueryableValues()) {
+            Map<String, Object> doc = new LinkedHashMap<>();
+            doc.put("k", random.nextInt(config.getKeySpaceSize()));
+            doc.put("v", randomValue());
+            return doc;
+        }
+        return randomValue();
     }
 
     private static void executeOperation(ClientCache cache,
@@ -169,7 +189,7 @@ public class ConcurrentBenchmarkRunner {
         switch (op) {
             case GET -> region.get(key);
 
-            case PUT -> region.put(key, randomValue());
+            case PUT -> region.put(key, benchPutValue(config, random));
 
             case REMOVE -> region.remove(key);
 
@@ -198,11 +218,15 @@ public class ConcurrentBenchmarkRunner {
             case QUERY -> {
                 // Bounded OQL: a value-equality WHERE returns at most one row, so the query engine +
                 // WHERE evaluation + result framing are exercised without scanning the whole keyspace.
+                // In queryable-values mode, filter the real top-level `k` field so the OQL pushdown path
+                // is exercised (and the perf-gate guards it), not a whole-value scan.
+                String oql = config.isQueryableValues()
+                        ? "SELECT * FROM /" + config.getRegionName()
+                                + " WHERE k = " + random.nextInt(config.getKeySpaceSize())
+                        : "SELECT * FROM /" + config.getRegionName()
+                                + " r WHERE r = 'seed-value-" + random.nextInt(config.getKeySpaceSize()) + "'";
                 try {
-                    cache.getQueryService()
-                            .newQuery("SELECT * FROM /" + config.getRegionName()
-                                    + " r WHERE r = 'seed-value-" + random.nextInt(config.getKeySpaceSize()) + "'")
-                            .execute();
+                    cache.getQueryService().newQuery(oql).execute();
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
@@ -319,12 +343,19 @@ public class ConcurrentBenchmarkRunner {
                 maxP99Millis = Math.max(maxP99Millis, nanosToMillis(s.percentile(99)));
             }
         }
+        // The QUERY operation's own p99 (ms), or -1 when the profile ran no queries — lets the perf-gate
+        // enforce a query-specific tail-latency ceiling for the OQL pushdown path.
+        LatencyStats queryStats = result.getPerOperation().get(OperationType.QUERY);
+        double queryP99Millis = queryStats != null && queryStats.getTotalCount() > 0
+                ? nanosToMillis(queryStats.percentile(99))
+                : -1.0;
         long subEvents = subscriptions == null ? -1 : subscriptions.events();
         long subCqEvents = subscriptions == null ? -1 : subscriptions.cqEvents();
         System.out.printf(
-                "PERF_RESULT ops_per_sec=%.2f total=%d errors=%d max_p99_ms=%.3f sub_events=%d sub_cq_events=%d%n",
+                "PERF_RESULT ops_per_sec=%.2f total=%d errors=%d max_p99_ms=%.3f query_p99_ms=%.3f "
+                        + "sub_events=%d sub_cq_events=%d%n",
                 result.opsPerSecond(), result.totalOperations(), result.totalErrors(), maxP99Millis,
-                subEvents, subCqEvents);
+                queryP99Millis, subEvents, subCqEvents);
     }
 
     private static void printSummary(BenchmarkConfig config, BenchmarkResult result) {

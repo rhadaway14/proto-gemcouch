@@ -17,6 +17,7 @@ public class BenchmarkConfig {
     private final int seedCount;
     private final Duration progressInterval;
     private final String profileName;
+    private final boolean queryableValues;
     private final Map<OperationType, Integer> weights;
 
     public BenchmarkConfig(String host,
@@ -30,6 +31,7 @@ public class BenchmarkConfig {
                            int seedCount,
                            Duration progressInterval,
                            String profileName,
+                           boolean queryableValues,
                            Map<OperationType, Integer> weights) {
         this.host = host;
         this.port = port;
@@ -42,6 +44,7 @@ public class BenchmarkConfig {
         this.seedCount = seedCount;
         this.progressInterval = progressInterval;
         this.profileName = profileName;
+        this.queryableValues = queryableValues;
         this.weights = new EnumMap<>(weights);
     }
 
@@ -60,6 +63,7 @@ public class BenchmarkConfig {
                 intEnv("BENCH_SEED_COUNT", 1000),
                 Duration.ofSeconds(intEnv("BENCH_PROGRESS_SECONDS", 15)),
                 profile,
+                boolEnv("BENCH_QUERYABLE_VALUES", false),
                 BenchmarkProfiles.forName(profile)
         );
     }
@@ -106,6 +110,15 @@ public class BenchmarkConfig {
 
     public String getProfileName() {
         return profileName;
+    }
+
+    /**
+     * When true, seed map values with a queryable top-level field and have the QUERY op filter that
+     * field — so the query path (and OQL pushdown) is exercised, not a whole-value scan that matches
+     * nothing. Off keeps the original string-value seed + whole-value query.
+     */
+    public boolean isQueryableValues() {
+        return queryableValues;
     }
 
     public Map<OperationType, Integer> getWeights() {
