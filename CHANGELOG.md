@@ -7,6 +7,13 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL array-field querying (1.1.0-M3)** — completes M3: OQL paths now support **array index access**
+  (a `[index]` suffix indexes a `List`/array, e.g. `r.tags[0]`, `r.addresses[0].zip`) and **`IN`
+  containment** (`'gold' IN r.tags`, `5 IN r.scores`). For PDX, scalar arrays (`String[]`, `int[]`,
+  `long[]`, `short[]`, `double[]`, `float[]`, `boolean[]`, `char[]`) are read via `PdxReaderImpl`'s typed
+  array readers; a scalar-array leaf resolves to the whole list so `IN` can scan it. Works in
+  `WHERE`/projection/`ORDER BY` and CQ (shared resolver). Real-client validated (PDX string-array index +
+  `IN`). PDX object-arrays (arrays of nested PDX) and `byte[]` remain out of scope.
 - **OQL nested-object field querying (1.1.0-M3)** — `WHERE` / projection / `ORDER BY` and CQ predicates
   can now reach **nested object fields** by path (e.g. `r.address.zip`), lifting the previous "scalars
   only" limit. Field references are parsed into alias-aware navigation paths (the FROM alias is stripped,

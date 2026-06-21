@@ -45,17 +45,23 @@ recurses with its <em>own</em> `PdxTypeRegistry` (Geode's deserialization can't:
 the shim registry, not Geode's). Real-client-validated for nested map, nested PDX, and a nested-field CQ
 (`ProtoGemCouchQueryIntegrationTest`, `ProtoGemCouchCqIntegrationTest`). Nested-field predicates resolve
 in the shim (the matcher), so they are not pushed down (the pushdown path keeps scalar single-segment
-fields only) — correctness is unchanged. **Array PDX fields** (element/index access, `IN`) are not yet
-queryable (the next M3 slice); a PDX `OBJECT` field that holds a serialized non-PDX object is also not
-navigable.
+fields only) — correctness is unchanged.
+
+**Array fields**: a `[index]` suffix in a path (`r.tags[0]`, `r.matrix[1][2]`, `r.addresses[0].zip`)
+indexes into a `List`/array, and `<literal> IN <path>` tests **containment** (`'gold' IN r.tags`,
+`5 IN r.scores`). For PDX, scalar arrays (`String[]`, `int[]`, `long[]`, `short[]`, `double[]`, `float[]`,
+`boolean[]`, `char[]`) are read via `PdxReaderImpl`'s typed array readers; a scalar-array leaf resolves to
+the whole list (so `IN` can scan it). Real-client-validated (`pdxScalarArrayIndexAndContainmentQuery`).
+Still **not** queryable: PDX `OBJECT` arrays (arrays of nested PDX), `byte[]` (binary), and a PDX `OBJECT`
+field holding a serialized non-PDX object.
 
 The same PDX-aware resolver (`PdxAwareFieldResolver`, shared via the handler factory) also backs
 **continuous-query predicate matching**, so a CQ like `WHERE r.status = 'active'` matches PDX objects
 exactly as a one-shot query does (see `docs/CONTINUOUS_QUERIES.md`). For a *second* client to decode a
 PDX value it did not itself write (e.g. a pushed CQ/subscription event value), the shim also serves the
 **reverse PDX lookup** — GET_PDX_TYPE_BY_ID (opcode 92) returns the kept `PdxType`, stamped with its
-assigned id, as a serialized object part. Scalar fields and **nested object paths** (see above) are
-queryable; **array** PDX fields are not yet.
+assigned id, as a serialized object part. Scalar fields, **nested object paths**, and **scalar array**
+fields (index access + `IN` containment) are queryable (see above); arrays of nested objects are not.
 
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into

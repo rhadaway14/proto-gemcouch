@@ -93,21 +93,112 @@ final class PdxFieldAccessor {
             PdxReaderImpl reader = new PdxReaderImpl(
                     type, new DataInputStream(new ByteArrayInputStream(fieldData)), fieldData.length);
             if (path.size() == 1) {
+                // A scalar-array leaf returns the whole list (so `<literal> IN <array>` can test it);
+                // any other leaf returns its scalar value (null for OBJECT/object-array/byte[]).
+                List<Object> array = readScalarArray(reader, pdxField);
+                if (array != null) {
+                    return array;
+                }
                 Object scalar = readScalar(reader, pdxField);
                 return scalar == null ? OqlQuery.ABSENT : scalar;
             }
-            // Descend into a nested OBJECT field via its raw bytes.
-            if (pdxField.getFieldType() != FieldType.OBJECT) {
-                return OqlQuery.ABSENT; // can't navigate into a scalar/array for deeper segments
+            // Descend (path has more segments): into a nested OBJECT field, or index into a scalar array.
+            if (pdxField.getFieldType() == FieldType.OBJECT) {
+                byte[] nested = rawFieldBytes(reader, pdxField);
+                if (nested != null && nested.length >= 9 && (nested[0] & 0xff) == 0x5d) {
+                    return resolvePath(nested, registry, path.subList(1, path.size())); // nested PDX: recurse
+                }
+                return OqlQuery.ABSENT; // nested non-PDX object: not navigable in this build
             }
-            byte[] nested = rawFieldBytes(reader, pdxField);
-            if (nested != null && nested.length >= 9 && (nested[0] & 0xff) == 0x5d) {
-                return resolvePath(nested, registry, path.subList(1, path.size())); // nested PDX: recurse
+            List<Object> array = readScalarArray(reader, pdxField);
+            if (array != null) {
+                return navigateRest(array, path.subList(1, path.size())); // e.g. tags[0]
             }
-            return OqlQuery.ABSENT; // nested non-PDX object: not navigable in this build
+            return OqlQuery.ABSENT; // can't navigate into a plain scalar / unsupported array
         } catch (Exception | LinkageError e) {
             return OqlQuery.ABSENT;
         }
+    }
+
+    /** Apply the remaining path segments (indexes / keys) via the shared map/array navigator. */
+    private static Object navigateRest(Object current, List<String> rest) {
+        Object value = current;
+        for (String segment : rest) {
+            if (value == null) {
+                return OqlQuery.ABSENT;
+            }
+            value = OqlQuery.navigateMember(value, segment);
+            if (value == OqlQuery.ABSENT) {
+                return OqlQuery.ABSENT;
+            }
+        }
+        return value;
+    }
+
+    /** Read a PDX <em>scalar</em> array field into a boxed list, or {@code null} for non-array / unsupported types. */
+    private static List<Object> readScalarArray(PdxReaderImpl reader, PdxField field) {
+        switch (field.getFieldType()) {
+            case STRING_ARRAY:
+                return boxed(reader.readStringArray(field));
+            case INT_ARRAY: {
+                int[] a = reader.readIntArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (int v : a) out.add(v);
+                return out;
+            }
+            case LONG_ARRAY: {
+                long[] a = reader.readLongArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (long v : a) out.add(v);
+                return out;
+            }
+            case SHORT_ARRAY: {
+                short[] a = reader.readShortArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (short v : a) out.add(v);
+                return out;
+            }
+            case DOUBLE_ARRAY: {
+                double[] a = reader.readDoubleArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (double v : a) out.add(v);
+                return out;
+            }
+            case FLOAT_ARRAY: {
+                float[] a = reader.readFloatArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (float v : a) out.add(v);
+                return out;
+            }
+            case BOOLEAN_ARRAY: {
+                boolean[] a = reader.readBooleanArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (boolean v : a) out.add(v);
+                return out;
+            }
+            case CHAR_ARRAY: {
+                char[] a = reader.readCharArray(field);
+                if (a == null) return null;
+                List<Object> out = new java.util.ArrayList<>(a.length);
+                for (char v : a) out.add(String.valueOf(v));
+                return out;
+            }
+            default:
+                return null; // BYTE_ARRAY (binary), OBJECT_ARRAY, ARRAY_OF_BYTE_ARRAYS: not queryable here
+        }
+    }
+
+    private static List<Object> boxed(Object[] array) {
+        if (array == null) {
+            return null;
+        }
+        return new java.util.ArrayList<>(Arrays.asList(array));
     }
 
     /** The raw serialized bytes of {@code field} (the protected {@code getRaw(PdxField)}, via reflection). */

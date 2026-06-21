@@ -193,6 +193,28 @@ class OqlQueryTest {
     }
 
     @Test
+    void arrayIndexAccessInWhere() {
+        StoredValue v = map("tags", List.of("gold", "silver", "bronze"), "scores", List.of(10, 20, 30));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o WHERE tags[0] = 'gold'").matches(v));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o o WHERE o.tags[2] = 'bronze'").matches(v),
+                "alias-qualified indexed access");
+        assertTrue(OqlQuery.parse("SELECT * FROM /o WHERE scores[1] > 15").matches(v), "numeric element compare");
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE tags[1] = 'gold'").matches(v));
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE tags[9] = 'gold'").matches(v),
+                "out-of-range index does not match");
+    }
+
+    @Test
+    void inContainmentOnArray() {
+        StoredValue v = map("tags", List.of("gold", "silver"), "scores", List.of(10, 20));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o WHERE 'silver' IN tags").matches(v));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o o WHERE 20 IN o.scores").matches(v), "numeric containment");
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE 'platinum' IN tags").matches(v));
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE 'gold' IN missing").matches(v),
+                "IN on a missing field does not match");
+    }
+
+    @Test
     void missingFieldOrNonMapValueDoesNotMatch() {
         assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE missing = 'x'").matches(map("status", "active")));
         assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE status = 'active'").matches(StoredValue.stringValue("active")),

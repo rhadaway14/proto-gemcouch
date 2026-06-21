@@ -277,6 +277,26 @@ class ProtoGemCouchQueryIntegrationTest {
         assertEquals(1, austinActive.size(), "WHERE on a nested PDX object field selects the right row");
     }
 
+    @Test
+    void pdxScalarArrayIndexAndContainmentQuery() throws Exception {
+        region.put("a", cache.createPdxInstanceFactory("demo.Tagged")
+                .writeString("status", "active")
+                .writeStringArray("tags", new String[] {"gold", "silver"})
+                .create());
+        region.put("b", cache.createPdxInstanceFactory("demo.Tagged")
+                .writeString("status", "active")
+                .writeStringArray("tags", new String[] {"bronze"})
+                .create());
+
+        SelectResults<?> firstIsGold = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE r.tags[0] = 'gold'").execute();
+        assertEquals(1, firstIsGold.size(), "indexed access into a PDX string array");
+
+        SelectResults<?> hasSilver = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE 'silver' IN r.tags").execute();
+        assertEquals(1, hasSilver.size(), "IN containment on a PDX string array");
+    }
+
     private PdxInstance pdxOrderWithAddress(String status, String zip) {
         PdxInstance address = cache.createPdxInstanceFactory("demo.Address")
                 .writeString("zip", zip)

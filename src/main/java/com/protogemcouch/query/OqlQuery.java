@@ -32,10 +32,17 @@ public final class OqlQuery {
                     + "\\s*;?\\s*$");
 
     private static final Pattern CONDITION = Pattern.compile(
-            "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
+            "^\\s*([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
 
-    /** A single path segment (a field name): a plain identifier. */
-    private static final Pattern SEGMENT = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    /** Containment: {@code <literal> IN <path>} (the array/collection on the right). */
+    private static final Pattern IN_CONDITION = Pattern.compile(
+            "(?i)^\\s*(.+?)\\s+IN\\s+([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s*$");
+
+    /** One dotted path segment: a field name with zero or more {@code [index]} suffixes. */
+    private static final Pattern SEGMENT = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)((?:\\[[0-9]+\\])*)");
+
+    /** A single {@code [index]} within a segment's bracket suffixes. */
+    private static final Pattern INDEX = Pattern.compile("\\[([0-9]+)\\]");
 
     // A trailing `LIMIT <n>` is split off before the main grammar runs (the closing token before `;`/end
     // can only be a literal count, so it can't be confused with a string literal ending in a quote).
@@ -183,15 +190,41 @@ public final class OqlQuery {
     public static final FieldResolver MAP_RESOLVER = OqlQuery::resolveMapPath;
 
     /**
-     * Descend one step into a nested member: a {@link Map} key. Returns {@link #ABSENT} when the current
-     * object is not a navigable container or lacks the member. Shared so PDX navigation can reuse it once
-     * it reaches a plain map.
+     * Descend one step into a nested member: a {@link Map} key, or — when {@code member} is a numeric
+     * index — an element of a {@link List} or array. Returns {@link #ABSENT} when the current object is
+     * not a navigable container or lacks the member. Shared so PDX navigation can reuse it.
      */
     public static Object navigateMember(Object current, String member) {
         if (current instanceof Map<?, ?> map) {
             return map.containsKey(member) ? map.get(member) : ABSENT;
         }
+        Integer index = asIndex(member);
+        if (index != null) {
+            if (current instanceof List<?> list) {
+                return index < list.size() ? list.get(index) : ABSENT;
+            }
+            if (current instanceof Object[] array) {
+                return index < array.length ? array[index] : ABSENT;
+            }
+        }
         return ABSENT;
+    }
+
+    /** Parse a non-negative array index, or {@code null} when the member is not an index. */
+    private static Integer asIndex(String member) {
+        if (member.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < member.length(); i++) {
+            if (!Character.isDigit(member.charAt(i))) {
+                return null;
+            }
+        }
+        try {
+            return Integer.parseInt(member);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
@@ -317,10 +350,15 @@ public final class OqlQuery {
         }
         List<String> path = new ArrayList<>(segments.length - start);
         for (int i = start; i < segments.length; i++) {
-            if (!SEGMENT.matcher(segments[i]).matches()) {
+            Matcher m = SEGMENT.matcher(segments[i]);
+            if (!m.matches()) {
                 throw new UnsupportedQueryException("unsupported field path: " + raw);
             }
-            path.add(segments[i]);
+            path.add(m.group(1)); // the field name
+            Matcher index = INDEX.matcher(m.group(2)); // each [n] becomes its own (numeric) path segment
+            while (index.find()) {
+                path.add(index.group(1));
+            }
         }
         if (path.isEmpty()) {
             throw new UnsupportedQueryException("empty field path: " + raw);
@@ -446,11 +484,20 @@ public final class OqlQuery {
             List<Condition> andGroup = new ArrayList<>();
             for (String clause : orGroup.split("(?i)\\s+AND\\s+")) {
                 Matcher m = CONDITION.matcher(clause);
-                if (!m.matches()) {
-                    throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
+                if (m.matches()) {
+                    andGroup.add(new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
+                            Literal.parse(m.group(3))));
+                    continue;
                 }
-                andGroup.add(new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
-                        Literal.parse(m.group(3))));
+                Matcher in = IN_CONDITION.matcher(clause);
+                if (in.matches()) {
+                    // `<literal> IN <path>`: the path resolves to the collection; the literal is the
+                    // element sought (containment). The left operand must be a literal, not a field.
+                    andGroup.add(new Condition(toPath(in.group(2), alias), Operator.IN,
+                            Literal.parse(in.group(1))));
+                    continue;
+                }
+                throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
             }
             orGroups.add(andGroup);
         }
@@ -465,7 +512,7 @@ public final class OqlQuery {
     }
 
     enum Operator {
-        EQ, NEQ, LT, LTE, GT, GTE;
+        EQ, NEQ, LT, LTE, GT, GTE, IN;
 
         static Operator of(String token) {
             switch (token) {
@@ -500,6 +547,7 @@ public final class OqlQuery {
             switch (op) {
                 case EQ: return literal.equalsValue(actual);
                 case NEQ: return !literal.equalsValue(actual);
+                case IN: return containsLiteral(actual);
                 default:
                     Integer cmp = literal.compareValue(actual);
                     if (cmp == null) {
@@ -513,6 +561,27 @@ public final class OqlQuery {
                         default: return false;
                     }
             }
+        }
+
+        /** True if the resolved collection (a {@link java.util.Collection} or array) contains the literal. */
+        private boolean containsLiteral(Object collection) {
+            if (collection instanceof java.util.Collection<?> elements) {
+                for (Object element : elements) {
+                    if (literal.equalsValue(element)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if (collection instanceof Object[] array) {
+                for (Object element : array) {
+                    if (literal.equalsValue(element)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            return false;
         }
     }
 
