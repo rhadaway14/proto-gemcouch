@@ -95,19 +95,21 @@ correct but O(region size) regardless of how selective the `WHERE` is (the full-
 With **`OQL_PUSHDOWN=true`** (default off), eligible queries instead pre-filter at Couchbase via N1QL,
 so the shim only fetches candidate documents. The design keeps results **identical to the scan**:
 
-- **Eligibility (conservative).** Pushdown applies only when the `WHERE` is a single `AND`-group of
-  **string-equality** (`field = '…'`) and/or **numeric comparison** (`field = <num>` / `< <= > >=` a
-  numeric literal) conditions on simple top-level fields. Anything else — `OR`, numeric `<>`/`!=`, string
-  ranges, boolean/null literals, dotted/nested fields, or no `WHERE` — is **not** pushed and runs the
-  normal scan. (`OqlQuery.pushdownPredicates()`.) Projection and `ORDER BY` never block pushdown; they
-  are applied in-shim to the candidates exactly as before.
+- **Eligibility + partial push.** Within a single `AND`-group `WHERE`, the **eligible subset** of
+  conditions is pushed — **string-equality** (`field = '…'`) and **numeric comparison**
+  (`field = <num>` / `< <= > >=` a numeric literal) on simple top-level fields. Ineligible conditions in
+  the group (numeric `<>`/`!=`, string ranges, boolean/null literals, dotted/nested fields) are simply
+  **skipped**, not fatal: pushing a subset of an `AND` is still a superset, and the shim re-applies the
+  full `WHERE`. An `OR` query is not pushed (falls back to the scan). (`OqlQuery.pushdownPredicates()`.)
+  Projection and `ORDER BY` never block pushdown; they are applied in-shim to the candidates as before.
 - **`LIMIT n`** is supported (parsed by `OqlQuery`; applied in-shim to the result rows after `WHERE` /
-  `ORDER BY` / projection). When the query is pushdown-eligible **and has no `ORDER BY`**, the `LIMIT` is
-  also pushed to N1QL so the backend caps the candidate rows — but because the predicate is a *superset*,
-  a capped page can contain non-matches; if the matcher then yields fewer than `n` matches from a full
-  page, the shim **refetches the candidates unbounded** so it never under-returns. With `ORDER BY`, the
-  `LIMIT` is applied only in-shim after the sort (a top-N needs the full matched set), while the `WHERE`
-  still pushes.
+  `ORDER BY` / projection). When the query has no `ORDER BY`, the `LIMIT` is also pushed to N1QL so the
+  backend caps the candidate rows — this includes a **`LIMIT` with no `WHERE`** (`SELECT * FROM /r LIMIT n`),
+  which pushes a region-scoped capped query instead of scanning the whole region. Because the predicate
+  is a *superset*, a capped page can contain non-matches; if the matcher then yields fewer than `n`
+  matches from a full page, the shim **refetches the candidates unbounded** so it never under-returns.
+  With `ORDER BY`, the `LIMIT` is applied only in-shim after the sort (a top-N needs the full matched
+  set), while the `WHERE` still pushes.
 - **The matcher stays authoritative.** N1QL only chooses *candidate* documents; the shim re-applies
   `OqlQuery.matches` (the same PDX-aware resolver as the scan), then projects/sorts/pages as usual. So
   the candidate set only has to be a **superset** of the true matches.
@@ -164,16 +166,17 @@ instead of every PDX doc being swept in and re-filtered. Notes:
 - Index the sidecar path for speed, e.g.
   `CREATE INDEX idx_orders_pdx_status ON \`your-bucket\`(TO_STRING(\`pdxFields\`.\`status\`)) WHERE META().id LIKE "orders::%";`
 
-**Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), `LIMIT` (no
-`ORDER BY`), and **PDX scalar fields** (via the sidecar) are pushed; numeric `<>`/`!=`, string ranges,
-`OR`, and `LIMIT`-without-`WHERE` still scan (later M2 work).
+**Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), the eligible
+subset of a mixed `AND`, `LIMIT` with no `ORDER BY` (including with no `WHERE`), and **PDX scalar fields**
+(via the sidecar) are pushed; numeric `<>`/`!=`, string ranges, and `OR` queries still scan.
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
-fallback, mixed region, projection; `LIMIT` — pushed cap, `LIMIT` > match count, scan-path `LIMIT`,
-`ORDER BY` top-N, non-map refetch guard; and **PDX** — selective scalar-field equality/range and a PDX
-instance carrying a non-scalar field) plus `OqlQueryPushdownTest` (eligibility), `OqlQueryTest`
-(`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
+fallback, mixed region, projection; **partial push** of a mixed `AND`; `LIMIT` — pushed cap, no-`WHERE`
+region cap, `LIMIT` > match count, `ORDER BY` top-N, non-map refetch guard; and **PDX** — selective
+scalar-field equality/range and a PDX instance carrying a non-scalar field) plus `OqlQueryPushdownTest`
+(eligibility, partial subset, `hasWhere`), `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest`
+(scalar-field extraction for the sidecar).
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 

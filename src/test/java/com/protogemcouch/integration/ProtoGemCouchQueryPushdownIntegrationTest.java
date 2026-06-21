@@ -212,13 +212,27 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
     }
 
     @Test
-    void limitWithoutWhereTruncatesScanResult() throws Exception {
-        // No WHERE -> scan path; LIMIT is still applied in-shim.
-        for (int i = 0; i < 6; i++) {
+    void limitWithoutWhereIsPushedAsARegionScopedCap() throws Exception {
+        // No WHERE: the backend caps rows with a region-scoped LIMIT (no full-region scan), and the
+        // result is still exactly the requested count.
+        for (int i = 0; i < 8; i++) {
             region.put("k" + i, "v" + i);
         }
-        SelectResults<?> r = query("SELECT * FROM /" + regionName + " LIMIT 2");
-        assertEquals(2, r.size(), "LIMIT truncates a scan result too");
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " LIMIT 3");
+        assertEquals(3, r.size(), "LIMIT without WHERE caps the result to 3");
+    }
+
+    @Test
+    void partialPredicatePushIsCorrectWhenSomeConditionsAreNotPushable() throws Exception {
+        // status = '…' is pushed; the numeric <> is not, so the backend pre-filters by status and the
+        // shim matcher applies the full WHERE — selective and correct.
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 5)));
+        region.put("b", new HashMap<>(Map.of("status", "active", "amount", 10)));
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 10)));
+
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'active' AND amount <> 5");
+        assertEquals(1, r.size(), "partial push + full re-filter yields the one active row with amount != 5");
     }
 
     @Test

@@ -86,11 +86,20 @@ public class QueryHandler implements OperationHandler {
 
         boolean pushdownUsed = false;
         Collection<StoredValue> candidates = null;
-        Optional<List<OqlQuery.FieldPredicate>> predicates =
-                pushdownEnabled ? query.pushdownPredicates() : Optional.empty();
-        if (predicates.isPresent()) {
+        // The predicate list to push: the eligible subset of the WHERE, or an empty list to push just a
+        // region-scoped LIMIT when there is no WHERE (so the backend caps rows instead of a full scan).
+        List<OqlQuery.FieldPredicate> pushPreds = null;
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+            if (eligible.isPresent()) {
+                pushPreds = eligible.get();
+            } else if (limitPushed && !query.hasWhere()) {
+                pushPreds = List.of(); // no WHERE + pushable LIMIT -> region-scoped LIMIT
+            }
+        }
+        if (pushPreds != null) {
             Optional<List<StoredValue>> pushed = repository.queryPushdownByPredicates(
-                    region, predicates.get(), limitPushed ? limit : 0);
+                    region, pushPreds, limitPushed ? limit : 0);
             if (pushed.isPresent()) {
                 candidates = pushed.get();
                 pushdownUsed = true;
@@ -107,7 +116,7 @@ public class QueryHandler implements OperationHandler {
         // refetch the full candidate set (unbounded pushdown, else scan) so we never under-return.
         if (limitPushed && pushdownUsed && matched.size() < limit && candidates.size() >= limit) {
             Optional<List<StoredValue>> refetched =
-                    repository.queryPushdownByPredicates(region, predicates.get(), 0);
+                    repository.queryPushdownByPredicates(region, pushPreds, 0);
             if (refetched.isPresent()) {
                 candidates = refetched.get();
             } else {

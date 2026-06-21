@@ -7,6 +7,13 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL pushdown — `LIMIT`-without-`WHERE` + partial-predicate push (1.1.0-M2, slice 5)** — two more
+  queries now push down instead of scanning. `SELECT * FROM /region LIMIT n` (no `WHERE`) pushes a
+  region-scoped capped N1QL query (excluding invalidated markers) rather than scanning the whole region.
+  And a mixed `AND`-group now pushes its **eligible subset** of conditions (skipping ineligible ones like
+  numeric `<>` or string ranges) instead of falling back entirely — still a superset, with the shim
+  re-applying the full `WHERE`, so results are unchanged. Real-client validated
+  (`ProtoGemCouchQueryPushdownIntegrationTest`: no-`WHERE` `LIMIT` cap, and `status = '…' AND amount <> N`).
 - **OQL PDX scalar-field pushdown (1.1.0-M2, slice 4)** — PDX values are stored opaquely (base64 of the
   PDX wire bytes), so their fields weren't directly queryable and a PDX-heavy region's pushdown swept in
   every PDX doc. When `OQL_PUSHDOWN` is on, the shim now writes a queryable **`pdxFields` scalar sidecar**
