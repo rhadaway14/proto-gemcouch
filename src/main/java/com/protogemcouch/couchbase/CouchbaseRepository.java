@@ -1019,7 +1019,7 @@ public class CouchbaseRepository implements Repository {
      */
     @Override
     public Optional<List<StoredValue>> queryPushdownByPredicates(
-            String region, List<OqlQuery.FieldPredicate> predicates) {
+            String region, List<OqlQuery.FieldPredicate> predicates, int limit) {
         if (predicates == null || predicates.isEmpty()) {
             return Optional.empty();
         }
@@ -1072,6 +1072,11 @@ public class CouchbaseRepository implements Repository {
         String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
                 + "`.`" + collection.name() + "`";
         String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+        // Cap rows at the backend when the caller asked for it (safe only with no ORDER BY; the caller
+        // refetches unbounded if this capped page does not yield enough matches). limit is a parsed int.
+        if (limit > 0) {
+            statement += " LIMIT " + limit;
+        }
 
         try {
             // REQUEST_PLUS so the query observes every mutation up to now — matching the KV scan path's

@@ -39,8 +39,13 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   now push down too (via `TO_NUMBER(...) <op> $n` + a `TYPE="string"` superset escape), AND-combinable
   with string equality; numeric `<>`/`!=`, string ranges, and `OR` still scan. Real-client validated
   (numeric eq/range, mixed AND, PDX numeric range). (`OqlQuery.pushdownPredicates`.)
-- [ ] Extend predicates: `LIMIT`; PDX **scalar**-field pushdown (M3 path); optional partial-predicate
-  push (push the eligible subset of an AND-group, scan-filter the rest).
+- [x] **Slice 3 — `LIMIT`.** `LIMIT n` is now parsed + applied in-shim (it was previously a query
+  error), and pushed to N1QL for pushdown-eligible queries with no `ORDER BY` (capping backend rows),
+  guarded by an unbounded refetch when a capped page does not yield enough matches. `ORDER BY`+`LIMIT`
+  applies the cap in-shim after the sort. Real-client validated (pushed cap, `LIMIT` > matches, scan
+  `LIMIT`, top-N, non-map guard).
+- [ ] PDX **scalar**-field pushdown (M3 path); `LIMIT`-without-`WHERE` pushdown; optional
+  partial-predicate push (push the eligible subset of an AND-group, scan-filter the rest).
 - [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
   optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99

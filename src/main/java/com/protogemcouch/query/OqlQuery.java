@@ -34,17 +34,33 @@ public final class OqlQuery {
     private static final Pattern CONDITION = Pattern.compile(
             "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
 
+    // A trailing `LIMIT <n>` is split off before the main grammar runs (the closing token before `;`/end
+    // can only be a literal count, so it can't be confused with a string literal ending in a quote).
+    private static final Pattern LIMIT_TAIL = Pattern.compile("(?is)^(.*?)\\s+LIMIT\\s+(\\d+)\\s*(;?)\\s*$");
+
     private final String regionPath;
     private final List<String> projectionFields;   // empty = SELECT *
     private final List<List<Condition>> orGroups;  // OR of AND-groups; empty = match all
     private final List<OrderKey> orderBy;          // empty = no ordering
+    private final int limit;                       // -1 = no LIMIT; >= 0 = explicit row cap
 
     private OqlQuery(String regionPath, List<String> projectionFields,
-                    List<List<Condition>> orGroups, List<OrderKey> orderBy) {
+                    List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
         this.orGroups = orGroups;
         this.orderBy = orderBy;
+        this.limit = limit;
+    }
+
+    /** Whether the query has a {@code LIMIT} clause. */
+    public boolean hasLimit() {
+        return limit >= 0;
+    }
+
+    /** The row cap from {@code LIMIT} (defined when {@link #hasLimit()}); {@code -1} otherwise. */
+    public int limit() {
+        return limit;
     }
 
     public String regionPath() {
@@ -247,13 +263,27 @@ public final class OqlQuery {
             throw new UnsupportedQueryException("empty query");
         }
         String text = oql.trim();
+
+        // Split off a trailing LIMIT first, so the main grammar stays unchanged.
+        int limit = -1;
+        Matcher limitMatcher = LIMIT_TAIL.matcher(text);
+        if (limitMatcher.matches()) {
+            try {
+                limit = Integer.parseInt(limitMatcher.group(2));
+            } catch (NumberFormatException e) {
+                throw new UnsupportedQueryException("invalid LIMIT: " + text);
+            }
+            text = limitMatcher.group(1).trim() + limitMatcher.group(3); // keep a trailing ';' if present
+        }
+
         Matcher matcher = QUERY.matcher(text);
         if (!matcher.matches()) {
             throw new UnsupportedQueryException(
-                    "only 'SELECT (* | field, ...) FROM /region [WHERE ...]' is supported: " + text);
+                    "only 'SELECT (* | field, ...) FROM /region [WHERE ...] [ORDER BY ...] [LIMIT n]' "
+                            + "is supported: " + oql);
         }
         return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1)),
-                parseWhere(matcher.group(3)), parseOrderBy(matcher.group(4)));
+                parseWhere(matcher.group(3)), parseOrderBy(matcher.group(4)), limit);
     }
 
     /** Sort matched values in place by the ORDER BY keys (no-op when there is no ORDER BY). */
