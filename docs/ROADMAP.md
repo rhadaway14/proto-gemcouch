@@ -77,11 +77,16 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   PDX query, nested-field CQ (`ProtoGemCouchQueryIntegrationTest`, `ProtoGemCouchCqIntegrationTest`) +
   `OqlQueryTest` (path parse/nav). Nested predicates resolve in the matcher (not pushed down), so query
   correctness is unchanged.
-- [ ] **Array PDX fields** (element/index access, `IN` containment) — the remaining M3 slice; lift the
-  "scalars + nested objects only" limit to arrays.
-- [ ] Update `COMPATABILITY_MATRIX.md` (nested done; arrays pending).
-- Swap option: if users lean HA over query-depth, substitute **multi-replica durable subscriptions**
-  (Couchbase-backed durable queues that survive replica failover) for this milestone.
+- [x] **Array fields — DONE.** A `[index]` suffix in a path indexes a `List`/array (`r.tags[0]`,
+  `r.addresses[0].zip`), and `<literal> IN <path>` tests containment (`'gold' IN r.tags`). PDX scalar
+  arrays (`String[]`/`int[]`/`long[]`/`short[]`/`double[]`/`float[]`/`boolean[]`/`char[]`) are read via
+  `PdxReaderImpl`'s typed readers; a scalar-array leaf resolves to the whole list so `IN` can scan it.
+  Real-client validated (`pdxScalarArrayIndexAndContainmentQuery`) + `OqlQueryTest`. Object-arrays
+  (arrays of nested PDX) and `byte[]` remain out of scope (documented).
+- [x] `COMPATABILITY_MATRIX.md` updated.
+- Exit: **M3 COMPLETE** — scalar, nested-object, and scalar-array field querying for maps + PDX, in
+  `WHERE`/projection/`ORDER BY` and CQ; query correctness unchanged vs a real Geode client.
+- Swap option (not taken): multi-replica durable subscriptions remain in the 1.2.0 backlog.
 
 ### 1.1.0-M4 — Hardening + RC → 1.1.0 GA · freeze 2026-08-31 · RC 2026-09-02 · GA 2026-09-04
 - [ ] Cross-version client matrix **in CI** with real 1.14.x / 1.13.x client jars (blocked offline
@@ -117,6 +122,7 @@ arbitrary object graphs; hot TLS cert reload (currently a zero-downtime rolling 
   optimization (~2× faster, concurrent writes + batched keyset); connection-accounting fix.
 - **Transport security** — inbound TLS; mutual TLS (client-cert auth); Couchbase backend TLS;
   health-port HTTPS + bind-address restriction.
+
 
 ---
 
