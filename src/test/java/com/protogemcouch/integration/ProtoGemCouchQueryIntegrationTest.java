@@ -250,6 +250,44 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void nestedMapFieldQuery() throws Exception {
+        region.put("a", new HashMap<>(Map.of(
+                "status", "active", "address", new HashMap<>(Map.of("zip", "78701", "city", "Austin")))));
+        region.put("b", new HashMap<>(Map.of(
+                "status", "active", "address", new HashMap<>(Map.of("zip", "10001", "city", "NYC")))));
+
+        SelectResults<?> austin = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE r.address.zip = '78701'").execute();
+        assertEquals(1, austin.size(), "WHERE on a nested map field selects the right row");
+
+        SelectResults<?> cities = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT e.address.city FROM /" + regionName + " e WHERE status = 'active'").execute();
+        assertEquals(Set.of("Austin", "NYC"), new HashSet<>(cities), "nested-field projection");
+    }
+
+    @Test
+    void nestedPdxFieldQuery() throws Exception {
+        region.put("a", pdxOrderWithAddress("active", "78701"));
+        region.put("b", pdxOrderWithAddress("active", "10001"));
+        region.put("c", pdxOrderWithAddress("closed", "78701"));
+
+        SelectResults<?> austinActive = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName
+                        + " r WHERE r.address.zip = '78701' AND r.status = 'active'").execute();
+        assertEquals(1, austinActive.size(), "WHERE on a nested PDX object field selects the right row");
+    }
+
+    private PdxInstance pdxOrderWithAddress(String status, String zip) {
+        PdxInstance address = cache.createPdxInstanceFactory("demo.Address")
+                .writeString("zip", zip)
+                .create();
+        return cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", status)
+                .writeObject("address", address)
+                .create();
+    }
+
+    @Test
     void unsupportedQueryRaisesAnError() {
         region.put("k1", "v1");
         // DISTINCT is outside the supported subset and must surface a server error rather than

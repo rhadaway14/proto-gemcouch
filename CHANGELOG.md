@@ -7,6 +7,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL nested-object field querying (1.1.0-M3)** — `WHERE` / projection / `ORDER BY` and CQ predicates
+  can now reach **nested object fields** by path (e.g. `r.address.zip`), lifting the previous "scalars
+  only" limit. Field references are parsed into alias-aware navigation paths (the FROM alias is stripped,
+  the remainder is a segment list), and the shared PDX-aware resolver descends into nested objects: nested
+  Geode maps are walked by key, and a nested PDX `OBJECT` field is navigated by its raw bytes
+  (`PdxReaderImpl.getRaw` via reflection, then recursing with the shim's own `PdxTypeRegistry`, since the
+  nested type lives there and not in Geode's). Nested predicates resolve in the shim's matcher (they are
+  not pushed down — the pushdown path keeps scalar single-segment fields), so query correctness is
+  unchanged. Real-client validated for a nested map query, a nested PDX query, and a nested-field CQ.
+  Array PDX fields (element/index access, `IN`) remain a follow-up.
 - **Query-weighted perf-gate for OQL pushdown (1.1.0-M2, slice 6 — capstone)** — a new `query-heavy`
   benchmark profile plus a `BENCH_QUERYABLE_VALUES` mode (seeds map values with a top-level `k` field and
   runs `SELECT * FROM /r WHERE k = N`, a real pushdown-eligible query) make the benchmark exercise the OQL

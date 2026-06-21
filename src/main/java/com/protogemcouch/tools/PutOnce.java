@@ -64,6 +64,18 @@ public final class PutOnce {
                         .writeInt("amount", Integer.parseInt(value))
                         .create());
                 System.out.println("PutOnce: put pdx " + region + "/" + key + " {amount:" + value + "}");
+            } else if ("pdxnested".equalsIgnoreCase(op)) {
+                // Put a PDX object with a NESTED PDX object field (demo.Order { status; demo.Address
+                // address { zip } }) so a CQ predicate on a nested PDX field (r.address.zip) is exercised
+                // end-to-end from a separate client. The `value` arg is the zip.
+                org.apache.geode.pdx.PdxInstance address = cache.createPdxInstanceFactory("demo.Address")
+                        .writeString("zip", value)
+                        .create();
+                r.put(key, cache.createPdxInstanceFactory("demo.Order")
+                        .writeString("status", "active")
+                        .writeObject("address", address)
+                        .create());
+                System.out.println("PutOnce: put nested pdx " + region + "/" + key + " {address.zip:" + value + "}");
             } else if ("mapstops".equalsIgnoreCase(op)) {
                 // Put a matching map {amount: value}, then update it to a non-matching {amount: 1}
                 // (stops-matching -> CQ DESTROY).

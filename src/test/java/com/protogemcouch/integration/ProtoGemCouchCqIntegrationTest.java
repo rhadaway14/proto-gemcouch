@@ -254,6 +254,48 @@ class ProtoGemCouchCqIntegrationTest {
     }
 
     @Test
+    void cqListenerFiresForPredicateMatchingNestedPdxField() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch matched = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                key.set(event.getKey());
+                matched.countDown();
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        // Predicate on a NESTED PDX object field — CQ matching must navigate r.address.zip inside the
+        // stored PdxInstance, the same nested resolution the one-shot QUERY path uses.
+        CqQuery cq = qs.newCq("itCqNested",
+                "SELECT * FROM /" + regionName + " r WHERE r.address.zip = '78701'", caf.create());
+        cq.execute();
+
+        // From a separate client: a non-matching nested PDX (zip 10001) then a matching one (zip 78701).
+        runPutMap(regionName, "nlow", 10001, "pdxnested");
+        runPutMap(regionName, "nhigh", 78701, "pdxnested");
+
+        assertTrue(matched.await(20, TimeUnit.SECONDS),
+                "the CqListener fired for the nested-PDX object matching the predicate");
+        assertEquals("nhigh", key.get(),
+                "the CQ fired only for the nested-field match (not the non-matching 'nlow')");
+    }
+
+    @Test
     void cqListenerFiresDestroyWhenMatchingEntryIsRemoved() throws Exception {
         String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
         cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);

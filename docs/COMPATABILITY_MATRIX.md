@@ -50,9 +50,10 @@ bulk ops:              getAll, putAll (partial-failure aware)
 region metadata:       size, keySet (cross-process, contention-free keyset)
 region ops:            invalidate, clear, destroyRegion
 atomic ops:            putIfAbsent, replace(k,v), replace(k,old,new), remove(k,v)
-OQL:                   SELECT (*|field|field,…) FROM /region [alias] [WHERE …] [ORDER BY …],
+OQL:                   SELECT (*|field|field,…) FROM /region [alias] [WHERE …] [ORDER BY …] [LIMIT n],
                        parameterized ($1..$N), struct projections + ORDER BY, paged results,
-                       field access over map values and PDX object fields
+                       field access over map values and PDX object fields, incl. nested object
+                       paths (r.address.zip) for maps + PDX (arrays not yet)
 transactions:          begin → put/get/remove → commit / rollback
 subscriptions:         register-interest + server→client events (CacheListener fires)
 continuous queries:    register + events (create/update/destroy, stops-matching), PDX-field
@@ -145,7 +146,7 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | `sizeOnServer` | Supported | Region document count. |
 | `keySetOnServer` | Supported | Returns region keys using Geode list/array length encoding. |
 | atomic ops | Supported | `putIfAbsent`, `replace(k,v)`, `replace(k,old,new)`, `remove(k,v)` — CAS-backed, Geode-accurate returns. |
-| OQL query | Supported | `SELECT`/`WHERE`/`ORDER BY`, parameterized, struct projections, paged; map + PDX field access. Unsupported shapes return a clean server error. |
+| OQL query | Supported | `SELECT`/`WHERE`/`ORDER BY`/`LIMIT`, parameterized, struct projections, paged; map + PDX field access incl. nested object paths (`r.address.zip`); array fields not yet. Optional N1QL pushdown (`OQL_PUSHDOWN`). Unsupported shapes return a clean server error. |
 | transactions | Supported | `begin → put/get/remove → commit`/`rollback` (commit returns a `TXCommitMessage`). |
 | register-interest / subscriptions | Supported | Server→client event feed; a `CacheListener` fires for create/update/destroy/invalidate. |
 | continuous queries | Supported | Register + events (create/update/destroy, stops-matching), PDX-field predicates, `executeWithInitialResults`. |

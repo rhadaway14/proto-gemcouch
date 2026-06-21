@@ -70,10 +70,16 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   updated. Risk: medium (changes the query path) — the critical path of 1.1.0.
 
 ### 1.1.0-M3 — Parity: PDX nested/object/array field querying · target 2026-08-22
-- [ ] Extend the shared PDX-aware field resolver so `WHERE` / projection / `ORDER BY` and CQ predicates
-  reach **object and array** PDX fields (path access, e.g. `order.address.zip`), lifting the documented
-  "scalars only" limit.
-- [ ] Real-client validation (query + CQ); update `COMPATABILITY_MATRIX.md`.
+- [x] **Nested object paths (`order.address.zip`) — DONE.** Field references are parsed into alias-aware
+  navigation paths; the shared resolver descends nested Geode maps by key and nested PDX objects by raw
+  bytes (`PdxReaderImpl.getRaw` + recurse with the shim's own `PdxTypeRegistry`). Works for `WHERE` /
+  projection / `ORDER BY` **and CQ** (shared resolver). Real-client validated: nested map query, nested
+  PDX query, nested-field CQ (`ProtoGemCouchQueryIntegrationTest`, `ProtoGemCouchCqIntegrationTest`) +
+  `OqlQueryTest` (path parse/nav). Nested predicates resolve in the matcher (not pushed down), so query
+  correctness is unchanged.
+- [ ] **Array PDX fields** (element/index access, `IN` containment) — the remaining M3 slice; lift the
+  "scalars + nested objects only" limit to arrays.
+- [ ] Update `COMPATABILITY_MATRIX.md` (nested done; arrays pending).
 - Swap option: if users lean HA over query-depth, substitute **multi-replica durable subscriptions**
   (Couchbase-backed durable queues that survive replica failover) for this milestone.
 
