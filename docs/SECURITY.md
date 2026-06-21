@@ -314,6 +314,41 @@ opaquely. PDX and the shim's native value encodings are unaffected (they do not 
 
 ---
 
+## OQL query / pushdown / index path (1.1.0)
+
+The optional N1QL **pushdown** (`OQL_PUSHDOWN`, default off) and the deeper **field querying** added in
+1.1.0 (nested-object paths, scalar arrays) introduce a query/index code path. It was security-reviewed:
+
+- **No N1QL injection.** The generated N1QL binds all client **literals** as query parameters
+  (`$prefix`, `$v…`, `$n…` — never string-concatenated). The only client-derived tokens interpolated into
+  the statement are **field names**, and those are rejected unless they match a strict identifier pattern
+  (`[A-Za-z_][A-Za-z0-9_]*`) — validated both when the OQL is parsed (`OqlQuery` path segments) and again
+  at the backend before interpolation (`CouchbaseRepository`, defense-in-depth). `LIMIT` is a parsed
+  integer. The query runs **read-only** (`QueryOptions.readonly(true)`) with `REQUEST_PLUS`, so it can
+  neither mutate data nor inject a side effect.
+- **PDX `pdxFields` sidecar is size-bounded.** When pushdown is on, write paths extract a PDX value's
+  scalar fields into a queryable `pdxFields` sidecar. It is added to the document **before** the
+  per-value size check (`CB_MAX_VALUE_BYTES`), so it cannot be used to bypass that limit or grow a
+  document unboundedly. The sidecar's keys are PDX field names (client data) stored as JSON keys — they
+  are never interpolated into N1QL, and a non-identifier field name simply isn't queryable. Extraction is
+  best-effort and exception-guarded (a malformed PDX leaves the document without a sidecar; it is still
+  filtered correctly via `pdxFields IS MISSING`).
+- **Nested-PDX navigation via reflection is contained.** Reading a nested PDX `OBJECT` field uses the
+  protected `PdxReaderImpl.getRaw` via reflection with a **hardcoded** method/class target (no
+  client-controlled reflection), fully wrapped in `try/catch(Throwable)` so any failure degrades to "field
+  absent" rather than an error. The shim installs no `SecurityManager`, and Geode is on the unnamed
+  module, so no `--add-opens` is required.
+- **Bounded recursion / iteration.** Nested-path resolution recurses **once per path segment**, and the
+  path length is bounded by the (frame-size-limited) query string — not by the data — so a cyclic or
+  deeply-nested PDX value cannot cause unbounded recursion. Array index access bounds-checks the list/array
+  (out-of-range → absent), and `IN` iterates a collection bounded by the (size-limited) stored value.
+
+Operators creating the secondary indexes pushdown uses should scope them per region
+(`WHERE META().id LIKE "region::%"`) and grant the shim's Couchbase user only the privileges it needs
+(KV + read-only Query); the shim never issues DDL itself.
+
+---
+
 ## Container hardening
 
 Current hardening includes:

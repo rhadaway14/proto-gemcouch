@@ -93,8 +93,13 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   locally) to widen the validated client support beyond 1.15.x.
 - [ ] Keyset-metadata (`SIZE`/`KEY_SET`/`PUT_ALL`) operating-envelope re-characterization at large
   keyspaces (the documented cold-path).
-- [ ] Full-surface soak re-run with pushdown enabled; security re-review of the new query/index path;
-  `CHANGELOG.md` `[1.1.0]`; cut `v1.1.0-rc1` → verify gates → cut `v1.1.0` GA + GitHub Release.
+- [x] **Full-surface soak re-run with pushdown enabled + security re-review of the new query/index path —
+  DONE.** Soak against an `OQL_PUSHDOWN=true` shim (queryable values + GSI, subscriptions on): 155k ops,
+  **0 shim request errors**, 8,277 pushdown queries / 0 fallbacks, 138k interest events, no connection
+  leak → `SOAK_VERDICT PASS` (`docs/SOAK_RESULTS.md`). Security review found no N1QL injection (params +
+  strict field-name validation), a size-bounded `pdxFields` sidecar, hardcoded+guarded `getRaw`
+  reflection, and query-string-bounded recursion (`docs/SECURITY.md`).
+- [ ] `CHANGELOG.md` `[1.1.0]`; cut `v1.1.0-rc1` → verify gates → cut `v1.1.0` GA + GitHub Release.
 
 ### Deferred to the 1.2.0 backlog
 Multi-replica durable subscriptions (if not chosen for M3); JTA `TX_SYNCHRONIZATION` (op 90, only if a
