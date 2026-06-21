@@ -249,6 +249,39 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
         assertEquals(2, r.size(), "both active maps returned despite non-matching non-map candidates");
     }
 
+    @Test
+    void pdxScalarFieldPushdownIsSelectiveAndCorrect() throws Exception {
+        // With the PDX scalar sidecar, a PDX-only region filters by field at the backend (not just
+        // sweeping all PDX docs in). Correctness is the contract here; selectivity is a perf property.
+        for (int i = 0; i < 6; i++) {
+            region.put("a" + i, pdxOrder("active", i));
+        }
+        for (int i = 0; i < 4; i++) {
+            region.put("c" + i, pdxOrder("closed", i));
+        }
+
+        assertEquals(6, query("SELECT * FROM /" + regionName + " WHERE status = 'active'").size(),
+                "PDX string-equality returns exactly the active orders");
+        assertEquals(2, query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'active' AND amount >= 4").size(),
+                "PDX string-eq AND numeric-range narrows correctly");
+    }
+
+    @Test
+    void pdxQueryOnAScalarFieldWorksEvenWhenInstanceHasAnObjectField() throws Exception {
+        // A PDX with a non-scalar (object) field: only scalar fields go in the sidecar, so the object
+        // field is absent there — the scalar predicate must still select correctly.
+        region.put("a", cache.createPdxInstanceFactory("demo.Rich")
+                .writeString("status", "active").writeInt("amount", 5)
+                .writeObject("meta", new HashMap<>(Map.of("k", "v"))).create());
+        region.put("b", cache.createPdxInstanceFactory("demo.Rich")
+                .writeString("status", "closed").writeInt("amount", 9)
+                .writeObject("meta", new HashMap<>(Map.of("k", "w"))).create());
+
+        assertEquals(1, query("SELECT * FROM /" + regionName + " WHERE status = 'active'").size(),
+                "scalar field still selects despite a non-scalar PDX field");
+    }
+
     private SelectResults<?> query(String oql) throws Exception {
         return (SelectResults<?>) cache.getQueryService().newQuery(oql).execute();
     }

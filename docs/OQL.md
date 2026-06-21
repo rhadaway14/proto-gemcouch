@@ -120,9 +120,10 @@ so the shim only fetches candidate documents. The design keeps results **identic
     number stored as a string is never dropped (the matcher re-filters it). Because OQL itself parses
     numeric fields with `Double.parseDouble`, a non-numeric scalar can never be a true numeric match.
 
-  Crucially it also OR-s in **every non-map document** (`type NOT IN ["stringObjectHashMap","stringHashMap"]`)
-  — PDX/serialized/scalar values whose fields N1QL cannot read are always kept as candidates and filtered
-  by the shim, so a true PDX match is never dropped.
+  **PDX** documents are filtered on a queryable scalar **sidecar** (see below): a PDX doc matches when
+  its `pdxFields.<f>` satisfy the predicate, *or* it has no sidecar (so un-enriched PDX docs are still
+  candidates). Every **other** opaque document (Java-serialized, scalar, array) whose fields N1QL cannot
+  read is OR-ed in unconditionally and filtered by the shim, so a true match is never dropped.
 - **Read-your-writes.** The query runs with **`REQUEST_PLUS`** scan consistency, matching the KV scan
   path; without it N1QL's default (`not_bounded`) could miss a just-written document.
 - **Graceful fallback.** Any backend problem (no usable index, query service down, error) returns
@@ -150,16 +151,29 @@ falls back to the in-shim scan) — still correct, just not faster. The dev/test
 `#primary` index (see `scripts/init-couchbase.sh`) purely so the pushdown path executes there;
 production should prefer targeted GSIs and avoid a primary index.
 
-**Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), and `LIMIT` (no
-`ORDER BY`) are pushed; numeric `<>`/`!=`, string ranges, `OR`, `LIMIT`-without-`WHERE`, and PDX-field
-predicates still scan (later M2/M3 work — note a PDX region's numeric/string predicate is still *correct*
-via the superset, just not selective).
+**PDX field pushdown (scalar sidecar).** A stored PDX instance is opaque binary (`valueBase64`), so its
+fields aren't directly queryable. When pushdown is enabled, the shim therefore writes a small **`pdxFields`
+sidecar** of the instance's scalar fields next to the opaque bytes at write time (extracted via the same
+`PdxType` registry the matcher uses; numbers as numbers, String/Char/Date by string form). N1QL then
+filters PDX docs on `pdxFields.<field>` — so a PDX-heavy region gets the same selectivity as a map region,
+instead of every PDX doc being swept in and re-filtered. Notes:
+- The opaque bytes are untouched, so value round-trips are unaffected; only scalar fields go in the
+  sidecar (OBJECT/array PDX fields are not queryable, exactly as in the scan path).
+- A PDX doc **written before pushdown was enabled** has no sidecar; it stays *correct* (kept as a
+  candidate via `pdxFields IS MISSING` and re-filtered by the shim) but isn't selective until rewritten.
+- Index the sidecar path for speed, e.g.
+  `CREATE INDEX idx_orders_pdx_status ON \`your-bucket\`(TO_STRING(\`pdxFields\`.\`status\`)) WHERE META().id LIKE "orders::%";`
+
+**Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), `LIMIT` (no
+`ORDER BY`), and **PDX scalar fields** (via the sidecar) are pushed; numeric `<>`/`!=`, string ranges,
+`OR`, and `LIMIT`-without-`WHERE` still scan (later M2 work).
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
-fallback, PDX superset incl. numeric range, mixed region, projection, and `LIMIT` — pushed cap,
-`LIMIT` > match count, scan-path `LIMIT`, `ORDER BY` top-N, and the non-map refetch guard) plus
-`OqlQueryPushdownTest` (eligibility) and `OqlQueryTest` (`LIMIT` parsing).
+fallback, mixed region, projection; `LIMIT` — pushed cap, `LIMIT` > match count, scan-path `LIMIT`,
+`ORDER BY` top-N, non-map refetch guard; and **PDX** — selective scalar-field equality/range and a PDX
+instance carrying a non-scalar field) plus `OqlQueryPushdownTest` (eligibility), `OqlQueryTest`
+(`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 

@@ -50,6 +50,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 public class CouchbaseRepository implements Repository {
@@ -63,6 +64,7 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_EPOCH_MILLIS = "epochMillis";
     private static final String FIELD_OPAQUE_GEODE_TYPE_NAME = "opaqueGeodeTypeName";
     private static final String FIELD_KEYS = "keys";
+    private static final String FIELD_PDX_FIELDS = "pdxFields";
     private static final String KEYSET_META_PREFIX = "__protogemcouch::keyset::";
 
     /** Bounded retries for compare-and-swap atomic operations under concurrent contention. */
@@ -113,6 +115,10 @@ public class CouchbaseRepository implements Repository {
     private Bucket bucket;
     private Scope scope;
     private Collection collection;
+
+    // Optional PDX scalar-field extractor (installed when OQL pushdown is enabled): turns a PDX
+    // instance's wire bytes into its scalar fields, written as a queryable `pdxFields` sidecar.
+    private volatile Function<byte[], Map<String, Object>> pdxScalarExtractor;
 
     // Entry time-to-live config (Couchbase document expiry): default + per-region overrides + idle
     // (entry-idle-time) vs ttl (entry-time-to-live) mode. Drives write expiry, idle get-and-touch,
@@ -344,8 +350,14 @@ public class CouchbaseRepository implements Repository {
      * before any backend write when the encoded document would exceed the limit — so an oversized
      * value never reaches Couchbase and never updates the region's keyset.
      */
+    @Override
+    public void setPdxScalarExtractor(Function<byte[], Map<String, Object>> extractor) {
+        this.pdxScalarExtractor = extractor;
+    }
+
     private JsonObject encodeValueChecked(StoredValue value) {
         JsonObject body = encodeStoredValue(value);
+        addPdxQueryableSidecar(body, value);
         if (maxValueBytes > 0) {
             long size = body.toString().getBytes(StandardCharsets.UTF_8).length;
             if (size > maxValueBytes) {
@@ -353,6 +365,60 @@ public class CouchbaseRepository implements Repository {
             }
         }
         return body;
+    }
+
+    /**
+     * For a PDX value, when a scalar-field extractor is installed (pushdown enabled), add a queryable
+     * {@code pdxFields} sidecar of bare scalars next to the opaque PDX bytes, so N1QL can filter PDX
+     * documents by field. Best-effort: a missing/empty extraction leaves no sidecar (the document is then
+     * filtered the slow, correct way). The opaque {@code valueBase64} is untouched, so reads are exact.
+     */
+    private void addPdxQueryableSidecar(JsonObject body, StoredValue value) {
+        Function<byte[], Map<String, Object>> extractor = pdxScalarExtractor;
+        if (extractor == null || value == null || value.type() != StoredValue.Type.PDX_INSTANCE) {
+            return;
+        }
+        Map<String, Object> scalars = extractor.apply(value.asPdxInstanceValue());
+        if (scalars == null || scalars.isEmpty()) {
+            return;
+        }
+        JsonObject sidecar = JsonObject.create();
+        for (Map.Entry<String, Object> entry : scalars.entrySet()) {
+            Object jsonScalar = pdxSidecarScalar(entry.getValue());
+            if (entry.getKey() != null && jsonScalar != null) {
+                sidecar.put(entry.getKey(), jsonScalar);
+            }
+        }
+        if (!sidecar.isEmpty()) {
+            body.put(FIELD_PDX_FIELDS, sidecar);
+        }
+    }
+
+    /**
+     * Convert a PDX scalar to a JSON-storable form for the sidecar, chosen so the N1QL predicate's
+     * {@code TO_STRING}/{@code TO_NUMBER} comparisons stay a superset of the in-shim matcher's
+     * {@code String.valueOf}/numeric comparisons: numbers as numbers, boolean as boolean, and
+     * String/Character/Date by their string form.
+     */
+    private static Object pdxSidecarScalar(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer || value instanceof Long
+                || value instanceof Short || value instanceof Byte) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof Float || value instanceof Double) {
+            return ((Number) value).doubleValue();
+        }
+        if (value instanceof Boolean) {
+            return value;
+        }
+        if (value instanceof String) {
+            return value;
+        }
+        // Character, Date, and any other readable scalar: compare by string form (matches the matcher).
+        return String.valueOf(value);
     }
 
     /** The region embedded in a value docId ({@code region::key}), or null if unparseable. */
@@ -1027,47 +1093,51 @@ public class CouchbaseRepository implements Repository {
         JsonObject params = JsonObject.create();
         params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
 
-        StringBuilder fieldPreds = new StringBuilder();
+        // Two parallel predicate sets sharing the same bound params: one over the map paths
+        // (object-map `value.f.value` + string-map `value.f`), one over the PDX scalar sidecar
+        // (`pdxFields.f`). A map doc matches the first; a PDX doc matches the second (or has no sidecar);
+        // every other opaque doc is swept in unconditionally and re-filtered by the shim.
+        StringBuilder mapPreds = new StringBuilder();
+        StringBuilder pdxPreds = new StringBuilder();
         for (int i = 0; i < predicates.size(); i++) {
             OqlQuery.FieldPredicate predicate = predicates.get(i);
             String field = predicate.field();
             if (field == null || !SAFE_FIELD.matcher(field).matches()) {
                 return Optional.empty(); // defense-in-depth: never interpolate an unvalidated identifier
             }
-            String envelopePath = "c.`value`.`" + field + "`.`value`";
-            String barePath = "c.`value`.`" + field + "`";
-            if (fieldPreds.length() > 0) {
-                fieldPreds.append(" AND ");
+            String envelopePath = "c.`value`.`" + field + "`.`value`"; // object-map scalar
+            String barePath = "c.`value`.`" + field + "`";             // string-map scalar
+            String pdxPath = "c.`pdxFields`.`" + field + "`";          // PDX sidecar scalar
+            if (mapPreds.length() > 0) {
+                mapPreds.append(" AND ");
+                pdxPreds.append(" AND ");
             }
             if (predicate.numeric()) {
                 String nParam = "n" + i;
                 params.put(nParam, predicate.number());
                 String op = predicate.op().symbol();
-                // TO_NUMBER(<scalar>) <op> $n on each path, plus a string-typed escape so a numeric value
-                // stored as a string is never dropped (the matcher re-filters it).
-                fieldPreds.append("(TO_NUMBER(").append(envelopePath).append(") ").append(op).append(" $").append(nParam)
-                        .append(" OR TYPE(").append(envelopePath).append(") = \"string\"")
-                        .append(" OR TO_NUMBER(").append(barePath).append(") ").append(op).append(" $").append(nParam)
-                        .append(" OR TYPE(").append(barePath).append(") = \"string\")");
+                mapPreds.append(numericFragment(op, nParam, envelopePath, barePath));
+                pdxPreds.append(numericFragment(op, nParam, pdxPath));
             } else {
                 String vParam = "v" + i;
                 params.put(vParam, predicate.text());
-                fieldPreds.append("(TO_STRING(").append(envelopePath).append(") = $").append(vParam)
-                        .append(" OR TO_STRING(").append(barePath).append(") = $").append(vParam);
                 Double numeric = parseNumericOrNull(predicate.text());
+                String nParam = null;
                 if (numeric != null) {
-                    String nParam = "n" + i;
+                    nParam = "n" + i;
                     params.put(nParam, numeric);
-                    fieldPreds.append(" OR ").append(envelopePath).append(" = $").append(nParam)
-                            .append(" OR ").append(barePath).append(" = $").append(nParam);
                 }
-                fieldPreds.append(")");
+                mapPreds.append(stringFragment(vParam, nParam, envelopePath, barePath));
+                pdxPreds.append(stringFragment(vParam, nParam, pdxPath));
             }
         }
 
-        String where = "META(c).id LIKE $prefix AND ( (" + fieldPreds
-                + ") OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
-                + TYPE_STRING_HASH_MAP + "\"] )";
+        String where = "META(c).id LIKE $prefix AND ("
+                + " (" + mapPreds + ")"
+                + " OR (c.`type` = \"" + TYPE_PDX_INSTANCE + "\" AND ((" + pdxPreds
+                + ") OR c.`pdxFields` IS MISSING))"
+                + " OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
+                + TYPE_STRING_HASH_MAP + "\", \"" + TYPE_PDX_INSTANCE + "\"] )";
 
         String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
                 + "`.`" + collection.name() + "`";
@@ -1105,6 +1175,43 @@ public class CouchbaseRepository implements Repository {
                     "predicates", predicates.size(), "error", e.getMessage()));
             return Optional.empty();
         }
+    }
+
+    /**
+     * Numeric-comparison fragment over one or more candidate scalar paths (OR-ed): {@code TO_NUMBER(p)
+     * <op> $n} per path, each with a {@code TYPE(p) = "string"} escape so a number stored as a string is
+     * kept as a candidate (the matcher re-filters). A non-numeric scalar can never be a true numeric
+     * match (OQL parses numeric fields with {@code Double.parseDouble} too), so this is a superset.
+     */
+    private static String numericFragment(String op, String nParam, String... paths) {
+        StringBuilder fragment = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) {
+                fragment.append(" OR ");
+            }
+            fragment.append("TO_NUMBER(").append(paths[i]).append(") ").append(op).append(" $").append(nParam)
+                    .append(" OR TYPE(").append(paths[i]).append(") = \"string\"");
+        }
+        return fragment.append(")").toString();
+    }
+
+    /**
+     * String-equality fragment over one or more candidate scalar paths (OR-ed): {@code TO_STRING(p) = $v}
+     * per path (matches regardless of the scalar's JSON type), plus an optional numeric branch when the
+     * literal looks numeric (covers whole-number doubles where TO_STRING and String.valueOf differ).
+     */
+    private static String stringFragment(String vParam, String nParam, String... paths) {
+        StringBuilder fragment = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) {
+                fragment.append(" OR ");
+            }
+            fragment.append("TO_STRING(").append(paths[i]).append(") = $").append(vParam);
+            if (nParam != null) {
+                fragment.append(" OR ").append(paths[i]).append(" = $").append(nParam);
+            }
+        }
+        return fragment.append(")").toString();
     }
 
     /** Parse a literal's numeric value, or null when it is not numeric. */
