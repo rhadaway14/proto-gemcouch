@@ -7,6 +7,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL query pushdown via N1QL (1.1.0-M2, slice 1)** — behind the opt-in **`OQL_PUSHDOWN`** flag
+  (default off), an OQL query whose `WHERE` is a single `AND` of string-equality conditions now
+  pre-filters at Couchbase via N1QL instead of the shim scanning the whole region. The N1QL predicate
+  is a region-scoped **superset** (covers both JSON map encodings and keeps all non-map/PDX documents)
+  run with `REQUEST_PLUS` consistency; the shim's existing PDX-aware matcher/projection/sort run
+  unchanged on the candidates, so results are **identical to the scan**, and anything ineligible (`OR`,
+  ranges, numeric/boolean literals, …) or any backend error falls back to the scan. Production creates
+  targeted GSIs (documented in `docs/OQL.md`); the dev/test cluster gets a `#primary` index so the path
+  executes. Validated against a real Geode client (`ProtoGemCouchQueryPushdownIntegrationTest`) and
+  `OqlQueryPushdownTest`. Addresses the ~474 ms full-scan queries measured in the 1.0.0 soak.
 - **Diversified Grafana visualization types across all four dashboards** — every dashboard now pairs
   its time series with non-time-series panels chosen to fit each signal: the Observability dashboard
   gains a request-rate **bar gauge**, a traffic-share **pie chart**, an error-ratio **gauge**, a

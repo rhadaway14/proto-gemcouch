@@ -1,10 +1,12 @@
 package com.protogemcouch.couchbase;
 
+import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.DocumentKeyUtil;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public interface Repository {
 
@@ -148,4 +150,20 @@ public interface Repository {
     int size(String region);
 
     List<String> keySet(String region);
+
+    /**
+     * Optional OQL query pushdown: when the backend can pre-filter, return the candidate values of
+     * {@code region} that may satisfy the given string-equality conditions (AND-combined), so the caller
+     * filters a small candidate set instead of scanning the whole region.
+     *
+     * <p>The returned list is a <strong>superset</strong> of the true matches — the caller's own OQL
+     * matcher remains authoritative and re-filters it — so pushdown can only change performance, never
+     * results. Returns {@link Optional#empty()} when pushdown is unavailable (backend has no support,
+     * no usable index, or any error), in which case the caller falls back to a full-region scan. The
+     * default is "no pushdown".
+     */
+    default Optional<List<StoredValue>> queryPushdownByStringEquality(
+            String region, List<OqlQuery.FieldStringEquality> conditions) {
+        return Optional.empty();
+    }
 }

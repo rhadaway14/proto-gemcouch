@@ -23,9 +23,11 @@ import com.couchbase.client.java.kv.StoreSemantics;
 import com.couchbase.client.java.kv.UpsertOptions;
 import com.couchbase.client.java.query.QueryOptions;
 import com.couchbase.client.java.query.QueryResult;
+import com.couchbase.client.java.query.QueryScanConsistency;
 import com.couchbase.client.java.transactions.TransactionGetResult;
 import com.protogemcouch.config.ServerConfig;
 import com.protogemcouch.observability.StructuredLog;
+import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.DocumentKeyUtil;
 import org.slf4j.Logger;
@@ -43,10 +45,12 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public class CouchbaseRepository implements Repository {
 
@@ -985,6 +989,115 @@ public class CouchbaseRepository implements Repository {
                     "error", e.getMessage()
             ), e);
             throw new RepositoryException("keySet failed for region=" + region, e);
+        }
+    }
+
+    /** A simple field name safe to embed as an N1QL identifier (matches the parser's field grammar). */
+    private static final Pattern SAFE_FIELD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+    /**
+     * OQL pushdown via N1QL. Builds a region-scoped query ({@code META().id LIKE "region::%"}) whose
+     * WHERE is a deliberately <em>loose superset</em> of the equality conditions, so it can only narrow
+     * the candidate set, never drop a true match (the caller's matcher re-filters authoritatively):
+     *
+     * <ul>
+     *   <li>each condition compares the field's stored scalar by its string form
+     *       ({@code TO_STRING(...) = $v}) under both the object-map envelope path
+     *       ({@code value.<f>.value}) and the bare string-map path ({@code value.<f>}), so it matches
+     *       however the value was stored and regardless of the scalar's JSON type;</li>
+     *   <li>when the literal is numeric, a numeric-equality branch is OR-ed in as well, covering
+     *       whole-number doubles where {@code TO_STRING} and Java's {@code String.valueOf} differ.</li>
+     * </ul>
+     *
+     * <p>Returns {@link Optional#empty()} on any problem (no index, query error, bad field) so the
+     * caller falls back to the full-region scan — pushdown is a pure performance optimization.
+     */
+    @Override
+    public Optional<List<StoredValue>> queryPushdownByStringEquality(
+            String region, List<OqlQuery.FieldStringEquality> conditions) {
+        if (conditions == null || conditions.isEmpty()) {
+            return Optional.empty();
+        }
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        // Field predicates only see map-typed documents (where fields live under `value`). A region can
+        // also hold PDX / serialized / scalar values whose fields N1QL cannot introspect; those are
+        // OR-ed in unconditionally below so they are never dropped — the shim's (PDX-aware) matcher
+        // re-filters every candidate, so the candidate set only has to be a superset of the true matches.
+        StringBuilder fieldPreds = new StringBuilder();
+        for (int i = 0; i < conditions.size(); i++) {
+            OqlQuery.FieldStringEquality condition = conditions.get(i);
+            String field = condition.field();
+            if (field == null || !SAFE_FIELD.matcher(field).matches()) {
+                return Optional.empty(); // defense-in-depth: never interpolate an unvalidated identifier
+            }
+            String vParam = "v" + i;
+            params.put(vParam, condition.value());
+            String envelopePath = "c.`value`.`" + field + "`.`value`";
+            String barePath = "c.`value`.`" + field + "`";
+            if (fieldPreds.length() > 0) {
+                fieldPreds.append(" AND ");
+            }
+            fieldPreds.append("(TO_STRING(").append(envelopePath).append(") = $").append(vParam)
+                    .append(" OR TO_STRING(").append(barePath).append(") = $").append(vParam);
+            Double numeric = parseNumericOrNull(condition.value());
+            if (numeric != null) {
+                String nParam = "n" + i;
+                params.put(nParam, numeric);
+                fieldPreds.append(" OR ").append(envelopePath).append(" = $").append(nParam)
+                        .append(" OR ").append(barePath).append(" = $").append(nParam);
+            }
+            fieldPreds.append(")");
+        }
+
+        String where = "META(c).id LIKE $prefix AND ( (" + fieldPreds
+                + ") OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
+                + TYPE_STRING_HASH_MAP + "\"] )";
+
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+
+        try {
+            // REQUEST_PLUS so the query observes every mutation up to now — matching the KV scan path's
+            // read-your-writes behavior. Without it N1QL defaults to not_bounded and a query right after
+            // a write can miss it, which would make pushdown drop true matches (a correctness change).
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .parameters(params)
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            List<JsonObject> rows = result.rowsAs(JsonObject.class);
+            List<StoredValue> candidates = new ArrayList<>(rows.size());
+            for (JsonObject row : rows) {
+                StoredValue value = decodeStoredValue(row);
+                if (value != null) {
+                    candidates.add(value);
+                }
+            }
+            log.info(StructuredLog.event(
+                    "repository_query_pushdown_ok", "region", region,
+                    "conditions", conditions.size(), "candidates", candidates.size()));
+            return Optional.of(candidates);
+        } catch (Exception e) {
+            // No usable index, query service down, or any other issue: fall back to the scan.
+            log.warn(StructuredLog.event(
+                    "repository_query_pushdown_unavailable", "region", region,
+                    "conditions", conditions.size(), "error", e.getMessage()));
+            return Optional.empty();
+        }
+    }
+
+    /** Parse a literal's numeric value, or null when it is not numeric. */
+    private static Double parseNumericOrNull(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(text.trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

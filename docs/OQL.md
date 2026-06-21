@@ -84,6 +84,58 @@ responses page the same way** (each chunk repeats its CollectionType/StructType 
 ordered/struct) and validated end-to-end by `largeResultSetIsStreamedAcrossChunksAndFullyAssembled`
 and `largeOrderedAndStructResultsArePagedAndAssembledInOrder`.
 
+## Query pushdown (N1QL) — opt-in, `OQL_PUSHDOWN`
+
+By default every OQL query is a **full-region scan**: the shim loads all of the region's values and
+filters them in memory (`QueryHandler` → `repository.keySet` + `getAll` → `OqlQuery.matches`). That is
+correct but O(region size) regardless of how selective the `WHERE` is (the full-surface soak measured
+~474 ms full-scan queries — the biggest performance item in 1.1.0).
+
+With **`OQL_PUSHDOWN=true`** (default off), eligible queries instead pre-filter at Couchbase via N1QL,
+so the shim only fetches candidate documents. The design keeps results **identical to the scan**:
+
+- **Eligibility (conservative).** Pushdown applies only when the `WHERE` is a single `AND`-group of
+  **string-equality** conditions on simple top-level fields (`field = '…'`). Anything else — `OR`,
+  ranges, `<>`/`!=`, numeric/boolean/null literals, dotted/nested fields, or no `WHERE` — is **not**
+  pushed and runs the normal scan. (`OqlQuery.pushdownStringEqualities()`.) Projection and `ORDER BY`
+  never block pushdown; they are applied in-shim to the candidates exactly as before.
+- **The matcher stays authoritative.** N1QL only chooses *candidate* documents; the shim re-applies
+  `OqlQuery.matches` (the same PDX-aware resolver as the scan), then projects/sorts/pages as usual. So
+  the candidate set only has to be a **superset** of the true matches.
+- **Superset, by construction.** The generated predicate (`CouchbaseRepository.queryPushdownByStringEquality`)
+  is region-scoped (`META().id LIKE "region::%"`) and, per condition, compares the field's stored
+  scalar by its string form under both JSON encodings (object-map `value.<f>.value` and string-map
+  `value.<f>`), with a numeric branch OR-ed in for numeric literals. Crucially it also OR-s in **every
+  non-map document** (`type NOT IN ["stringObjectHashMap","stringHashMap"]`) — PDX/serialized/scalar
+  values whose fields N1QL cannot read are always kept as candidates and filtered by the shim, so a
+  true PDX match is never dropped.
+- **Read-your-writes.** The query runs with **`REQUEST_PLUS`** scan consistency, matching the KV scan
+  path; without it N1QL's default (`not_bounded`) could miss a just-written document.
+- **Graceful fallback.** Any backend problem (no usable index, query service down, error) returns
+  "no pushdown" and the handler scans — pushdown can only change performance, never correctness. The
+  `handler_query_ok` log carries `pushdown=true|false`; `repository_query_pushdown_ok` reports the
+  candidate count.
+
+**Operator step — secondary index (recommended).** Pushdown executes N1QL, which needs an index. The
+shim does **not** create indexes. For each region/field you query, create a targeted GSI, e.g.:
+
+```sql
+CREATE INDEX idx_orders_status
+  ON `your-bucket`(TO_STRING(`value`.`status`.`value`))
+  WHERE META().id LIKE "orders::%";
+```
+
+Without a matching index N1QL falls back to a primary-index scan (or, with no primary index, the shim
+falls back to the in-shim scan) — still correct, just not faster. The dev/test cluster creates a
+`#primary` index (see `scripts/init-couchbase.sh`) purely so the pushdown path executes there;
+production should prefer targeted GSIs and avoid a primary index.
+
+**Caveats (current slice).** Only string-equality is pushed (numeric/range/`OR`/PDX-field predicates
+still scan — later M2/M3 work). Pushdown reads via the Query service do **not** refresh entry-idle TTL
+(the KV scan path does, via get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are
+enabled. Validated by `ProtoGemCouchQueryPushdownIntegrationTest` (string-equality, AND, range/`OR`
+fallback, PDX superset, mixed region, projection) and `OqlQueryPushdownTest` (eligibility).
+
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 
 ### Request — easy
