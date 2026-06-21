@@ -153,8 +153,8 @@ public interface Repository {
 
     /**
      * Optional OQL query pushdown: when the backend can pre-filter, return the candidate values of
-     * {@code region} that may satisfy the given string-equality conditions (AND-combined), so the caller
-     * filters a small candidate set instead of scanning the whole region.
+     * {@code region} that may satisfy the given scalar predicates (AND-combined — string equality and/or
+     * numeric comparison), so the caller filters a small candidate set instead of scanning the region.
      *
      * <p>The returned list is a <strong>superset</strong> of the true matches — the caller's own OQL
      * matcher remains authoritative and re-filters it — so pushdown can only change performance, never
@@ -162,8 +162,8 @@ public interface Repository {
      * no usable index, or any error), in which case the caller falls back to a full-region scan. The
      * default is "no pushdown".
      */
-    default Optional<List<StoredValue>> queryPushdownByStringEquality(
-            String region, List<OqlQuery.FieldStringEquality> conditions) {
+    default Optional<List<StoredValue>> queryPushdownByPredicates(
+            String region, List<OqlQuery.FieldPredicate> predicates) {
         return Optional.empty();
     }
 }

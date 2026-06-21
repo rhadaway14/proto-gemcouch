@@ -95,14 +95,50 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
     }
 
     @Test
-    void ineligibleRangeQueryFallsBackToScanAndIsCorrect() throws Exception {
-        // A range predicate is not pushdown-eligible; the handler must fall back to the scan and still
-        // return the correct rows even with the flag on.
+    void numericEqualityPushdownReturnsExactMatches() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("c", new HashMap<>(Map.of("status", "active", "amount", 10)));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE amount = 100");
+        assertEquals(2, r.size(), "numeric equality matches both amount=100 rows");
+    }
+
+    @Test
+    void numericRangePushdownReturnsCorrectRows() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "active", "amount", 60)));
+        region.put("c", new HashMap<>(Map.of("status", "active", "amount", 10)));
+
+        assertEquals(2, query("SELECT * FROM /" + regionName + " WHERE amount > 50").size(),
+                "> 50 matches 100 and 60");
+        assertEquals(1, query("SELECT * FROM /" + regionName + " WHERE amount < 50").size(),
+                "< 50 matches only 10");
+        assertEquals(2, query("SELECT * FROM /" + regionName + " WHERE amount >= 60").size(),
+                ">= 60 matches 100 and 60");
+    }
+
+    @Test
+    void mixedStringEqualityAndNumericRangeNarrowsCorrectly() throws Exception {
         region.put("a", new HashMap<>(Map.of("status", "active", "amount", 100)));
         region.put("b", new HashMap<>(Map.of("status", "active", "amount", 10)));
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 100)));
 
-        SelectResults<?> big = query("SELECT * FROM /" + regionName + " WHERE amount > 50");
-        assertEquals(1, big.size(), "range query (scan fallback) returns the correct row");
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'active' AND amount > 50");
+        assertEquals(1, r.size(), "string-equality AND numeric-range narrows to the single row");
+    }
+
+    @Test
+    void numericRangeOnPdxValuesStaysCorrect() throws Exception {
+        // PDX fields are outside the map `value` path, so the candidate set includes all PDX docs and
+        // the PDX-aware matcher applies the numeric range — a true PDX match must not be dropped.
+        region.put("a", pdxOrder("active", 100));
+        region.put("b", pdxOrder("active", 60));
+        region.put("c", pdxOrder("active", 10));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE amount > 50");
+        assertEquals(2, r.size(), "numeric range on PDX values (superset + re-filter)");
     }
 
     @Test

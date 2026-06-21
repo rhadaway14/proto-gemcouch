@@ -82,10 +82,10 @@ public class QueryHandler implements OperationHandler {
         boolean pushdownUsed = false;
         Collection<StoredValue> candidates = null;
         if (pushdownEnabled) {
-            Optional<List<OqlQuery.FieldStringEquality>> equalities = query.pushdownStringEqualities();
-            if (equalities.isPresent()) {
+            Optional<List<OqlQuery.FieldPredicate>> predicates = query.pushdownPredicates();
+            if (predicates.isPresent()) {
                 Optional<List<StoredValue>> pushed =
-                        repository.queryPushdownByStringEquality(region, equalities.get());
+                        repository.queryPushdownByPredicates(region, predicates.get());
                 if (pushed.isPresent()) {
                     candidates = pushed.get();
                     pushdownUsed = true;

@@ -7,6 +7,13 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL pushdown — numeric equality & range predicates (1.1.0-M2, slice 2)** — `OQL_PUSHDOWN` now also
+  pushes numeric comparisons (`field = <num>` and `< <= > >=` a numeric literal), AND-combinable with
+  string equality, in addition to string equality. Translated as `TO_NUMBER(<scalar>) <op> $n` with a
+  `TYPE(...) = "string"` superset escape so a number stored as a string is never dropped (the shim's
+  matcher re-filters, keeping results identical to the scan). Numeric `<>`/`!=`, string ranges, `OR`, and
+  PDX-field predicates still scan. Real-client validated for numeric equality, ranges, mixed `status =
+  '…' AND amount > N`, and numeric ranges over PDX values (`ProtoGemCouchQueryPushdownIntegrationTest`).
 - **OQL query pushdown via N1QL (1.1.0-M2, slice 1)** — behind the opt-in **`OQL_PUSHDOWN`** flag
   (default off), an OQL query whose `WHERE` is a single `AND` of string-equality conditions now
   pre-filters at Couchbase via N1QL instead of the shim scanning the whole region. The N1QL predicate
