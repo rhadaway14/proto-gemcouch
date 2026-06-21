@@ -79,32 +79,49 @@ public class QueryHandler implements OperationHandler {
 
         // Candidate source: pushed-down (backend pre-filtered) when eligible, else the full-region scan.
         // Either way the candidates are a superset; query.matches() below is authoritative.
+        int limit = query.limit();
+        // LIMIT may be pushed to the backend only when there is no ORDER BY (a sorted top-N needs the
+        // full matched set first). The loose-predicate case is then guarded by a refetch below.
+        boolean limitPushed = query.hasLimit() && limit > 0 && !query.hasOrderBy();
+
         boolean pushdownUsed = false;
         Collection<StoredValue> candidates = null;
-        if (pushdownEnabled) {
-            Optional<List<OqlQuery.FieldPredicate>> predicates = query.pushdownPredicates();
-            if (predicates.isPresent()) {
-                Optional<List<StoredValue>> pushed =
-                        repository.queryPushdownByPredicates(region, predicates.get());
-                if (pushed.isPresent()) {
-                    candidates = pushed.get();
-                    pushdownUsed = true;
-                }
+        Optional<List<OqlQuery.FieldPredicate>> predicates =
+                pushdownEnabled ? query.pushdownPredicates() : Optional.empty();
+        if (predicates.isPresent()) {
+            Optional<List<StoredValue>> pushed = repository.queryPushdownByPredicates(
+                    region, predicates.get(), limitPushed ? limit : 0);
+            if (pushed.isPresent()) {
+                candidates = pushed.get();
+                pushdownUsed = true;
             }
         }
         if (candidates == null) {
-            List<String> keys = repository.keySet(region);
-            candidates = repository.getAll(region, keys).values();
+            candidates = repository.getAll(region, repository.keySet(region)).values();
         }
 
-        // Filter, then ORDER BY (on the source values), then project.
-        List<StoredValue> matched = new ArrayList<>();
-        for (StoredValue value : candidates) {
-            if (value != null && query.matches(value, fieldResolver)) {
-                matched.add(value);
+        List<StoredValue> matched = matchesOf(candidates, query);
+
+        // LIMIT-pushdown correctness guard: if the backend capped the page (returned a full `limit`
+        // candidates) but the matcher rejected some, true matches beyond the cap may have been dropped —
+        // refetch the full candidate set (unbounded pushdown, else scan) so we never under-return.
+        if (limitPushed && pushdownUsed && matched.size() < limit && candidates.size() >= limit) {
+            Optional<List<StoredValue>> refetched =
+                    repository.queryPushdownByPredicates(region, predicates.get(), 0);
+            if (refetched.isPresent()) {
+                candidates = refetched.get();
+            } else {
+                candidates = repository.getAll(region, repository.keySet(region)).values();
+                pushdownUsed = false;
             }
+            matched = matchesOf(candidates, query);
         }
+
+        // ORDER BY (on the source values), then apply LIMIT to the result rows.
         query.sort(matched, fieldResolver);
+        if (query.hasLimit() && matched.size() > limit) {
+            matched = new ArrayList<>(matched.subList(0, limit));
+        }
 
         int fieldCount = query.projectionFieldCount();
         int rowCount = matched.size();
@@ -130,8 +147,19 @@ public class QueryHandler implements OperationHandler {
 
         log.info(StructuredLog.event(
                 "handler_query_ok", "query", oql, "region", region, "rows", rowCount,
-                "pushdown", pushdownUsed, "txId", txId));
+                "pushdown", pushdownUsed, "limit", query.hasLimit() ? limit : -1, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /** Authoritatively filter a candidate set to the values that satisfy the query's WHERE clause. */
+    private List<StoredValue> matchesOf(Collection<StoredValue> candidates, OqlQuery query) {
+        List<StoredValue> matched = new ArrayList<>();
+        for (StoredValue value : candidates) {
+            if (value != null && query.matches(value, fieldResolver)) {
+                matched.add(value);
+            }
+        }
+        return matched;
     }
 
     /**

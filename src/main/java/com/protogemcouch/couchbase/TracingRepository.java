@@ -141,8 +141,8 @@ public class TracingRepository implements Repository {
 
     @Override
     public java.util.Optional<List<StoredValue>> queryPushdownByPredicates(
-            String region, List<com.protogemcouch.query.OqlQuery.FieldPredicate> predicates) {
+            String region, List<com.protogemcouch.query.OqlQuery.FieldPredicate> predicates, int limit) {
         return traced("queryPushdown", "region", region,
-                () -> delegate.queryPushdownByPredicates(region, predicates));
+                () -> delegate.queryPushdownByPredicates(region, predicates, limit));
     }
 }

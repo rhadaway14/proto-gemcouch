@@ -158,12 +158,14 @@ public interface Repository {
      *
      * <p>The returned list is a <strong>superset</strong> of the true matches — the caller's own OQL
      * matcher remains authoritative and re-filters it — so pushdown can only change performance, never
-     * results. Returns {@link Optional#empty()} when pushdown is unavailable (backend has no support,
-     * no usable index, or any error), in which case the caller falls back to a full-region scan. The
-     * default is "no pushdown".
+     * results. {@code limit > 0} caps the candidate rows at the backend (the caller only does this when
+     * it is safe — no {@code ORDER BY} — and guards the loose-predicate case by refetching unbounded if
+     * the capped page does not yield enough matches); {@code limit <= 0} means unbounded. Returns
+     * {@link Optional#empty()} when pushdown is unavailable (backend has no support, no usable index, or
+     * any error), in which case the caller falls back to a full-region scan. The default is "no pushdown".
      */
     default Optional<List<StoredValue>> queryPushdownByPredicates(
-            String region, List<OqlQuery.FieldPredicate> predicates) {
+            String region, List<OqlQuery.FieldPredicate> predicates, int limit) {
         return Optional.empty();
     }
 }

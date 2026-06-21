@@ -33,6 +33,36 @@ class OqlQueryTest {
     }
 
     @Test
+    void parsesLimitClause() {
+        OqlQuery limited = OqlQuery.parse("SELECT * FROM /orders LIMIT 10");
+        assertTrue(limited.hasLimit());
+        assertEquals(10, limited.limit());
+        assertEquals("/orders", limited.regionPath());
+
+        OqlQuery none = OqlQuery.parse("SELECT * FROM /orders");
+        assertFalse(none.hasLimit());
+        assertEquals(-1, none.limit());
+
+        // LIMIT 0 is valid (no rows).
+        assertEquals(0, OqlQuery.parse("SELECT * FROM /orders LIMIT 0").limit());
+
+        // LIMIT composes with WHERE + ORDER BY.
+        OqlQuery full = OqlQuery.parse("SELECT * FROM /orders WHERE status = 'a' ORDER BY amount DESC LIMIT 5");
+        assertEquals(5, full.limit());
+        assertTrue(full.hasOrderBy());
+        assertEquals("/orders", full.regionPath());
+    }
+
+    @Test
+    void limitInsideAStringLiteralIsNotTreatedAsAClause() {
+        // A value that merely contains "LIMIT 5" must not be parsed as a LIMIT clause (the trailing
+        // quote breaks the LIMIT-tail match), so the query has no row cap.
+        OqlQuery q = OqlQuery.parse("SELECT * FROM /orders WHERE name = 'a LIMIT 5'");
+        assertFalse(q.hasLimit());
+        assertEquals("/orders", q.regionPath());
+    }
+
+    @Test
     void rejectsUnsupportedQueries() {
         assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse("SELECT DISTINCT * FROM /orders"));
         assertThrows(OqlQuery.UnsupportedQueryException.class,

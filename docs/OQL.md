@@ -2,10 +2,11 @@
 
 Status: **SELECT * / single-field projection / WHERE (AND+OR) done**, all end-to-end against a real
 Geode client (`ProtoGemCouchQueryIntegrationTest`). Supported:
-`SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>]` where conditions are
-`<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals) combined
-with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level fields
-of map-typed values; the response is filtered (and projected) accordingly. The chunked
+`SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>] [ORDER BY ...] [LIMIT n]` where
+conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals)
+combined with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level
+fields of map-typed values; the response is filtered (and projected) accordingly, with `LIMIT` capping
+the result rows. The chunked
 query-response format below was captured from a real Geode 1.15 server with `GeodeQueryCapture` and
 is implemented in `GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34); the OQL text
 is parsed by `OqlQuery`. Single-field projections reuse the same response shape with the projected
@@ -100,6 +101,13 @@ so the shim only fetches candidate documents. The design keeps results **identic
   ranges, boolean/null literals, dotted/nested fields, or no `WHERE` — is **not** pushed and runs the
   normal scan. (`OqlQuery.pushdownPredicates()`.) Projection and `ORDER BY` never block pushdown; they
   are applied in-shim to the candidates exactly as before.
+- **`LIMIT n`** is supported (parsed by `OqlQuery`; applied in-shim to the result rows after `WHERE` /
+  `ORDER BY` / projection). When the query is pushdown-eligible **and has no `ORDER BY`**, the `LIMIT` is
+  also pushed to N1QL so the backend caps the candidate rows — but because the predicate is a *superset*,
+  a capped page can contain non-matches; if the matcher then yields fewer than `n` matches from a full
+  page, the shim **refetches the candidates unbounded** so it never under-returns. With `ORDER BY`, the
+  `LIMIT` is applied only in-shim after the sort (a top-N needs the full matched set), while the `WHERE`
+  still pushes.
 - **The matcher stays authoritative.** N1QL only chooses *candidate* documents; the shim re-applies
   `OqlQuery.matches` (the same PDX-aware resolver as the scan), then projects/sorts/pages as usual. So
   the candidate set only has to be a **superset** of the true matches.
@@ -142,14 +150,16 @@ falls back to the in-shim scan) — still correct, just not faster. The dev/test
 `#primary` index (see `scripts/init-couchbase.sh`) purely so the pushdown path executes there;
 production should prefer targeted GSIs and avoid a primary index.
 
-**Caveats (current slice).** String-equality and numeric equality/range (`= < <= > >=`) are pushed;
-numeric `<>`/`!=`, string ranges, `OR`, `LIMIT`, and PDX-field predicates still scan (later M2/M3 work —
-note a PDX region's numeric/string predicate is still *correct* via the superset, just not selective).
+**Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), and `LIMIT` (no
+`ORDER BY`) are pushed; numeric `<>`/`!=`, string ranges, `OR`, `LIMIT`-without-`WHERE`, and PDX-field
+predicates still scan (later M2/M3 work — note a PDX region's numeric/string predicate is still *correct*
+via the superset, just not selective).
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
-fallback, PDX superset incl. numeric range, mixed region, projection) and `OqlQueryPushdownTest`
-(eligibility matrix).
+fallback, PDX superset incl. numeric range, mixed region, projection, and `LIMIT` — pushed cap,
+`LIMIT` > match count, scan-path `LIMIT`, `ORDER BY` top-N, and the non-map refetch guard) plus
+`OqlQueryPushdownTest` (eligibility) and `OqlQueryTest` (`LIMIT` parsing).
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 

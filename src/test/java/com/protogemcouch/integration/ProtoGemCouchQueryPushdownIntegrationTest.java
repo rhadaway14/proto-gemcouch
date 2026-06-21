@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -186,6 +188,65 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
                 "SELECT e.amount FROM /" + regionName + " e WHERE status = 'active'");
         assertEquals(2, amounts.size(), "projection still applied on pushdown candidates");
         assertEquals(Set.of(100, 10), new HashSet<>(amounts), "projected field values are correct");
+    }
+
+    @Test
+    void limitWithPushdownCapsRowCount() throws Exception {
+        for (int i = 0; i < 8; i++) {
+            region.put("a" + i, new HashMap<>(Map.of("status", "active", "amount", i)));
+        }
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 99)));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE status = 'active' LIMIT 3");
+        assertEquals(3, r.size(), "LIMIT caps the pushed-down result to 3 of the 8 active rows");
+    }
+
+    @Test
+    void limitGreaterThanMatchCountReturnsAllMatches() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active")));
+        region.put("b", new HashMap<>(Map.of("status", "active")));
+        region.put("c", new HashMap<>(Map.of("status", "closed")));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE status = 'active' LIMIT 10");
+        assertEquals(2, r.size(), "LIMIT above the match count returns every match");
+    }
+
+    @Test
+    void limitWithoutWhereTruncatesScanResult() throws Exception {
+        // No WHERE -> scan path; LIMIT is still applied in-shim.
+        for (int i = 0; i < 6; i++) {
+            region.put("k" + i, "v" + i);
+        }
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " LIMIT 2");
+        assertEquals(2, r.size(), "LIMIT truncates a scan result too");
+    }
+
+    @Test
+    void orderByWithLimitReturnsTopN() throws Exception {
+        region.put("a", new HashMap<>(Map.of("amount", 10)));
+        region.put("b", new HashMap<>(Map.of("amount", 40)));
+        region.put("c", new HashMap<>(Map.of("amount", 20)));
+        region.put("d", new HashMap<>(Map.of("amount", 30)));
+
+        SelectResults<?> top2 = query(
+                "SELECT e.amount FROM /" + regionName + " e ORDER BY amount DESC LIMIT 2");
+        // ORDER BY is not pushed (top-N needs the full sorted set); LIMIT is applied after the sort.
+        assertEquals(List.of(40, 30), new java.util.ArrayList<>(top2), "top-2 by amount descending");
+    }
+
+    @Test
+    void limitStaysCorrectWhenCandidatesIncludeNonMatchingNonMapDocs() throws Exception {
+        // Non-map (plain string) values are always pushdown candidates (via the non-map escape) but never
+        // match a field predicate. With LIMIT pushed, the capped page may be all non-matches — the refetch
+        // guard must still return the right matching rows.
+        for (int i = 0; i < 5; i++) {
+            region.put("s" + i, "plain-" + i); // non-map, never matches status='active'
+        }
+        region.put("m1", new HashMap<>(Map.of("status", "active")));
+        region.put("m2", new HashMap<>(Map.of("status", "active")));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE status = 'active' LIMIT 2");
+        assertEquals(2, r.size(), "both active maps returned despite non-matching non-map candidates");
     }
 
     private SelectResults<?> query(String oql) throws Exception {

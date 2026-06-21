@@ -7,6 +7,15 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **OQL `LIMIT` support + pushdown (1.1.0-M2, slice 3)** — `LIMIT n` is now parsed and applied (it was
+  previously rejected as an unsupported query). It is applied in-shim to the result rows after
+  `WHERE`/`ORDER BY`/projection, and — for a pushdown-eligible query with no `ORDER BY` — also pushed to
+  N1QL so the backend caps candidate rows. Because the pushdown predicate is a superset, a capped page
+  can contain non-matches; if the matcher then yields fewer than `n` matches from a full page, the shim
+  refetches the candidates unbounded so it never under-returns. `ORDER BY`+`LIMIT` applies the cap
+  in-shim after the sort (the `WHERE` still pushes). Real-client validated
+  (`ProtoGemCouchQueryPushdownIntegrationTest`: pushed cap, `LIMIT` above match count, scan-path `LIMIT`,
+  `ORDER BY` top-N, and the non-map refetch guard) + `OqlQueryTest` (`LIMIT` parsing).
 - **OQL pushdown — numeric equality & range predicates (1.1.0-M2, slice 2)** — `OQL_PUSHDOWN` now also
   pushes numeric comparisons (`field = <num>` and `< <= > >=` a numeric literal), AND-combinable with
   string equality, in addition to string equality. Translated as `TO_NUMBER(<scalar>) <op> $n` with a
