@@ -121,4 +121,18 @@ class OqlQueryPushdownTest {
     void noWhereClauseIsNotEligible() {
         assertFalse(preds("SELECT * FROM /r").isPresent());
     }
+
+    @Test
+    void aliasStrippedSingleFieldStillPushesButNestedPathDoesNot() {
+        // `r.status` strips the alias to a single segment -> pushable; `r.address.zip` is a nested path
+        // -> not pushed (the matcher applies it).
+        assertTrue(preds("SELECT * FROM /r r WHERE r.status = 'active'").isPresent());
+        assertFalse(preds("SELECT * FROM /r r WHERE r.address.zip = '78701'").isPresent());
+        // A mixed AND pushes only the single-segment condition.
+        Optional<List<OqlQuery.FieldPredicate>> mixed =
+                preds("SELECT * FROM /r r WHERE r.status = 'active' AND r.address.zip = '78701'");
+        assertTrue(mixed.isPresent());
+        assertEquals(1, mixed.get().size());
+        assertEquals("status", mixed.get().get(0).field());
+    }
 }

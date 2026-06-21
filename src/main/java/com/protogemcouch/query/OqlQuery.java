@@ -26,7 +26,7 @@ public final class OqlQuery {
 
     private static final Pattern QUERY = Pattern.compile(
             "(?is)^\\s*SELECT\\s+(.+?)\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
-                    + "(?:\\s+(?!WHERE\\b)(?!ORDER\\b)[A-Za-z_][A-Za-z0-9_]*)?"  // optional alias
+                    + "(?:\\s+(?!WHERE\\b)(?!ORDER\\b)([A-Za-z_][A-Za-z0-9_]*))?"  // optional alias (captured)
                     + "(?:\\s+WHERE\\s+(.+?))?"
                     + "(?:\\s+ORDER\\s+BY\\s+(.+?))?"
                     + "\\s*;?\\s*$");
@@ -34,17 +34,20 @@ public final class OqlQuery {
     private static final Pattern CONDITION = Pattern.compile(
             "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*(<=|>=|<>|!=|=|<|>)\\s*(.+?)\\s*$");
 
+    /** A single path segment (a field name): a plain identifier. */
+    private static final Pattern SEGMENT = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
     // A trailing `LIMIT <n>` is split off before the main grammar runs (the closing token before `;`/end
     // can only be a literal count, so it can't be confused with a string literal ending in a quote).
     private static final Pattern LIMIT_TAIL = Pattern.compile("(?is)^(.*?)\\s+LIMIT\\s+(\\d+)\\s*(;?)\\s*$");
 
     private final String regionPath;
-    private final List<String> projectionFields;   // empty = SELECT *
-    private final List<List<Condition>> orGroups;  // OR of AND-groups; empty = match all
-    private final List<OrderKey> orderBy;          // empty = no ordering
-    private final int limit;                       // -1 = no LIMIT; >= 0 = explicit row cap
+    private final List<List<String>> projectionFields; // empty = SELECT *; each entry is a field path
+    private final List<List<Condition>> orGroups;      // OR of AND-groups; empty = match all
+    private final List<OrderKey> orderBy;              // empty = no ordering
+    private final int limit;                           // -1 = no LIMIT; >= 0 = explicit row cap
 
-    private OqlQuery(String regionPath, List<String> projectionFields,
+    private OqlQuery(String regionPath, List<List<String>> projectionFields,
                     List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
@@ -109,9 +112,6 @@ public final class OqlQuery {
         }
     }
 
-    /** A simple, single-segment field name safe to embed as an identifier in a pushdown path. */
-    private static final Pattern SIMPLE_FIELD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
-
     /** Whether the query has a WHERE clause (an empty WHERE matches every value). */
     public boolean hasWhere() {
         return !orGroups.isEmpty();
@@ -134,16 +134,17 @@ public final class OqlQuery {
         }
         List<FieldPredicate> predicates = new ArrayList<>();
         for (Condition condition : orGroups.get(0)) {
-            if (!SIMPLE_FIELD.matcher(condition.field).matches()) {
-                continue; // dotted/nested field: not pushable, but the matcher still applies it
+            if (condition.path.size() != 1) {
+                continue; // nested-field path: not pushable, but the matcher still applies it
             }
+            String field = condition.path.get(0);
             if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
-                predicates.add(FieldPredicate.stringEquality(condition.field, condition.literal.asText()));
+                predicates.add(FieldPredicate.stringEquality(field, condition.literal.asText()));
             } else if (condition.literal.isNumeric()) {
                 PushdownOp op = numericOp(condition.op);
                 if (op != null) { // numeric =/</<=/>/>= ; skip numeric <>//!= (rarely selective)
                     predicates.add(FieldPredicate.numericComparison(
-                            condition.field, op, condition.literal.numberValue(), condition.literal.asText()));
+                            field, op, condition.literal.numberValue(), condition.literal.asText()));
                 }
             }
             // else (string range, boolean, null, ...): skip — the matcher re-filters authoritatively.
@@ -164,20 +165,34 @@ public final class OqlQuery {
     }
 
     /**
-     * Resolves a field of a value to its raw object, returning {@link #ABSENT} when not resolvable.
-     * The default {@link #MAP_RESOLVER} reads map-typed values; callers (e.g. for PDX) can supply a
-     * resolver that understands other value types.
+     * Resolves a (possibly nested) field path of a value to its raw object, returning {@link #ABSENT}
+     * when not resolvable. A single-element path is a top-level field; a longer path descends into nested
+     * objects (e.g. {@code [address, zip]} reads {@code value.address.zip}). The default
+     * {@link #MAP_RESOLVER} navigates map-typed values; callers (e.g. for PDX) can supply a resolver that
+     * understands other value types.
      */
     @FunctionalInterface
     public interface FieldResolver {
-        Object resolve(StoredValue value, String field);
+        Object resolve(StoredValue value, List<String> path);
     }
 
     /** Sentinel for "field not resolvable on this value". */
     public static final Object ABSENT = new Object();
 
-    /** Default resolver: top-level keys of map-typed values. */
-    public static final FieldResolver MAP_RESOLVER = OqlQuery::resolveMapField;
+    /** Default resolver: navigates top-level keys (and nested maps) of map-typed values. */
+    public static final FieldResolver MAP_RESOLVER = OqlQuery::resolveMapPath;
+
+    /**
+     * Descend one step into a nested member: a {@link Map} key. Returns {@link #ABSENT} when the current
+     * object is not a navigable container or lacks the member. Shared so PDX navigation can reuse it once
+     * it reaches a plain map.
+     */
+    public static Object navigateMember(Object current, String member) {
+        if (current instanceof Map<?, ?> map) {
+            return map.containsKey(member) ? map.get(member) : ABSENT;
+        }
+        return ABSENT;
+    }
 
     /** True if the value satisfies the WHERE clause (empty WHERE matches everything). */
     public boolean matches(StoredValue value) {
@@ -217,8 +232,8 @@ public final class OqlQuery {
             row.add(value);
             return row;
         }
-        for (String field : projectionFields) {
-            Object resolved = resolver.resolve(value, field);
+        for (List<String> path : projectionFields) {
+            Object resolved = resolver.resolve(value, path);
             row.add(wrap(resolved == ABSENT ? null : resolved));
         }
         return row;
@@ -283,8 +298,34 @@ public final class OqlQuery {
                     "only 'SELECT (* | field, ...) FROM /region [WHERE ...] [ORDER BY ...] [LIMIT n]' "
                             + "is supported: " + oql);
         }
-        return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1)),
-                parseWhere(matcher.group(3)), parseOrderBy(matcher.group(4)), limit);
+        String alias = matcher.group(3); // the FROM alias (e.g. `r`), or null
+        return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1), alias),
+                parseWhere(matcher.group(4), alias), parseOrderBy(matcher.group(5), alias), limit);
+    }
+
+    /**
+     * Turn a field reference into a navigation path, stripping a leading FROM alias. {@code r.address.zip}
+     * (alias {@code r}) becomes {@code [address, zip]}; {@code address.zip} becomes {@code [address, zip]};
+     * {@code r.status} becomes {@code [status]}; {@code status} becomes {@code [status]}. Each remaining
+     * segment must be a plain identifier.
+     */
+    private static List<String> toPath(String raw, String alias) {
+        String[] segments = raw.trim().split("\\.");
+        int start = 0;
+        if (alias != null && segments.length > 1 && segments[0].equals(alias)) {
+            start = 1; // drop the leading alias qualifier
+        }
+        List<String> path = new ArrayList<>(segments.length - start);
+        for (int i = start; i < segments.length; i++) {
+            if (!SEGMENT.matcher(segments[i]).matches()) {
+                throw new UnsupportedQueryException("unsupported field path: " + raw);
+            }
+            path.add(segments[i]);
+        }
+        if (path.isEmpty()) {
+            throw new UnsupportedQueryException("empty field path: " + raw);
+        }
+        return path;
     }
 
     /** Sort matched values in place by the ORDER BY keys (no-op when there is no ORDER BY). */
@@ -298,7 +339,7 @@ public final class OqlQuery {
         }
         values.sort((a, b) -> {
             for (OrderKey key : orderBy) {
-                int c = compareField(a, b, key.field, resolver);
+                int c = compareField(a, b, key.path, resolver);
                 if (c != 0) {
                     return key.ascending ? c : -c;
                 }
@@ -307,17 +348,14 @@ public final class OqlQuery {
         });
     }
 
-    private static List<OrderKey> parseOrderBy(String orderBy) {
+    private static List<OrderKey> parseOrderBy(String orderBy, String alias) {
         List<OrderKey> keys = new ArrayList<>();
         if (orderBy == null || orderBy.isBlank()) {
             return keys;
         }
         for (String part : orderBy.split(",")) {
             String[] tokens = part.trim().split("\\s+");
-            String field = lastSegment(tokens[0]);
-            if (!field.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
-                throw new UnsupportedQueryException("unsupported ORDER BY field: " + part.trim());
-            }
+            List<String> path = toPath(tokens[0], alias);
             boolean ascending = true;
             if (tokens.length == 2) {
                 if (tokens[1].equalsIgnoreCase("DESC")) {
@@ -328,15 +366,15 @@ public final class OqlQuery {
             } else if (tokens.length > 2) {
                 throw new UnsupportedQueryException("unsupported ORDER BY clause: " + part.trim());
             }
-            keys.add(new OrderKey(field, ascending));
+            keys.add(new OrderKey(path, ascending));
         }
         return keys;
     }
 
     /** Compare a field across two values: numeric when both parse as numbers, else string; nulls last. */
-    private static int compareField(StoredValue a, StoredValue b, String field, FieldResolver resolver) {
-        Object av = resolver.resolve(a, field);
-        Object bv = resolver.resolve(b, field);
+    private static int compareField(StoredValue a, StoredValue b, List<String> path, FieldResolver resolver) {
+        Object av = resolver.resolve(a, path);
+        Object bv = resolver.resolve(b, path);
         boolean aMissing = av == ABSENT || av == null;
         boolean bMissing = bv == ABSENT || bv == null;
         if (aMissing && bMissing) {
@@ -368,17 +406,17 @@ public final class OqlQuery {
     }
 
     private static final class OrderKey {
-        private final String field;
+        private final List<String> path;
         private final boolean ascending;
 
-        OrderKey(String field, boolean ascending) {
-            this.field = field;
+        OrderKey(List<String> path, boolean ascending) {
+            this.path = path;
             this.ascending = ascending;
         }
     }
 
-    private static List<String> parseProjection(String selectList) {
-        List<String> fields = new ArrayList<>();
+    private static List<List<String>> parseProjection(String selectList, String alias) {
+        List<List<String>> fields = new ArrayList<>();
         String list = selectList.trim();
         if (list.equals("*")) {
             return fields; // SELECT *
@@ -391,12 +429,12 @@ public final class OqlQuery {
             if (!field.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
                 throw new UnsupportedQueryException("unsupported projection field: " + field);
             }
-            fields.add(lastSegment(field));
+            fields.add(toPath(field, alias));
         }
         return fields;
     }
 
-    private static List<List<Condition>> parseWhere(String where) {
+    private static List<List<Condition>> parseWhere(String where, String alias) {
         List<List<Condition>> orGroups = new ArrayList<>();
         if (where == null || where.isBlank()) {
             return orGroups;
@@ -411,18 +449,12 @@ public final class OqlQuery {
                 if (!m.matches()) {
                     throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
                 }
-                andGroup.add(new Condition(lastSegment(m.group(1)), Operator.of(m.group(2)),
+                andGroup.add(new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
                         Literal.parse(m.group(3))));
             }
             orGroups.add(andGroup);
         }
         return orGroups;
-    }
-
-    /** Take the final segment of a possibly alias/nested path (e.g. {@code r.status} -> {@code status}). */
-    private static String lastSegment(String path) {
-        int dot = path.lastIndexOf('.');
-        return dot < 0 ? path : path.substring(dot + 1);
     }
 
     /** Raised when a query uses a feature outside the supported subset. */
@@ -450,18 +482,18 @@ public final class OqlQuery {
     }
 
     static final class Condition {
-        private final String field;
+        private final List<String> path;
         private final Operator op;
         private final Literal literal;
 
-        Condition(String field, Operator op, Literal literal) {
-            this.field = field;
+        Condition(List<String> path, Operator op, Literal literal) {
+            this.path = path;
             this.op = op;
             this.literal = literal;
         }
 
         boolean matches(StoredValue value, FieldResolver resolver) {
-            Object actual = resolver.resolve(value, field);
+            Object actual = resolver.resolve(value, path);
             if (actual == ABSENT) {
                 return false;
             }
@@ -482,6 +514,18 @@ public final class OqlQuery {
                     }
             }
         }
+    }
+
+    /** Resolve a path against a map-typed value: the first segment is a top-level key, then descend. */
+    private static Object resolveMapPath(StoredValue value, List<String> path) {
+        if (value == null || path.isEmpty()) {
+            return ABSENT;
+        }
+        Object current = resolveMapField(value, path.get(0));
+        for (int i = 1; i < path.size() && current != ABSENT; i++) {
+            current = navigateMember(current, path.get(i));
+        }
+        return current;
     }
 
     private static Object resolveMapField(StoredValue value, String field) {

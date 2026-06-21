@@ -36,13 +36,26 @@ exactly correct). Validated by `PdxFieldAccessorTest` (real captured PdxType + i
 real-client PDX query test. Note: POJO (Java-serialized) field access is not feasible server-side
 (needs the domain classes); PDX is Geode's queryable serialization.
 
+**Nested object paths** (`r.address.zip`): field references are parsed into alias-aware navigation
+**paths** (the FROM alias is stripped; the remainder is a segment list), and the resolver descends into
+nested objects. For **map** values it walks nested Geode `HashMap`s by key. For **PDX** values a nested
+`OBJECT` field is navigated by its <em>raw bytes</em> — `PdxReaderImpl.getRaw` (via reflection) yields the
+field's serialized form, and a nested PDX carries the same `5d <len> <typeId> …` framing, so the shim
+recurses with its <em>own</em> `PdxTypeRegistry` (Geode's deserialization can't: the nested type lives in
+the shim registry, not Geode's). Real-client-validated for nested map, nested PDX, and a nested-field CQ
+(`ProtoGemCouchQueryIntegrationTest`, `ProtoGemCouchCqIntegrationTest`). Nested-field predicates resolve
+in the shim (the matcher), so they are not pushed down (the pushdown path keeps scalar single-segment
+fields only) — correctness is unchanged. **Array PDX fields** (element/index access, `IN`) are not yet
+queryable (the next M3 slice); a PDX `OBJECT` field that holds a serialized non-PDX object is also not
+navigable.
+
 The same PDX-aware resolver (`PdxAwareFieldResolver`, shared via the handler factory) also backs
 **continuous-query predicate matching**, so a CQ like `WHERE r.status = 'active'` matches PDX objects
 exactly as a one-shot query does (see `docs/CONTINUOUS_QUERIES.md`). For a *second* client to decode a
 PDX value it did not itself write (e.g. a pushed CQ/subscription event value), the shim also serves the
 **reverse PDX lookup** — GET_PDX_TYPE_BY_ID (opcode 92) returns the kept `PdxType`, stamped with its
-assigned id, as a serialized object part. Only scalar fields are queryable; OBJECT/array PDX fields are
-not.
+assigned id, as a serialized object part. Scalar fields and **nested object paths** (see above) are
+queryable; **array** PDX fields are not yet.
 
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into

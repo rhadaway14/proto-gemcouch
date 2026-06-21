@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -163,6 +164,32 @@ class OqlQueryTest {
         assertTrue(q.matches(map("status", "active", "amount", 100)));
         assertFalse(q.matches(map("status", "active", "amount", 10)), "second condition fails");
         assertFalse(q.matches(map("status", "closed", "amount", 100)), "first condition fails");
+    }
+
+    @Test
+    void nestedMapPathInWhereNavigatesIntoNestedObject() {
+        StoredValue v = map("status", "active", "address", Map.of("zip", "78701", "city", "Austin"));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o WHERE address.zip = '78701'").matches(v));
+        assertTrue(OqlQuery.parse("SELECT * FROM /o o WHERE o.address.city = 'Austin'").matches(v),
+                "alias-qualified nested path resolves");
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE address.zip = '00000'").matches(v),
+                "wrong nested value does not match");
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE address.country = 'US'").matches(v),
+                "missing nested key does not match");
+        assertFalse(OqlQuery.parse("SELECT * FROM /o WHERE status.zip = 'x'").matches(v),
+                "descending into a scalar does not match");
+    }
+
+    @Test
+    void nestedMapPathProjectionAndOrderBy() {
+        StoredValue a = map("address", Map.of("zip", "30"));
+        StoredValue b = map("address", Map.of("zip", "10"));
+        assertEquals("30", OqlQuery.parse("SELECT e.address.zip FROM /o e").projectRow(a).get(0).value());
+
+        List<StoredValue> values = new ArrayList<>(List.of(a, b));
+        OqlQuery.parse("SELECT * FROM /o e ORDER BY e.address.zip").sort(values);
+        assertEquals("10", OqlQuery.parse("SELECT e.address.zip FROM /o e").projectRow(values.get(0)).get(0).value(),
+                "sorted ascending by the nested field");
     }
 
     @Test
