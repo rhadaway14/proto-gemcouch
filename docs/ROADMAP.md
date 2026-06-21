@@ -35,7 +35,12 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   authoritatively, so results are identical to the scan and anything ineligible/any error falls back to
   it. Behind the **`OQL_PUSHDOWN`** flag (default off). Validated end-to-end against a real Geode client
   (`ProtoGemCouchQueryPushdownIntegrationTest`, incl. PDX + mixed regions) + `OqlQueryPushdownTest`.
-- [ ] Extend predicates: numeric/range equality, then `LIMIT`; PDX **scalar**-field pushdown (M3 path).
+- [x] **Slice 2 — numeric equality + range pushdown.** `field = <num>` / `< <= > >=` numeric literals
+  now push down too (via `TO_NUMBER(...) <op> $n` + a `TYPE="string"` superset escape), AND-combinable
+  with string equality; numeric `<>`/`!=`, string ranges, and `OR` still scan. Real-client validated
+  (numeric eq/range, mixed AND, PDX numeric range). (`OqlQuery.pushdownPredicates`.)
+- [ ] Extend predicates: `LIMIT`; PDX **scalar**-field pushdown (M3 path); optional partial-predicate
+  push (push the eligible subset of an AND-group, scan-filter the rest).
 - [ ] Managed-index lifecycle: documented operator `CREATE INDEX` step (done in `docs/OQL.md`);
   optional create-on-first-use later.
 - [ ] Re-validate query p99 on the soak; add a query-weighted benchmark profile + a perf-gate query-p99

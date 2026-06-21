@@ -10,70 +10,92 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Eligibility of {@link OqlQuery#pushdownStringEqualities()} — the conservative gate that decides which
- * queries may be pushed to the backend. Anything outside a plain AND of {@code field = 'string'} returns
- * empty so the shim scans (and the matcher stays authoritative), guaranteeing pushdown never changes
- * results. Projection and ORDER BY are intentionally ignored (the caller re-applies them).
+ * Eligibility of {@link OqlQuery#pushdownPredicates()} — the conservative gate that decides which
+ * queries may be pushed to the backend. Eligible: a single AND-group of string-equality and/or numeric
+ * comparison ({@code = < <= > >=} a numeric literal) conditions on simple top-level fields. Everything
+ * else returns empty so the shim scans (the matcher stays authoritative), guaranteeing pushdown never
+ * changes results. Projection and ORDER BY are intentionally ignored (the caller re-applies them).
  */
 class OqlQueryPushdownTest {
 
-    private static Optional<List<OqlQuery.FieldStringEquality>> eqs(String oql) {
-        return OqlQuery.parse(oql).pushdownStringEqualities();
+    private static Optional<List<OqlQuery.FieldPredicate>> preds(String oql) {
+        return OqlQuery.parse(oql).pushdownPredicates();
     }
 
     @Test
     void singleStringEqualityIsEligible() {
-        Optional<List<OqlQuery.FieldStringEquality>> e = eqs("SELECT * FROM /r WHERE status = 'active'");
+        Optional<List<OqlQuery.FieldPredicate>> e = preds("SELECT * FROM /r WHERE status = 'active'");
         assertTrue(e.isPresent());
         assertEquals(1, e.get().size());
-        assertEquals("status", e.get().get(0).field());
-        assertEquals("active", e.get().get(0).value());
+        OqlQuery.FieldPredicate p = e.get().get(0);
+        assertEquals("status", p.field());
+        assertEquals(OqlQuery.PushdownOp.EQ, p.op());
+        assertFalse(p.numeric(), "string equality is not numeric");
+        assertEquals("active", p.text());
     }
 
     @Test
-    void andOfStringEqualitiesIsEligible() {
-        Optional<List<OqlQuery.FieldStringEquality>> e =
-                eqs("SELECT * FROM /r WHERE status = 'active' AND tier = 'gold'");
+    void numericEqualityIsEligible() {
+        Optional<List<OqlQuery.FieldPredicate>> e = preds("SELECT * FROM /r WHERE amount = 42");
         assertTrue(e.isPresent());
-        assertEquals(List.of("status", "tier"), e.get().stream().map(OqlQuery.FieldStringEquality::field).toList());
-        assertEquals(List.of("active", "gold"), e.get().stream().map(OqlQuery.FieldStringEquality::value).toList());
+        OqlQuery.FieldPredicate p = e.get().get(0);
+        assertTrue(p.numeric(), "unquoted number is a numeric predicate");
+        assertEquals(OqlQuery.PushdownOp.EQ, p.op());
+        assertEquals(42d, p.number());
+    }
+
+    @Test
+    void numericRangeOperatorsAreEligible() {
+        assertEquals(OqlQuery.PushdownOp.GT, preds("SELECT * FROM /r WHERE amount > 50").get().get(0).op());
+        assertEquals(OqlQuery.PushdownOp.GTE, preds("SELECT * FROM /r WHERE amount >= 50").get().get(0).op());
+        assertEquals(OqlQuery.PushdownOp.LT, preds("SELECT * FROM /r WHERE amount < 50").get().get(0).op());
+        assertEquals(OqlQuery.PushdownOp.LTE, preds("SELECT * FROM /r WHERE amount <= 50").get().get(0).op());
+    }
+
+    @Test
+    void mixedStringEqualityAndNumericRangeIsEligible() {
+        Optional<List<OqlQuery.FieldPredicate>> e =
+                preds("SELECT * FROM /r WHERE status = 'active' AND amount > 50");
+        assertTrue(e.isPresent());
+        assertEquals(2, e.get().size());
+        assertFalse(e.get().get(0).numeric());
+        assertTrue(e.get().get(1).numeric());
+        assertEquals(OqlQuery.PushdownOp.GT, e.get().get(1).op());
     }
 
     @Test
     void projectionAndOrderByDoNotBlockPushdown() {
-        // The caller still applies projection/ordering to the candidates; they must not gate pushdown.
-        assertTrue(eqs("SELECT name FROM /r WHERE status = 'active'").isPresent());
-        assertTrue(eqs("SELECT * FROM /r WHERE status = 'active' ORDER BY name").isPresent());
+        assertTrue(preds("SELECT name FROM /r WHERE status = 'active'").isPresent());
+        assertTrue(preds("SELECT * FROM /r WHERE amount > 50 ORDER BY name").isPresent());
     }
 
     @Test
-    void quotedNumericLiteralIsStillAStringEquality() {
-        Optional<List<OqlQuery.FieldStringEquality>> e = eqs("SELECT * FROM /r WHERE code = '42'");
-        assertTrue(e.isPresent());
-        assertEquals("42", e.get().get(0).value());
+    void quotedNumericLiteralIsAStringEqualityNotNumeric() {
+        OqlQuery.FieldPredicate p = preds("SELECT * FROM /r WHERE code = '42'").get().get(0);
+        assertFalse(p.numeric(), "a quoted '42' is a string equality");
+        assertEquals("42", p.text());
     }
 
     @Test
     void orIsNotEligible() {
-        assertFalse(eqs("SELECT * FROM /r WHERE status = 'active' OR tier = 'gold'").isPresent());
+        assertFalse(preds("SELECT * FROM /r WHERE status = 'active' OR tier = 'gold'").isPresent());
     }
 
     @Test
-    void numericAndBooleanAndNullLiteralsAreNotEligible() {
-        assertFalse(eqs("SELECT * FROM /r WHERE amount = 42").isPresent());
-        assertFalse(eqs("SELECT * FROM /r WHERE active = true").isPresent());
-        assertFalse(eqs("SELECT * FROM /r WHERE deleted = null").isPresent());
+    void numericInequalityAndStringRangeAreNotEligible() {
+        assertFalse(preds("SELECT * FROM /r WHERE amount <> 42").isPresent(), "numeric != not pushed");
+        assertFalse(preds("SELECT * FROM /r WHERE amount != 42").isPresent(), "numeric != not pushed");
+        assertFalse(preds("SELECT * FROM /r WHERE name > 'm'").isPresent(), "string range not pushed");
     }
 
     @Test
-    void rangeAndInequalityOperatorsAreNotEligible() {
-        assertFalse(eqs("SELECT * FROM /r WHERE amount > 10").isPresent());
-        assertFalse(eqs("SELECT * FROM /r WHERE status <> 'x'").isPresent());
-        assertFalse(eqs("SELECT * FROM /r WHERE status != 'x'").isPresent());
+    void booleanAndNullLiteralsAreNotEligible() {
+        assertFalse(preds("SELECT * FROM /r WHERE active = true").isPresent());
+        assertFalse(preds("SELECT * FROM /r WHERE deleted = null").isPresent());
     }
 
     @Test
     void noWhereClauseIsNotEligible() {
-        assertFalse(eqs("SELECT * FROM /r").isPresent());
+        assertFalse(preds("SELECT * FROM /r").isPresent());
     }
 }

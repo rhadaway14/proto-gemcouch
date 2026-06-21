@@ -95,20 +95,26 @@ With **`OQL_PUSHDOWN=true`** (default off), eligible queries instead pre-filter 
 so the shim only fetches candidate documents. The design keeps results **identical to the scan**:
 
 - **Eligibility (conservative).** Pushdown applies only when the `WHERE` is a single `AND`-group of
-  **string-equality** conditions on simple top-level fields (`field = '…'`). Anything else — `OR`,
-  ranges, `<>`/`!=`, numeric/boolean/null literals, dotted/nested fields, or no `WHERE` — is **not**
-  pushed and runs the normal scan. (`OqlQuery.pushdownStringEqualities()`.) Projection and `ORDER BY`
-  never block pushdown; they are applied in-shim to the candidates exactly as before.
+  **string-equality** (`field = '…'`) and/or **numeric comparison** (`field = <num>` / `< <= > >=` a
+  numeric literal) conditions on simple top-level fields. Anything else — `OR`, numeric `<>`/`!=`, string
+  ranges, boolean/null literals, dotted/nested fields, or no `WHERE` — is **not** pushed and runs the
+  normal scan. (`OqlQuery.pushdownPredicates()`.) Projection and `ORDER BY` never block pushdown; they
+  are applied in-shim to the candidates exactly as before.
 - **The matcher stays authoritative.** N1QL only chooses *candidate* documents; the shim re-applies
   `OqlQuery.matches` (the same PDX-aware resolver as the scan), then projects/sorts/pages as usual. So
   the candidate set only has to be a **superset** of the true matches.
-- **Superset, by construction.** The generated predicate (`CouchbaseRepository.queryPushdownByStringEquality`)
-  is region-scoped (`META().id LIKE "region::%"`) and, per condition, compares the field's stored
-  scalar by its string form under both JSON encodings (object-map `value.<f>.value` and string-map
-  `value.<f>`), with a numeric branch OR-ed in for numeric literals. Crucially it also OR-s in **every
-  non-map document** (`type NOT IN ["stringObjectHashMap","stringHashMap"]`) — PDX/serialized/scalar
-  values whose fields N1QL cannot read are always kept as candidates and filtered by the shim, so a
-  true PDX match is never dropped.
+- **Superset, by construction.** The generated predicate (`CouchbaseRepository.queryPushdownByPredicates`)
+  is region-scoped (`META().id LIKE "region::%"`) and evaluates each condition against both JSON
+  encodings (object-map `value.<f>.value` and string-map `value.<f>`):
+  - *string equality* compares by string form (`TO_STRING(...) = $v`, plus a numeric branch for
+    numeric-looking literals) so it matches regardless of the scalar's JSON type;
+  - *numeric comparison* uses `TO_NUMBER(...) <op> $n`, OR-ed with a `TYPE(...) = "string"` escape so a
+    number stored as a string is never dropped (the matcher re-filters it). Because OQL itself parses
+    numeric fields with `Double.parseDouble`, a non-numeric scalar can never be a true numeric match.
+
+  Crucially it also OR-s in **every non-map document** (`type NOT IN ["stringObjectHashMap","stringHashMap"]`)
+  — PDX/serialized/scalar values whose fields N1QL cannot read are always kept as candidates and filtered
+  by the shim, so a true PDX match is never dropped.
 - **Read-your-writes.** The query runs with **`REQUEST_PLUS`** scan consistency, matching the KV scan
   path; without it N1QL's default (`not_bounded`) could miss a just-written document.
 - **Graceful fallback.** Any backend problem (no usable index, query service down, error) returns
@@ -120,8 +126,14 @@ so the shim only fetches candidate documents. The design keeps results **identic
 shim does **not** create indexes. For each region/field you query, create a targeted GSI, e.g.:
 
 ```sql
+-- string-equality field:
 CREATE INDEX idx_orders_status
   ON `your-bucket`(TO_STRING(`value`.`status`.`value`))
+  WHERE META().id LIKE "orders::%";
+
+-- numeric (equality/range) field — index the TO_NUMBER expression the shim filters on:
+CREATE INDEX idx_orders_amount
+  ON `your-bucket`(TO_NUMBER(`value`.`amount`.`value`))
   WHERE META().id LIKE "orders::%";
 ```
 
@@ -130,11 +142,14 @@ falls back to the in-shim scan) — still correct, just not faster. The dev/test
 `#primary` index (see `scripts/init-couchbase.sh`) purely so the pushdown path executes there;
 production should prefer targeted GSIs and avoid a primary index.
 
-**Caveats (current slice).** Only string-equality is pushed (numeric/range/`OR`/PDX-field predicates
-still scan — later M2/M3 work). Pushdown reads via the Query service do **not** refresh entry-idle TTL
-(the KV scan path does, via get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are
-enabled. Validated by `ProtoGemCouchQueryPushdownIntegrationTest` (string-equality, AND, range/`OR`
-fallback, PDX superset, mixed region, projection) and `OqlQueryPushdownTest` (eligibility).
+**Caveats (current slice).** String-equality and numeric equality/range (`= < <= > >=`) are pushed;
+numeric `<>`/`!=`, string ranges, `OR`, `LIMIT`, and PDX-field predicates still scan (later M2/M3 work —
+note a PDX region's numeric/string predicate is still *correct* via the superset, just not selective).
+Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
+get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
+`ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
+fallback, PDX superset incl. numeric range, mixed region, projection) and `OqlQueryPushdownTest`
+(eligibility matrix).
 
 ## Protocol shape (reverse-engineered from the Geode 1.15 client)
 

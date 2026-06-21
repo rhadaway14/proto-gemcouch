@@ -997,59 +997,72 @@ public class CouchbaseRepository implements Repository {
 
     /**
      * OQL pushdown via N1QL. Builds a region-scoped query ({@code META().id LIKE "region::%"}) whose
-     * WHERE is a deliberately <em>loose superset</em> of the equality conditions, so it can only narrow
-     * the candidate set, never drop a true match (the caller's matcher re-filters authoritatively):
+     * WHERE is a deliberately <em>loose superset</em> of the predicates, so it can only narrow the
+     * candidate set, never drop a true match (the caller's matcher re-filters authoritatively). Each
+     * predicate is evaluated against both the object-map envelope path ({@code value.<f>.value}) and the
+     * bare string-map path ({@code value.<f>}):
      *
      * <ul>
-     *   <li>each condition compares the field's stored scalar by its string form
-     *       ({@code TO_STRING(...) = $v}) under both the object-map envelope path
-     *       ({@code value.<f>.value}) and the bare string-map path ({@code value.<f>}), so it matches
-     *       however the value was stored and regardless of the scalar's JSON type;</li>
-     *   <li>when the literal is numeric, a numeric-equality branch is OR-ed in as well, covering
-     *       whole-number doubles where {@code TO_STRING} and Java's {@code String.valueOf} differ.</li>
+     *   <li><b>string equality</b> compares by string form ({@code TO_STRING(...) = $v}) so it matches
+     *       regardless of the scalar's JSON type; a numeric-equality branch is OR-ed in for numeric-looking
+     *       literals (covers whole-number doubles where {@code TO_STRING} and {@code String.valueOf} differ);</li>
+     *   <li><b>numeric comparison</b> uses {@code TO_NUMBER(...) <op> $n}; since OQL parses numeric
+     *       fields with {@code Double.parseDouble} too, a non-numeric scalar can never be a true match —
+     *       but to stay a guaranteed superset, any string-typed scalar ({@code TYPE(...) = "string"}) is
+     *       OR-ed in and left for the matcher to decide.</li>
      * </ul>
      *
-     * <p>Returns {@link Optional#empty()} on any problem (no index, query error, bad field) so the
-     * caller falls back to the full-region scan — pushdown is a pure performance optimization.
+     * <p>Non-map documents (PDX / serialized / scalar) whose fields N1QL cannot introspect are OR-ed in
+     * unconditionally, so a PDX match is never dropped. Returns {@link Optional#empty()} on any problem
+     * (no index, query error, bad field) so the caller falls back to the full-region scan — pushdown is
+     * a pure performance optimization.
      */
     @Override
-    public Optional<List<StoredValue>> queryPushdownByStringEquality(
-            String region, List<OqlQuery.FieldStringEquality> conditions) {
-        if (conditions == null || conditions.isEmpty()) {
+    public Optional<List<StoredValue>> queryPushdownByPredicates(
+            String region, List<OqlQuery.FieldPredicate> predicates) {
+        if (predicates == null || predicates.isEmpty()) {
             return Optional.empty();
         }
 
         JsonObject params = JsonObject.create();
         params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
 
-        // Field predicates only see map-typed documents (where fields live under `value`). A region can
-        // also hold PDX / serialized / scalar values whose fields N1QL cannot introspect; those are
-        // OR-ed in unconditionally below so they are never dropped — the shim's (PDX-aware) matcher
-        // re-filters every candidate, so the candidate set only has to be a superset of the true matches.
         StringBuilder fieldPreds = new StringBuilder();
-        for (int i = 0; i < conditions.size(); i++) {
-            OqlQuery.FieldStringEquality condition = conditions.get(i);
-            String field = condition.field();
+        for (int i = 0; i < predicates.size(); i++) {
+            OqlQuery.FieldPredicate predicate = predicates.get(i);
+            String field = predicate.field();
             if (field == null || !SAFE_FIELD.matcher(field).matches()) {
                 return Optional.empty(); // defense-in-depth: never interpolate an unvalidated identifier
             }
-            String vParam = "v" + i;
-            params.put(vParam, condition.value());
             String envelopePath = "c.`value`.`" + field + "`.`value`";
             String barePath = "c.`value`.`" + field + "`";
             if (fieldPreds.length() > 0) {
                 fieldPreds.append(" AND ");
             }
-            fieldPreds.append("(TO_STRING(").append(envelopePath).append(") = $").append(vParam)
-                    .append(" OR TO_STRING(").append(barePath).append(") = $").append(vParam);
-            Double numeric = parseNumericOrNull(condition.value());
-            if (numeric != null) {
+            if (predicate.numeric()) {
                 String nParam = "n" + i;
-                params.put(nParam, numeric);
-                fieldPreds.append(" OR ").append(envelopePath).append(" = $").append(nParam)
-                        .append(" OR ").append(barePath).append(" = $").append(nParam);
+                params.put(nParam, predicate.number());
+                String op = predicate.op().symbol();
+                // TO_NUMBER(<scalar>) <op> $n on each path, plus a string-typed escape so a numeric value
+                // stored as a string is never dropped (the matcher re-filters it).
+                fieldPreds.append("(TO_NUMBER(").append(envelopePath).append(") ").append(op).append(" $").append(nParam)
+                        .append(" OR TYPE(").append(envelopePath).append(") = \"string\"")
+                        .append(" OR TO_NUMBER(").append(barePath).append(") ").append(op).append(" $").append(nParam)
+                        .append(" OR TYPE(").append(barePath).append(") = \"string\")");
+            } else {
+                String vParam = "v" + i;
+                params.put(vParam, predicate.text());
+                fieldPreds.append("(TO_STRING(").append(envelopePath).append(") = $").append(vParam)
+                        .append(" OR TO_STRING(").append(barePath).append(") = $").append(vParam);
+                Double numeric = parseNumericOrNull(predicate.text());
+                if (numeric != null) {
+                    String nParam = "n" + i;
+                    params.put(nParam, numeric);
+                    fieldPreds.append(" OR ").append(envelopePath).append(" = $").append(nParam)
+                            .append(" OR ").append(barePath).append(" = $").append(nParam);
+                }
+                fieldPreds.append(")");
             }
-            fieldPreds.append(")");
         }
 
         String where = "META(c).id LIKE $prefix AND ( (" + fieldPreds
@@ -1078,13 +1091,13 @@ public class CouchbaseRepository implements Repository {
             }
             log.info(StructuredLog.event(
                     "repository_query_pushdown_ok", "region", region,
-                    "conditions", conditions.size(), "candidates", candidates.size()));
+                    "predicates", predicates.size(), "candidates", candidates.size()));
             return Optional.of(candidates);
         } catch (Exception e) {
             // No usable index, query service down, or any other issue: fall back to the scan.
             log.warn(StructuredLog.event(
                     "repository_query_pushdown_unavailable", "region", region,
-                    "conditions", conditions.size(), "error", e.getMessage()));
+                    "predicates", predicates.size(), "error", e.getMessage()));
             return Optional.empty();
         }
     }

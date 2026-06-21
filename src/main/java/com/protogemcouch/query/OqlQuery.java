@@ -61,37 +61,89 @@ public final class OqlQuery {
         return !orderBy.isEmpty();
     }
 
-    /** A {@code field = '<value>'} equality eligible for backend (N1QL) pushdown. */
-    public record FieldStringEquality(String field, String value) {}
+    /** The comparison of a pushdown-eligible scalar predicate. */
+    public enum PushdownOp {
+        EQ("="), LT("<"), LTE("<="), GT(">"), GTE(">=");
+
+        private final String symbol;
+
+        PushdownOp(String symbol) {
+            this.symbol = symbol;
+        }
+
+        /** The SQL/N1QL comparison symbol (e.g. {@code "<="}). */
+        public String symbol() {
+            return symbol;
+        }
+    }
+
+    /**
+     * A pushdown-eligible scalar predicate on a top-level field: either a string equality
+     * ({@code numeric == false}, {@code op == EQ}, compare {@link #text}) or a numeric comparison
+     * ({@code numeric == true}, compare {@link #number}). The backend translates these to a region-scoped
+     * N1QL predicate that is a <em>superset</em> of the matches (the caller's matcher re-filters).
+     */
+    public record FieldPredicate(String field, PushdownOp op, boolean numeric, String text, double number) {
+        static FieldPredicate stringEquality(String field, String text) {
+            return new FieldPredicate(field, PushdownOp.EQ, false, text, 0d);
+        }
+
+        static FieldPredicate numericComparison(String field, PushdownOp op, double number, String text) {
+            return new FieldPredicate(field, op, true, text, number);
+        }
+    }
 
     /** A simple, single-segment field name safe to embed as an identifier in a pushdown path. */
     private static final Pattern SIMPLE_FIELD = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     /**
-     * If this query's WHERE is a single AND-group of string-literal equality conditions on simple
-     * top-level fields, return those equalities so the backend can pre-filter candidate documents;
-     * otherwise empty (the caller then scans the whole region). Projection and ORDER BY are deliberately
-     * ignored here: the caller always re-applies {@link #matches}/{@link #projectRow}/{@link #sort} to
-     * the pushdown candidates, so the matcher stays authoritative and the result is identical to a scan.
+     * If this query's WHERE is a single AND-group of pushdown-eligible conditions on simple top-level
+     * fields, return them so the backend can pre-filter candidate documents; otherwise empty (the caller
+     * then scans the whole region). Eligible conditions are <strong>string equality</strong>
+     * ({@code field = 'string'}) and <strong>numeric comparison</strong>
+     * ({@code field = <num>} / {@code < <= > >=} a numeric literal). Projection and ORDER BY are ignored
+     * here: the caller always re-applies {@link #matches}/{@link #projectRow}/{@link #sort} to the
+     * candidates, so the matcher stays authoritative and the result is identical to a scan.
      *
-     * <p>Conservative on purpose — anything beyond a plain AND of {@code field = 'string'} (OR groups,
-     * ranges, {@code <>}, numeric/boolean/null literals, dotted/nested fields) yields empty and falls
-     * back to the scan, so pushdown can never change query results.
+     * <p>Conservative on purpose — OR groups, {@code <>}/{@code !=}, string ranges, boolean/null literals,
+     * and dotted/nested fields all yield empty and fall back to the scan, so pushdown never changes
+     * query results.
      */
-    public Optional<List<FieldStringEquality>> pushdownStringEqualities() {
+    public Optional<List<FieldPredicate>> pushdownPredicates() {
         if (orGroups.size() != 1) {
             return Optional.empty(); // no WHERE (size 0) or an OR is present (size > 1)
         }
-        List<FieldStringEquality> equalities = new ArrayList<>();
+        List<FieldPredicate> predicates = new ArrayList<>();
         for (Condition condition : orGroups.get(0)) {
-            if (condition.op != Operator.EQ
-                    || !condition.literal.isPlainString()
-                    || !SIMPLE_FIELD.matcher(condition.field).matches()) {
+            if (!SIMPLE_FIELD.matcher(condition.field).matches()) {
                 return Optional.empty();
             }
-            equalities.add(new FieldStringEquality(condition.field, condition.literal.asText()));
+            if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
+                predicates.add(FieldPredicate.stringEquality(condition.field, condition.literal.asText()));
+            } else if (condition.literal.isNumeric()) {
+                PushdownOp op = numericOp(condition.op);
+                if (op == null) {
+                    return Optional.empty(); // numeric <> / != is not pushed (rarely selective)
+                }
+                predicates.add(FieldPredicate.numericComparison(
+                        condition.field, op, condition.literal.numberValue(), condition.literal.asText()));
+            } else {
+                return Optional.empty(); // string range, boolean, null, etc. -> scan
+            }
         }
-        return equalities.isEmpty() ? Optional.empty() : Optional.of(equalities);
+        return predicates.isEmpty() ? Optional.empty() : Optional.of(predicates);
+    }
+
+    /** Map a comparison operator to its pushdown form; {@code null} for the unsupported {@code NEQ}. */
+    private static PushdownOp numericOp(Operator op) {
+        switch (op) {
+            case EQ: return PushdownOp.EQ;
+            case LT: return PushdownOp.LT;
+            case LTE: return PushdownOp.LTE;
+            case GT: return PushdownOp.GT;
+            case GTE: return PushdownOp.GTE;
+            default: return null; // NEQ
+        }
     }
 
     /**
@@ -492,9 +544,19 @@ public final class OqlQuery {
             return !isNull && number == null && bool == null && text != null;
         }
 
-        /** The literal's text form (defined for {@link #isPlainString()} literals). */
+        /** The literal's text form (defined for {@link #isPlainString()} and numeric literals). */
         String asText() {
             return text;
+        }
+
+        /** A numeric literal (an unquoted number); {@link #numberValue()} holds its value. */
+        boolean isNumeric() {
+            return number != null;
+        }
+
+        /** The numeric value (defined for {@link #isNumeric()} literals). */
+        double numberValue() {
+            return number;
         }
 
         boolean equalsValue(Object actual) {
