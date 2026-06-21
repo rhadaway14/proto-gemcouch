@@ -4,7 +4,7 @@
   "tags": ["protogemcouch", "couchbase", "backend", "capacity"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "templating": {
@@ -177,6 +177,82 @@
           "legendFormat": "{{bucket}} bg fetch/s"
         }
       ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Breakdowns & health (non-time-series views)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }
+    },
+    {
+      "id": 21,
+      "type": "piechart",
+      "title": "KV operation mix by type",
+      "description": "Proportional share of backend KV ops (get / set / delete / …) over the range.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 25 },
+      "fieldConfig": { "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "pieType": "pie", "legend": { "displayMode": "list", "placement": "right", "values": ["percent"] }, "tooltip": { "mode": "single" }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (op) (rate(kv_ops{bucket=~\"$bucket\"}[$__rate_interval])) > 0", "legendFormat": "{{op}}", "instant": true } ]
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "Memory used by bucket",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 25 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "continuous-BlPu" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "kv_mem_used_bytes{bucket=~\"$bucket\"}", "legendFormat": "{{bucket}}", "instant": true } ]
+    },
+    {
+      "id": 23,
+      "type": "gauge",
+      "title": "Disk write queue depth",
+      "description": "Total items waiting to be persisted. A high standing value means Couchbase cannot drain writes as fast as they arrive — the backend is the ceiling.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 25 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 10000 } ] } }, "overrides": [] },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(kv_ep_diskqueue_items{bucket=~\"$bucket\"})", "instant": true } ]
+    },
+    {
+      "id": 24,
+      "type": "heatmap",
+      "title": "KV command latency distribution (heatmap)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "custom": { "scaleDistribution": { "type": "linear" }, "hideFrom": { "tooltip": false, "viz": false, "legend": false } } }, "overrides": [] },
+      "options": { "calculate": false, "cellGap": 1, "color": { "mode": "scheme", "scheme": "Spectral", "reverse": false, "steps": 64, "exponent": 0.5, "fill": "dark-orange" }, "yAxis": { "axisPlacement": "left", "unit": "s" }, "rowsFrame": { "layout": "auto" }, "tooltip": { "mode": "single", "yHistogram": true }, "legend": { "show": true }, "exemplars": { "color": "rgba(255,0,255,0.7)" }, "filterValues": { "le": 1e-9 } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (le) (rate(kv_cmd_duration_seconds_bucket{bucket=~\"$bucket\"}[$__rate_interval]))", "legendFormat": "{{le}}", "format": "heatmap" } ]
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Per-bucket summary",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "filterable": true } }, "overrides": [ { "matcher": { "id": "byName", "options": "mem used" }, "properties": [ { "id": "unit", "value": "bytes" } ] } ] },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "items", "desc": true } ] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "kv_mem_used_bytes{bucket=~\"$bucket\"}", "instant": true, "format": "table" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "kv_curr_items{bucket=~\"$bucket\"}", "instant": true, "format": "table" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "kv_ep_diskqueue_items{bucket=~\"$bucket\"}", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "bucket", "mode": "outer" } },
+        { "id": "organize", "options": { "excludeByName": { "Time 1": true, "Time 2": true, "Time 3": true, "__name__ 1": true, "__name__ 2": true, "__name__ 3": true, "instance 1": true, "instance 2": true, "instance 3": true, "job 1": true, "job 2": true, "job 3": true, "role 1": true, "role 2": true, "role 3": true }, "renameByName": { "Value #A": "mem used", "Value #B": "items", "Value #C": "disk queue" } } }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "state-timeline",
+      "title": "Backend & shim availability (up / down)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 41 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }, "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } } ], "custom": { "fillOpacity": 80, "lineWidth": 0 } }, "overrides": [] },
+      "options": { "showValue": "never", "mergeValues": true, "rowHeight": 0.9, "alignValue": "center", "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=~\"couchbase|protogemcouch\"}", "legendFormat": "{{job}}" } ]
     }
   ]
 }

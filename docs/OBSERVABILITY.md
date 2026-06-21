@@ -275,26 +275,39 @@ detecting risky operations such as GET_ALL, PUT_ALL, and keySetOnServer
 
 Grafana auto-loads these dashboards (folder **ProtoGemCouch**), from `grafana/dashboards/`:
 
+Each dashboard pairs its time-series panels with complementary **non-time-series** visualization types
+— gauges, bar gauges, pie charts, bar charts, heatmaps, tables, and state-timeline / status-history
+availability strips — chosen to fit each signal (comparison, distribution, proportion, or up/down
+state) rather than defaulting to a line chart everywhere.
+
 - **ProtoGemCouch Observability** — Prometheus metrics (request/error rates, latency percentiles,
-  byte sizes, connections) by operation.
+  byte sizes, connections) by operation. Beyond the time series it adds a **bar gauge** and **pie
+  chart** comparing per-operation load, an error-ratio **gauge** against the SLO, a latency
+  **heatmap** (bucket distribution over time), a tail-latency **bar chart**, a per-operation **table**
+  (rate / errors / p99), and a **state-timeline** of scrape-target availability.
 - **ProtoGemCouch Host Metrics** — host/OS metrics from `node_exporter` (CPU busy %, memory used %,
   load average, network throughput, disk I/O utilization, filesystem used %), with a per-host
-  `instance` template variable. Locally it shows the single `node-exporter` container; on the
-  multi-host capacity rig every shim / Couchbase / load-generator host runs `node_exporter` and is
-  listed as a Prometheus target, so the dashboard attributes the capacity ceiling to a specific
-  resource on a specific host.
+  `instance` template variable. It also has a per-host CPU **bar gauge**, a memory **gauge**, a
+  filesystem-usage **pie chart**, an uptime **stat**, and a host-availability **status-history** grid.
+  Locally it shows the single `node-exporter` container; on the multi-host capacity rig every shim /
+  Couchbase / load-generator host runs `node_exporter` and is listed as a Prometheus target, so the
+  dashboard attributes the capacity ceiling to a specific resource on a specific host.
 - **ProtoGemCouch Couchbase** — backend metrics from Couchbase Server's built-in Prometheus endpoint
   (`/metrics` on 8091): KV operations/sec by type, command latency p50/p99, memory used, current
   items, connections + node CPU, the **disk-write queue depth**, and **errors / OOM / cache-miss**
   panels. The queue-depth and OOM panels are the signals that reveal when Couchbase (not the shim) is
-  the capacity ceiling. It has a per-`bucket` template variable. The scrape uses the local dev
-  credentials; on the capacity rig use a Prometheus `basic_auth` credentials file / secret per node.
+  the capacity ceiling. A breakdown section adds a KV-op-mix **pie chart**, a per-bucket memory **bar
+  gauge**, a disk-queue **gauge**, a command-latency **heatmap**, a per-bucket **table**, and a
+  backend/shim **state-timeline**. It has a per-`bucket` template variable. The scrape uses the local
+  dev credentials; on the capacity rig use a Prometheus `basic_auth` credentials file / secret per node.
 - **ProtoGemCouch Logs & Traces** — built on the Loki and Jaeger datasources: log volume by level,
   completed operations and failed-request / malformed-frame rates derived from the logs, an audit-event
   breakdown, a **PDX registry cap rejections by kind** panel (the rate of `pdx_registry_cap_exceeded`
   audit events split by registry `kind` — types vs enums), live shim + audit log panels, and a
   recent-traces table (the traces table is populated only with the tracing overlay up; click a trace to
-  open its span tree in Explore). It has a `container` variable to switch between the shim instances.
+  open its span tree in Explore). A log-breakdowns section adds a log-level **pie chart**, an
+  audit-events **bar chart**, and a failed-requests **stat**. It has a `container` variable to switch
+  between the shim instances.
 
 ## Recommended dashboard panels
 

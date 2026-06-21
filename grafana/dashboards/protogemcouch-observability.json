@@ -4,7 +4,7 @@
   "tags": ["protogemcouch", "geode", "couchbase"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "refresh": "5s",
   "time": { "from": "now-15m", "to": "now" },
@@ -211,6 +211,99 @@
         { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "protogemcouch_durable_clients", "legendFormat": "durable clients" },
         { "refId": "D", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "protogemcouch_durable_queue_depth", "legendFormat": "durable queue depth" }
       ]
+    },
+
+    {
+      "id": 29,
+      "type": "text",
+      "title": "Breakdowns, distributions & availability",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 52 },
+      "options": {
+        "mode": "markdown",
+        "content": "The panels below complement the time-series above with **non-time-series** views: a **bar gauge** and **pie chart** compare per-operation load side by side, a **gauge** tracks the error ratio against an SLO, a **heatmap** shows the latency distribution over time, a **bar chart** ranks tail latency by operation, a **table** summarizes each operation, and a **state-timeline** shows scrape-target availability. See [docs/OBSERVABILITY.md](https://github.com/rhadaway14/proto-gemcouch/blob/master/docs/OBSERVABILITY.md)."
+      }
+    },
+    {
+      "id": 30,
+      "type": "bargauge",
+      "title": "Request rate by operation",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "continuous-GrYlRd" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] } }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (operation) (rate(protogemcouch_operation_requests_total{operation=~\"$operation\"}[$__rate_interval]))", "legendFormat": "{{operation}}", "instant": true } ]
+    },
+    {
+      "id": 31,
+      "type": "piechart",
+      "title": "Traffic share by operation",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "pieType": "donut", "legend": { "displayMode": "list", "placement": "right", "values": ["percent"] }, "tooltip": { "mode": "single" }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (operation) (rate(protogemcouch_operation_requests_total{operation=~\"$operation\"}[$__rate_interval]))", "legendFormat": "{{operation}}", "instant": true } ]
+    },
+    {
+      "id": 32,
+      "type": "gauge",
+      "title": "Error ratio (errors / requests)",
+      "description": "Percentage of operations that failed over the dashboard range. Amber/red thresholds mark the error-rate SLO.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 } ] } }, "overrides": [] },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * sum(rate(protogemcouch_operation_errors_total[$__rate_interval])) / clamp_min(sum(rate(protogemcouch_operation_requests_total[$__rate_interval])), 1)", "instant": true } ]
+    },
+    {
+      "id": 33,
+      "type": "heatmap",
+      "title": "Operation latency distribution (heatmap)",
+      "description": "Latency buckets over time — bands reveal how the p95/p99 distribution shifts under load, which percentile lines alone hide.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 63 },
+      "fieldConfig": { "defaults": { "custom": { "scaleDistribution": { "type": "linear" }, "hideFrom": { "tooltip": false, "viz": false, "legend": false } } }, "overrides": [] },
+      "options": { "calculate": false, "cellGap": 1, "color": { "mode": "scheme", "scheme": "Spectral", "reverse": false, "steps": 64, "exponent": 0.5, "fill": "dark-orange" }, "yAxis": { "axisPlacement": "left", "unit": "s" }, "rowsFrame": { "layout": "auto" }, "tooltip": { "mode": "single", "yHistogram": true }, "legend": { "show": true }, "exemplars": { "color": "rgba(255,0,255,0.7)" }, "filterValues": { "le": 1e-9 } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (le) (rate(protogemcouch_operation_latency_seconds_bucket{operation=~\"$operation\"}[$__rate_interval]))", "legendFormat": "{{le}}", "format": "heatmap" } ]
+    },
+    {
+      "id": 34,
+      "type": "barchart",
+      "title": "p99 latency by operation",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 63 },
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "orientation": "horizontal", "xField": "operation", "showValue": "auto", "stacking": "none", "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum by (operation, le) (rate(protogemcouch_operation_latency_seconds_bucket{operation=~\"$operation\"}[$__rate_interval])))", "legendFormat": "{{operation}}", "instant": true, "format": "table" } ],
+      "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "Value": "p99" } } } ]
+    },
+    {
+      "id": 35,
+      "type": "table",
+      "title": "Per-operation summary (rate / errors / p99)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 71 },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "filterable": true } }, "overrides": [ { "matcher": { "id": "byName", "options": "p99 (s)" }, "properties": [ { "id": "unit", "value": "s" } ] }, { "matcher": { "id": "byName", "options": "req/s" }, "properties": [ { "id": "unit", "value": "reqps" } ] }, { "matcher": { "id": "byName", "options": "err/s" }, "properties": [ { "id": "unit", "value": "reqps" }, { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.001 } ] } } ] } ] },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "req/s", "desc": true } ] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (operation) (rate(protogemcouch_operation_requests_total{operation=~\"$operation\"}[$__rate_interval]))", "instant": true, "format": "table" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (operation) (rate(protogemcouch_operation_errors_total{operation=~\"$operation\"}[$__rate_interval]))", "instant": true, "format": "table" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum by (operation, le) (rate(protogemcouch_operation_latency_seconds_bucket{operation=~\"$operation\"}[$__rate_interval])))", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "operation", "mode": "outer" } },
+        { "id": "organize", "options": { "excludeByName": { "Time 1": true, "Time 2": true, "Time 3": true }, "renameByName": { "Value #A": "req/s", "Value #B": "err/s", "Value #C": "p99 (s)" } } }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "state-timeline",
+      "title": "Scrape-target availability (up / down)",
+      "description": "Per-job Prometheus target health over time — a clear band view of when the shim, Couchbase, node-exporter, or Prometheus itself was unreachable.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 79 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }, "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } } ], "custom": { "fillOpacity": 80, "lineWidth": 0 } }, "overrides": [] },
+      "options": { "showValue": "never", "mergeValues": true, "rowHeight": 0.9, "alignValue": "center", "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=~\"protogemcouch|couchbase|node|prometheus\"}", "legendFormat": "{{job}}" } ]
     }
   ]
 }

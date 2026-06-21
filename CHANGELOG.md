@@ -7,6 +7,15 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Diversified Grafana visualization types across all four dashboards** — every dashboard now pairs
+  its time series with non-time-series panels chosen to fit each signal: the Observability dashboard
+  gains a request-rate **bar gauge**, a traffic-share **pie chart**, an error-ratio **gauge**, a
+  latency **heatmap**, a tail-latency **bar chart**, a per-operation **table**, a target-availability
+  **state-timeline**, and a **text** intro; Couchbase gains a KV-op-mix pie, a per-bucket memory bar
+  gauge, a disk-queue gauge, a command-latency heatmap, a per-bucket table, and a backend/shim
+  state-timeline; Host Metrics gains a CPU bar gauge, a memory gauge, a filesystem pie, an uptime stat,
+  and a host-availability **status-history**; Logs & Traces gains a log-level pie, an audit-events bar
+  chart, and a failed-requests stat. All four provision cleanly. (`docs/OBSERVABILITY.md` updated.)
 - **In-memory registry observability + bounds (1.1.0-M1)** — new sampled Prometheus gauges expose the
   shim's live in-memory state, which previously had no metrics: `protogemcouch_pdx_types`,
   `protogemcouch_pdx_enums`, `protogemcouch_active_transactions`, `protogemcouch_subscription_feeds`,
