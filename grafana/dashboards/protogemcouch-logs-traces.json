@@ -4,7 +4,7 @@
   "tags": ["protogemcouch", "logs", "traces"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "templating": {
@@ -153,10 +153,46 @@
       ]
     },
     {
+      "id": 11,
+      "type": "row",
+      "title": "Log breakdowns (Loki, non-time-series views)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }
+    },
+    {
+      "id": 12,
+      "type": "piechart",
+      "title": "Log volume share by level",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "logs", "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "options": { "pieType": "donut", "legend": { "displayMode": "list", "placement": "right", "values": ["percent"] }, "tooltip": { "mode": "single" }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [ { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (level) (count_over_time({container=\"$container\"} [$__range]))", "legendFormat": "{{level}}", "instant": true } ]
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Audit events by type (window total)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 1, "fillOpacity": 80 } }, "overrides": [] },
+      "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none", "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [ { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (event) (count_over_time({logger=\"protogemcouch.audit\"} | logfmt [$__range]))", "legendFormat": "{{event}}", "instant": true } ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Failed requests (window)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "targets": [ { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({container=\"$container\"} | logfmt | event=\"request_failed\" [$__range]))", "instant": true } ]
+    },
+    {
       "id": 8,
       "type": "row",
       "title": "Traces (Jaeger) — requires the docker-compose.tracing.yml overlay",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }
     },
     {
       "id": 9,
@@ -164,7 +200,7 @@
       "title": "Recent traces",
       "description": "Recent operation traces from Jaeger. Click a trace ID to open the full span tree in Explore.",
       "datasource": { "type": "jaeger", "uid": "jaeger" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 33 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 42 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": { "showHeader": true },
       "targets": [
