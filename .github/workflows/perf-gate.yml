@@ -38,9 +38,21 @@ jobs:
       - name: Run performance-regression gate
         run: bash scripts/perf-gate.sh
 
+      # Query-weighted gate: exercise and guard the OQL pushdown query path (not just CRUD).
+      - name: Start pushdown shim
+        run: docker compose up -d --build protogemcouch-pushdown
+
+      - name: Create the query-field GSI (pushdown index)
+        run: |
+          curl -fsS -u Administrator:password http://127.0.0.1:8093/query/service \
+            --data-urlencode 'statement=CREATE INDEX idx_perf_k IF NOT EXISTS ON `test`(TO_NUMBER(`value`.`k`.`value`))'
+
+      - name: Run query-weighted (pushdown) perf-gate
+        run: PERF_BASELINE=scripts/perf-baseline.query.env PERF_SHIM_PORT=40414 PERF_HEALTH_PORT=8090 bash scripts/perf-gate.sh
+
       - name: Dump shim logs on failure
         if: failure()
-        run: docker compose logs --no-color --tail 200 protogemcouch couchbase || true
+        run: docker compose logs --no-color --tail 200 protogemcouch protogemcouch-pushdown couchbase || true
 
       - name: Tear down
         if: always()

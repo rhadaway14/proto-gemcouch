@@ -7,6 +7,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Query-weighted perf-gate for OQL pushdown (1.1.0-M2, slice 6 — capstone)** — a new `query-heavy`
+  benchmark profile plus a `BENCH_QUERYABLE_VALUES` mode (seeds map values with a top-level `k` field and
+  runs `SELECT * FROM /r WHERE k = N`, a real pushdown-eligible query) make the benchmark exercise the OQL
+  query path. The runner now emits `query_p99_ms` on its `PERF_RESULT` line, and `scripts/perf-gate.sh`
+  enforces a `PERF_MAX_QUERY_P99_MS` ceiling (with a throughput floor set just above the full-scan rate,
+  so a silent regression back to scanning trips the gate). A CI query-gate
+  (`.github/workflows/perf-gate.yml`) runs it against the pushdown shim with an indexed field;
+  `scripts/perf-baseline.query.env` holds the conservative CI thresholds and `perf-baseline.rig.env` the
+  tight rig ones. Measured local win: ≈6× throughput and ~5× lower query p99 (indexed pushdown vs the
+  full-region scan). This completes the M2 OQL-pushdown milestone.
 - **OQL pushdown — `LIMIT`-without-`WHERE` + partial-predicate push (1.1.0-M2, slice 5)** — two more
   queries now push down instead of scanning. `SELECT * FROM /region LIMIT n` (no `WHERE`) pushes a
   region-scoped capped N1QL query (excluding invalidated markers) rather than scanning the whole region.
