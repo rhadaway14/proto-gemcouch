@@ -189,4 +189,9 @@ public class TracingRepository implements Repository {
     public int sweepExpiredDurable() {
         return traced("sweepExpiredDurable", null, null, delegate::sweepExpiredDurable);
     }
+
+    @Override
+    public List<DurableRecord> listAwayDurable() {
+        return traced("listAwayDurable", null, null, delegate::listAwayDurable);
+    }
 }

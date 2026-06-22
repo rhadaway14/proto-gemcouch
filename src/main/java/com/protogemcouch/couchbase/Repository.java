@@ -245,4 +245,14 @@ public interface Repository {
     default int sweepExpiredDurable() {
         return 0;
     }
+
+    /**
+     * List every away durable client's persisted record (away flag set), so the replica that processes a
+     * mutation — its <em>origin</em> — can enqueue matching events for all away clients, not just the
+     * ones it owned locally. This is the cross-replica registry read that makes durable delivery
+     * independent of the client's former owner replica. Returns an empty list unless persistence is on.
+     */
+    default List<DurableRecord> listAwayDurable() {
+        return List.of();
+    }
 }

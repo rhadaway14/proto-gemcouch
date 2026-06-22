@@ -113,6 +113,14 @@ public final class SubscriptionRegistry {
     private volatile Repository durableRepository;
     private volatile boolean durablePersistence;
 
+    // Slice 3 — cross-replica origin enqueue. The replica that PROCESSES a mutation (its origin) enqueues
+    // matching events for ALL away durable clients, read from the persisted registry — not just the ones
+    // it owned in memory — so delivery survives the client's former owner replica failing. The away
+    // registry is cached and refreshed in the background (DURABLE_AWAY_REFRESH_MS) so it is not a
+    // Couchbase read per mutation; freshness is bounded by that interval.
+    private static final int DURABLE_AWAY_REFRESH_MS = intEnv("DURABLE_AWAY_REFRESH_MS", 1000);
+    private volatile java.util.Map<String, DurableRecord> awayRegistryCache = java.util.Map.of();
+
     /** In-memory state for one durable client: its current feed (or null while away) + its event queue. */
     private static final class DurableState {
         volatile Channel liveFeed;        // current feed channel, or null while disconnected
@@ -229,12 +237,89 @@ public final class SubscriptionRegistry {
                     log.warn(StructuredLog.event("durable_sweep_failed", "error", e.getMessage()));
                 }
             }, DURABLE_SWEEP_SECONDS, DURABLE_SWEEP_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
-            log.info(StructuredLog.event("durable_persistence_enabled", "sweepSeconds", DURABLE_SWEEP_SECONDS));
+            // Background-refresh the away-registry cache so the origin-enqueue path (below) reads memory,
+            // not Couchbase, per mutation. Freshness is bounded by this interval.
+            refreshAwayRegistry();
+            durableExpiry.scheduleWithFixedDelay(this::refreshAwayRegistry,
+                    DURABLE_AWAY_REFRESH_MS, DURABLE_AWAY_REFRESH_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            log.info(StructuredLog.event("durable_persistence_enabled",
+                    "sweepSeconds", DURABLE_SWEEP_SECONDS, "awayRefreshMs", DURABLE_AWAY_REFRESH_MS));
         }
     }
 
     private boolean durablePersistenceActive() {
         return durablePersistence && durableRepository != null;
+    }
+
+    /** Reload the away-durable registry from Couchbase into the in-memory cache (background task). */
+    private void refreshAwayRegistry() {
+        try {
+            java.util.List<DurableRecord> away = durableRepository.listAwayDurable();
+            java.util.Map<String, DurableRecord> map = new java.util.HashMap<>(Math.max(8, away.size() * 2));
+            for (DurableRecord record : away) {
+                if (record.durableId() != null) {
+                    map.put(record.durableId(), record);
+                }
+            }
+            awayRegistryCache = map;
+        } catch (RuntimeException e) {
+            log.warn(StructuredLog.event("durable_away_refresh_failed", "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Origin enqueue (Slice 3): for a mutation processed locally on this replica, append the event to the
+     * Couchbase queue of every away durable client whose interest matches — regardless of which replica
+     * owned them. Single-writer: only the local-origin publish path calls this (never a backplane echo),
+     * so an event is enqueued exactly once. Clients with a live, ready feed here are skipped (delivered
+     * live); a still-reconnecting client (away until CLIENT_READY) is enqueued and drained on ready.
+     */
+    private void enqueueInterestForAwayClients(byte[] message, String region, String key, String originClientId) {
+        java.util.Map<String, DurableRecord> away = awayRegistryCache;
+        if (away.isEmpty()) {
+            return;
+        }
+        for (DurableRecord record : away.values()) {
+            String durableId = record.durableId();
+            if (durableId.equals(originClientId)) {
+                continue; // self-suppression
+            }
+            if (!interestMatches(record, region, key)) {
+                continue;
+            }
+            if (liveReadyFeed(durableId) != null) {
+                continue; // connected + ready here: delivered live by pushToFeeds
+            }
+            durableRepository.enqueueDurableEvent(durableId, message.clone());
+        }
+    }
+
+    /** True if any of the persisted record's interests covers {@code key} in {@code region}. */
+    private static boolean interestMatches(DurableRecord record, String region, String key) {
+        for (DurableRecord.InterestSpec spec : record.interests()) {
+            if (!region.equals(spec.region())) {
+                continue;
+            }
+            switch (spec.kind()) {
+                case ALL_KEYS -> {
+                    return true;
+                }
+                case KEYS -> {
+                    if (key != null && spec.keys().contains(key)) {
+                        return true;
+                    }
+                }
+                case REGEX -> {
+                    if (key != null && spec.regex() != null && key.matches(spec.regex())) {
+                        return true;
+                    }
+                }
+                default -> {
+                    // unknown kind: ignore
+                }
+            }
+        }
+        return false;
     }
 
     /** Build the persistable record for a durable client from its current in-memory interests. */
@@ -272,11 +357,13 @@ public final class SubscriptionRegistry {
         if (event == null || instanceId.equals(event.originInstanceId())) {
             return;
         }
+        // Backplane echo: deliver live to this replica's feeds, but do NOT origin-enqueue for away
+        // clients (localOrigin=false) — the replica that processed the mutation is the single writer.
         switch (event.kind()) {
             case WRITE -> deliverWrite(event.region(), event.key(), event.value(), event.update(),
-                    event.originClientId());
-            case DESTROY -> deliverDestroy(event.region(), event.key(), event.originClientId());
-            case INVALIDATE -> deliverInvalidate(event.region(), event.key(), event.originClientId());
+                    event.originClientId(), false);
+            case DESTROY -> deliverDestroy(event.region(), event.key(), event.originClientId(), false);
+            case INVALIDATE -> deliverInvalidate(event.region(), event.key(), event.originClientId(), false);
             case CQ_EVENT -> deliverCqEvent(event.region(), event.key(), event.value(), event.priorValue(),
                     event.originClientId());
             case CQ_DESTROY -> deliverCqDestroy(event.region(), event.key(), event.priorValue(),
@@ -353,12 +440,10 @@ public final class SubscriptionRegistry {
                 state.expiry = null;
             }
         }
-        if (durablePersistenceActive()) {
-            // The client may be reconnecting to a replica that never saw it; its persisted queue is
-            // waiting in Couchbase (drained on CLIENT_READY). Mark the doc not-away so the timeout sweep
-            // won't reclaim it mid-reconnect (no-op if no doc exists — a never-disconnected client).
-            durableRepository.markDurableAway(durableId, false);
-        }
+        // Note: the client is deliberately kept "away" in the persisted registry until CLIENT_READY
+        // (see onClientReady -> markDurableAway(false)), so the origin keeps enqueuing matching events to
+        // its Couchbase queue during the reconnect window; those are drained on CLIENT_READY. The timeout
+        // sweep won't reclaim it meanwhile because its timeout has not elapsed.
         log.info(StructuredLog.event("durable_client_connected", "durableId", durableId,
                 "queued", state.pendingCount.get(), "persisted", durablePersistenceActive()));
     }
@@ -548,49 +633,86 @@ public final class SubscriptionRegistry {
         if (value == null) {
             return;
         }
-        deliverWrite(region, key, value, update, originClientId);
+        deliverWrite(region, key, value, update, originClientId, true);
         backplane.publish(new RemoteEvent(
                 RemoteEvent.Kind.WRITE, region, key, value, null, update, originClientId, instanceId));
     }
 
-    private void deliverWrite(String region, String key, StoredValue value, boolean update, String originClientId) {
-        if (!hasInterest(region) || value == null) {
+    private void deliverWrite(String region, String key, StoredValue value, boolean update,
+                             String originClientId, boolean localOrigin) {
+        if (value == null) {
+            return;
+        }
+        boolean local = hasInterest(region);
+        boolean away = localOrigin && durablePersistenceActive() && awayRegistryRegionInterested(region);
+        if (!local && !away) {
             return;
         }
         int messageType = update ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
         byte[] message = GemResponseWriter.buildLocalWrite(
                 messageType, region, key, value, nextVersionTag(), nextEventId());
-        pushToFeeds(message, update ? "update" : "create", region, key, originClientId);
+        if (local) {
+            pushToFeeds(message, update ? "update" : "create", region, key, originClientId);
+        }
+        if (away) {
+            enqueueInterestForAwayClients(message, region, key, originClientId);
+        }
     }
 
     /** Push a destroy notification for an interested region's key to every open feed (except the origin). */
     public void publishDestroy(String region, String key, String originClientId) {
-        deliverDestroy(region, key, originClientId);
+        deliverDestroy(region, key, originClientId, true);
         backplane.publish(new RemoteEvent(
                 RemoteEvent.Kind.DESTROY, region, key, null, null, false, originClientId, instanceId));
     }
 
-    private void deliverDestroy(String region, String key, String originClientId) {
-        if (!hasInterest(region)) {
+    private void deliverDestroy(String region, String key, String originClientId, boolean localOrigin) {
+        boolean local = hasInterest(region);
+        boolean away = localOrigin && durablePersistenceActive() && awayRegistryRegionInterested(region);
+        if (!local && !away) {
             return;
         }
         byte[] message = GemResponseWriter.buildLocalDestroy(region, key, nextVersionTag(), nextEventId());
-        pushToFeeds(message, "destroy", region, key, originClientId);
+        if (local) {
+            pushToFeeds(message, "destroy", region, key, originClientId);
+        }
+        if (away) {
+            enqueueInterestForAwayClients(message, region, key, originClientId);
+        }
     }
 
     /** Push an invalidate notification for an interested region's key to every open feed (except the origin). */
     public void publishInvalidate(String region, String key, String originClientId) {
-        deliverInvalidate(region, key, originClientId);
+        deliverInvalidate(region, key, originClientId, true);
         backplane.publish(new RemoteEvent(
                 RemoteEvent.Kind.INVALIDATE, region, key, null, null, false, originClientId, instanceId));
     }
 
-    private void deliverInvalidate(String region, String key, String originClientId) {
-        if (!hasInterest(region)) {
+    private void deliverInvalidate(String region, String key, String originClientId, boolean localOrigin) {
+        boolean local = hasInterest(region);
+        boolean away = localOrigin && durablePersistenceActive() && awayRegistryRegionInterested(region);
+        if (!local && !away) {
             return;
         }
         byte[] message = GemResponseWriter.buildLocalInvalidate(region, key, nextVersionTag(), nextEventId());
-        pushToFeeds(message, "invalidate", region, key, originClientId);
+        if (local) {
+            pushToFeeds(message, "invalidate", region, key, originClientId);
+        }
+        if (away) {
+            enqueueInterestForAwayClients(message, region, key, originClientId);
+        }
+    }
+
+    /** True if any away durable client in the cached registry has an interest in {@code region}. */
+    private boolean awayRegistryRegionInterested(String region) {
+        for (DurableRecord record : awayRegistryCache.values()) {
+            for (DurableRecord.InterestSpec spec : record.interests()) {
+                if (region.equals(spec.region())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -789,10 +911,12 @@ public final class SubscriptionRegistry {
                 continue;
             }
             if (durablePersistenceActive()) {
-                durableRepository.enqueueDurableEvent(durableId, message.clone());
-            } else {
-                enqueueDurable(state, message.clone());
+                // Slice 3: the origin replica enqueues for away clients from the persisted registry
+                // (single-writer), so the in-memory per-replica enqueue is only used when persistence is
+                // off. Skipping here avoids a second writer (which would duplicate events on replay).
+                continue;
             }
+            enqueueDurable(state, message.clone());
             queued++;
         }
         log.info(StructuredLog.event("subscription_event_pushed", "kind", kind, "region", region,
