@@ -172,9 +172,13 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     **Slice 3b DONE — CQ events:** CQ OQL text is captured at `registerCq` and persisted in the durable
     record, so the origin recompiles (cached) + evaluates each away client's CQ and enqueues CQ
     create/update/destroy — making CQ delivery owner-independent too (validated by
-    `nonOwnerReplicaEnqueuesCqEventForAwayClient`). **Slice 3 COMPLETE.** Remaining: **Slice 4** — k8s
-    failover validation (kill a replica, reconnect to another). Known bound: away-registry cache freshness
-    ≈ the refresh interval.
+    `nonOwnerReplicaEnqueuesCqEventForAwayClient`). **Slice 4 DONE — k8s failover validated** on the real
+    cluster (2-replica shim, `DURABLE_PERSISTENCE=true`, **no backplane**): a durable client subscribes on
+    replica A, **A is hard-killed**, a mutation on replica B enqueues for the away client from the
+    registry, and the client reconnects to B and replays → `DURABLE_FAILOVER_CHECK PASS`
+    (`tools.DurableFailoverCheck` + `scripts/k8s-durable-failover-e2e.sh`). **1.2.0-M1 COMPLETE — durable
+    subscriptions are now HA: they survive a replica failing and replay on reconnect to any replica, for
+    both interest and CQ events.** Known bound: away-registry cache freshness ≈ the refresh interval.
   - **P3 — redundancy / keepalive DONE.** A real redundancy-enabled, keepalive-pinging client
     (`tools/RedundancyKeepaliveProbe`) produces no unhandled opcodes: client PINGs (5) are acked,
     MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK (52) is drained. Subscription
