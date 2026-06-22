@@ -77,6 +77,7 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_DURABLE_ID = "durableId";
     private static final String FIELD_TIMEOUT_SECONDS = "timeoutSeconds";
     private static final String FIELD_AWAY = "away";
+    private static final String FIELD_AWAY_SINCE = "awaySince";
     private static final String FIELD_INTERESTS = "interests";
     private static final String FIELD_CQS = "cqs";
     private static final String FIELD_QUEUE = "queue";
@@ -1528,6 +1529,10 @@ public class CouchbaseRepository implements Repository {
                     MutateInSpec.upsert(FIELD_DURABLE_ID, record.durableId()),
                     MutateInSpec.upsert(FIELD_TIMEOUT_SECONDS, record.timeoutSeconds()),
                     MutateInSpec.upsert(FIELD_AWAY, record.away()),
+                    // awaySince is a repository-managed timestamp (not part of DurableRecord): set when
+                    // the client goes away, cleared otherwise, so the cross-replica sweep can find docs
+                    // whose timeout has elapsed.
+                    MutateInSpec.upsert(FIELD_AWAY_SINCE, record.away() ? System.currentTimeMillis() : 0L),
                     MutateInSpec.upsert(FIELD_INTERESTS, encoded.getArray(FIELD_INTERESTS)),
                     MutateInSpec.upsert(FIELD_CQS, encoded.getArray(FIELD_CQS))),
                     mutateInOptions());
@@ -1692,12 +1697,72 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    /**
+     * Flip the away flag + awaySince timestamp via sub-document upserts, using REPLACE store semantics
+     * (the default) so it does NOT create a doc — a client that never went away has none to mark.
+     * Best-effort: a missing doc or any error is swallowed.
+     */
+    @Override
+    public void markDurableAway(String durableId, boolean away) {
+        if (!durablePersistenceEnabled || durableId == null) {
+            return;
+        }
+        try {
+            MutateInOptions options = MutateInOptions.mutateInOptions(); // REPLACE semantics: no create
+            if (writeDurability != DurabilityLevel.NONE) {
+                options.durability(writeDurability);
+            }
+            collection.mutateIn(durableDocId(durableId), java.util.List.of(
+                    MutateInSpec.upsert(FIELD_AWAY, away),
+                    MutateInSpec.upsert(FIELD_AWAY_SINCE, away ? System.currentTimeMillis() : 0L)),
+                    options);
+        } catch (DocumentNotFoundException absent) {
+            // no persisted doc yet (client never went away) — nothing to mark
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_durable_mark_away_failed", "durableId", durableId, "error", e.getMessage()));
+        }
+    }
+
     private MutateInOptions durableCasOptions(long cas) {
         MutateInOptions options = MutateInOptions.mutateInOptions().cas(cas);
         if (writeDurability != DurabilityLevel.NONE) {
             options.durability(writeDurability);
         }
         return options;
+    }
+
+    /**
+     * Cross-replica timeout sweep: a single N1QL {@code DELETE} drops every away durable doc whose
+     * timeout has elapsed ({@code awaySince + timeoutSeconds*1000 < now}). Bucket-wide and independent
+     * of any one replica's in-memory expiry timer, so a durable client whose former owner replica died
+     * is still reclaimed. Best-effort (returns 0 on any error); REQUEST_PLUS so it sees recent writes.
+     */
+    @Override
+    public int sweepExpiredDurable() {
+        if (!durablePersistenceEnabled) {
+            return 0;
+        }
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "DELETE FROM " + keyspace + " AS c"
+                + " WHERE c.`type` = \"" + TYPE_DURABLE_REGISTRY + "\""
+                + " AND c.`away` = true AND c.`awaySince` > 0"
+                + " AND (c.`awaySince` + c.`timeoutSeconds` * 1000) < $now"
+                + " RETURNING META(c).id";
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .parameters(JsonObject.create().put("now", System.currentTimeMillis()))
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            int swept = result.rowsAsObject().size();
+            if (swept > 0) {
+                log.info(StructuredLog.event("repository_durable_swept", "count", swept));
+            }
+            return swept;
+        } catch (Exception e) {
+            log.warn(StructuredLog.event("repository_durable_sweep_failed", "error", e.getMessage()));
+            return 0;
+        }
     }
 
     /**

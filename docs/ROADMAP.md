@@ -140,8 +140,19 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   unchanged); `TracingRepository` delegates all five. Validated by `DurableRecordCodecTest` (codec
   round-trip) + `DurablePersistenceIntegrationTest` (7 cases against real Couchbase: save/load, drain
   ordering, the bound, save-doesn't-clobber-queue, drop, and the off-by-default no-op).
-- [ ] **Slice 2 — wire `SubscriptionRegistry`:** persist on disconnect + mark away; replay-from-Couchbase
-  on reconnect + `CLIENT_READY` to *any* instance; timeout sweep drops expired docs.
+- [x] **Slice 2 — wire `SubscriptionRegistry` — DONE.** Behind `DURABLE_PERSISTENCE` (default off →
+  in-memory behavior unchanged): on a durable feed's disconnect the registry persists its record
+  (`saveDurable`, away) and flushes its queue to Couchbase; while away, matching events
+  `enqueueDurableEvent` to Couchbase instead of in-memory; on reconnect to **any** replica +
+  `CLIENT_READY` it `drainDurableQueue`s and replays (and `markDurableAway(false)`); a periodic
+  `sweepExpiredDurable` (`DURABLE_SWEEP_SECONDS`, default 60) reclaims expired docs cross-replica, so
+  the local per-client expiry timer only frees memory and never drops a doc the client may have
+  reconnected to elsewhere. Added the `markDurableAway` primitive (flip away/awaySince without
+  rewriting interests). Validated real-client by
+  `ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest` (durable client on replica A → A killed
+  feed → mutation enqueued on A → reconnect to **replica B** → replay from Couchbase), with the existing
+  single-instance durable suite still green under persistence. (CQ-*definition* persistence is deferred
+  to Slice 3 — durable CQ *events* already replay via the persisted queue.)
 - [ ] **Slice 3 — cross-replica origin enqueue:** the mutation's origin replica reads the persisted
   durable registry and enqueues matching events for *all* away durable clients (not just locally-owned).
 - [ ] **Slice 4 — multi-replica (k8s) validation:** durable client on replica A, A killed, reconnect to

@@ -226,4 +226,23 @@ public interface Repository {
     default void dropDurable(String durableId) {
         // no-op by default
     }
+
+    /**
+     * Flip a durable client's away flag (and the repository-managed {@code awaySince} timestamp) without
+     * rewriting its interests/CQs/queue — used when a client reconnects (mark not-away so the timeout
+     * sweep won't reclaim it). Does nothing if no persisted doc exists yet. No-op unless persistence is on.
+     */
+    default void markDurableAway(String durableId, boolean away) {
+        // no-op by default
+    }
+
+    /**
+     * Drop every persisted durable record whose away-timeout has elapsed ({@code awaySince + timeout <
+     * now}), reclaiming durable clients that never reconnect — even if the replica that owned them is
+     * gone (a cross-replica sweep, not tied to any one instance's expiry timer). Returns the number of
+     * records dropped. No-op (returns 0) unless durable persistence is on.
+     */
+    default int sweepExpiredDurable() {
+        return 0;
+    }
 }

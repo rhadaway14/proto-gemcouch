@@ -54,6 +54,12 @@ public final class HandlerRegistryFactory {
         // predicate on a PDX object field resolves identically whether one-shot or continuous.
         PdxAwareFieldResolver pdxFieldResolver = new PdxAwareFieldResolver(pdxTypeRegistry);
         subscriptions.setCqFieldResolver(pdxFieldResolver);
+        // Multi-replica durable subscriptions (1.2.0-M1): when DURABLE_PERSISTENCE is on, the registry
+        // persists durable records + event queues to Couchbase so they survive a replica failing and
+        // replay on a reconnect to any replica. Off (default) keeps the in-memory single-instance path.
+        if (boolEnv("DURABLE_PERSISTENCE", false)) {
+            subscriptions.enableDurablePersistence(repository);
+        }
         // OQL pushdown is opt-in (default off): when on, eligible queries pre-filter at the backend
         // instead of scanning the whole region. Off keeps the exact, validated scan behavior.
         boolean pushdownEnabled = boolEnv("OQL_PUSHDOWN", false);

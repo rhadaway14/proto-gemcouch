@@ -180,6 +180,24 @@ class DurablePersistenceIntegrationTest {
     }
 
     @Test
+    void sweepDropsExpiredAwayRecordsButKeepsLiveOnes() {
+        String expired = newDurableId();
+        String live = newDurableId();
+        // away with timeout 0 -> awaySince+0 < now immediately -> expired.
+        repository.saveDurable(new DurableRecord(expired, 0, true,
+                List.of(DurableRecord.InterestSpec.allKeys("/r")), List.of()));
+        // away with a long timeout -> not yet expired.
+        repository.saveDurable(new DurableRecord(live, 3600, true,
+                List.of(DurableRecord.InterestSpec.allKeys("/r")), List.of()));
+
+        int swept = repository.sweepExpiredDurable();
+
+        assertTrue(swept >= 1, "at least the expired record is swept");
+        assertTrue(repository.loadDurable(expired).isEmpty(), "expired away record is dropped");
+        assertTrue(repository.loadDurable(live).isPresent(), "within-timeout away record is retained");
+    }
+
+    @Test
     void disabledPersistenceIsANoOp() {
         // A repository without the seam enabled treats every durable method as a no-op.
         ServerConfig config = new ServerConfig(
