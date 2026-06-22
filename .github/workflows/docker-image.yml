@@ -7,17 +7,44 @@ name: Docker Image Build and Publish
 on:
   push:
     branches:
-      - master
       - main
     tags:
       - 'v*'
   pull_request:
     branches:
-      - master
       - main
 
 jobs:
+  # Gate: deploy-only / docs-only changes don't change the image, so skip the (expensive) build —
+  # unless this is a version tag, where we always build + publish the release image.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!gitops/**'
+              - '!docs/**'
+      - name: Decide whether to build
+        id: decide
+        run: |
+          if [ "${{ steps.filter.outputs.code }}" = "true" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   docker-build:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-latest
 
     permissions:

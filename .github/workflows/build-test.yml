@@ -3,12 +3,10 @@ name: Build and Test
 on:
   push:
     branches:
-      - master
       - main
       - 'feature/**'
   pull_request:
     branches:
-      - master
       - main
 
 jobs:
@@ -19,7 +17,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Deploy-only / docs-only changes (gitops/**, docs/**) don't affect the build, so skip the heavy
+      # steps for them. The job still runs and succeeds, so this required check always reports — a
+      # gitops/docs-only PR is never blocked waiting on a skipped required check.
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!gitops/**'
+              - '!docs/**'
+
       - name: Set up Java 17
+        if: steps.filter.outputs.code == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,11 +42,12 @@ jobs:
       # fails the build if line coverage of the unit-testable surface drops below the floor
       # in pom.xml (jacoco.line.coverage.min). See docs/TEST_STRATEGY.md.
       - name: Run unit tests (with coverage gate)
+        if: steps.filter.outputs.code == 'true'
         run: mvn -B clean test
 
       # Always publish the coverage report, even when the gate fails, so a regression is diagnosable.
       - name: Upload coverage report
-        if: always()
+        if: always() && steps.filter.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-coverage-report
@@ -42,10 +55,16 @@ jobs:
           if-no-files-found: warn
 
       - name: Package application
+        if: steps.filter.outputs.code == 'true'
         run: mvn -B package -DskipTests
 
       - name: Upload packaged jar
+        if: steps.filter.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: protogemcouch-jar
           path: target/protogemcouch.jar
+
+      - name: Skip note (no code changes)
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Only gitops/docs changed — skipping build/test; required check passes."
