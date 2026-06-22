@@ -215,6 +215,36 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Sharded-keyset shim instance: KEYSET_SHARDS=16, so each region's keyset metadata is split across 16
+  # docs (lifting the single-doc 20 MiB key-count ceiling + shrinking per-op rewrites). Shares the same
+  # Couchbase; validated by ProtoGemCouchKeysetShardingIntegrationTest (exact size/keySet under
+  # concurrent puts/removes/clear with sharding on).
+  protogemcouch-keysetshards:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: protogemcouch-keysetshards
+    depends_on:
+      couchbase:
+        condition: service_healthy
+      couchbase-init:
+        condition: service_completed_successfully
+    ports:
+      - "40416:40405"
+      - "8096:8096"
+    env_file:
+      - .env
+    environment:
+      HEALTH_PORT: "8096"
+      KEYSET_SHARDS: "16"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8096/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   # Cross-version shim instance: widens the accepted client protocol versions to include Geode 1.13.x
   # (ordinal 120) and 1.14.x (125) alongside 1.15.x (150), so the cross-version client matrix can run
   # real lower-version Geode clients against the (1.15.x-built) shim and confirm wire interoperability.

@@ -44,10 +44,17 @@ DataSerializable** values, **PDX object-array fields** (arrays of nested PDX —
 object paths *are* queryable as of 1.1.0-M3), and **nested complex values requiring the user's classes**.
 The keyset-metadata operations (`REMOVE`/`PUT_ALL`/`SIZE`/`KEY_SET`) are a separate, much more expensive
 performance class: each is **O(region size)** (the per-region keyset document is read/rewritten whole),
-so treat them as cold-path, not hot-path. The single per-region keyset document also imposes a hard
-**per-region key-count ceiling** — Couchbase's 20 MiB document limit caps a region at roughly
-`20 MiB / (avg_key_length + 3)` keys (~2.1M for short keys, ~400k for 50-char keys); CRUD by key is
-unaffected. Quantified in `docs/SOAK_RESULTS.md` (keyset-metadata at-scale characterization).
+so treat them as cold-path, not hot-path. With the default single per-region keyset document, this also
+imposes a hard **per-region key-count ceiling** — Couchbase's 20 MiB document limit caps a region at
+roughly `20 MiB / (avg_key_length + 3)` keys (~2.1M for short keys, ~400k for 50-char keys); CRUD by key
+is unaffected. Quantified in `docs/SOAK_RESULTS.md` (keyset-metadata at-scale characterization).
+
+**Mitigation (1.2.0-M2): keyset sharding.** Set **`KEYSET_SHARDS=N`** (default 1) to split each region's
+keyset across N docs (`floorMod(key.hashCode(), N)`), which lifts the ceiling ~N× and shrinks each
+`REMOVE`/`PUT_ALL`/commit rewrite to ~`region/N` keys (measured: `REMOVE` flattens vs growing). It stays
+cross-process-safe and behavior is byte-identical at `N=1`. Set it at deploy time — changing the count
+over existing data requires a keyset rebuild. `KEY_SET`/`SIZE` remain O(region) (they must return all
+keys) but read shards in parallel.
 
 **Scope-expansion items still open** (tracked in `ROADMAP.md` §3): full PDX registry discovery + schema
 evolution beyond the per-type path; `DataSerializable` *field* access (needs the classes); arbitrary

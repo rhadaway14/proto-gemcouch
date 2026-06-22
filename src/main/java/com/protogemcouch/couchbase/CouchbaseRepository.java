@@ -162,6 +162,14 @@ public class CouchbaseRepository implements Repository {
     private boolean durablePersistenceEnabled = false;
     private int durableMaxQueue = DEFAULT_DURABLE_MAX_QUEUE;
 
+    // Keyset-metadata sharding (1.2.0-M2): the per-region keyset can be split across KEYSET_SHARDS docs
+    // (`__protogemcouch::keyset::<region>::s<n>`) keyed by floorMod(key.hashCode(), shards) — lifting the
+    // single-doc 20 MiB key-count ceiling and shrinking each add/remove/CAS to ~region/shards keys, with
+    // parallel shard reads. KEYSET_SHARDS=1 (default) uses the legacy single-doc id → byte-identical
+    // behavior. String.hashCode is spec-deterministic, so a key maps to the same shard on every replica
+    // (cross-process-safe). Changing the shard count over existing data requires a keyset rebuild.
+    private int keysetShards = 1;
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -198,6 +206,16 @@ public class CouchbaseRepository implements Repository {
                 (int) parsePositiveLongOrDefault(System.getenv("DURABLE_MAX_QUEUE"), DEFAULT_DURABLE_MAX_QUEUE);
         log.info(StructuredLog.event("repository_durable_persistence_configured",
                 "enabled", durablePersistenceEnabled, "maxQueue", durableMaxQueue));
+
+        this.keysetShards = (int) parsePositiveLongOrDefault(System.getenv("KEYSET_SHARDS"), 1L);
+        log.info(StructuredLog.event("repository_keyset_sharding_configured", "shards", keysetShards));
+        if (keysetShards > 1) {
+            // Sharding changes the keyset doc layout; existing data written under a different shard count
+            // (incl. the unsharded default) is not auto-migrated — rebuild the keyset on a count change.
+            log.warn(StructuredLog.event("repository_keyset_sharding_enabled",
+                    "shards", keysetShards,
+                    "note", "set at deploy time; changing the count over existing data needs a keyset rebuild"));
+        }
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -567,19 +585,22 @@ public class CouchbaseRepository implements Repository {
             return;
         }
 
-        // Net keyset change per region, applied inside the same transaction so size()/keySet() stay
-        // consistent with the value writes.
+        // Net keyset change per keyset SHARD doc (region+shard), applied inside the same transaction so
+        // size()/keySet() stay consistent with the value writes. Each key routes to exactly one shard.
         Map<String, TreeSet<String>> adds = new LinkedHashMap<>();
         Map<String, TreeSet<String>> removes = new LinkedHashMap<>();
+        Map<String, String> shardRegion = new LinkedHashMap<>();
         for (WriteOp op : ops) {
             ParsedDocumentKey parsed = parseDocumentKey(op.docId());
             if (parsed == null) {
                 continue;
             }
+            String shardDocId = keySetShardForKey(parsed.region(), parsed.key());
+            shardRegion.put(shardDocId, parsed.region());
             if (op.remove()) {
-                removes.computeIfAbsent(parsed.region(), r -> new TreeSet<>()).add(parsed.key());
+                removes.computeIfAbsent(shardDocId, r -> new TreeSet<>()).add(parsed.key());
             } else {
-                adds.computeIfAbsent(parsed.region(), r -> new TreeSet<>()).add(parsed.key());
+                adds.computeIfAbsent(shardDocId, r -> new TreeSet<>()).add(parsed.key());
             }
         }
 
@@ -602,12 +623,12 @@ public class CouchbaseRepository implements Repository {
                     }
                 }
 
-                // Recompute each affected region's keyset within the transaction.
-                java.util.Set<String> regions = new java.util.LinkedHashSet<>();
-                regions.addAll(adds.keySet());
-                regions.addAll(removes.keySet());
-                for (String region : regions) {
-                    String metadataDocId = keySetMetadataDocId(region);
+                // Recompute each affected keyset SHARD doc within the transaction.
+                java.util.Set<String> shardDocIds = new java.util.LinkedHashSet<>();
+                shardDocIds.addAll(adds.keySet());
+                shardDocIds.addAll(removes.keySet());
+                for (String metadataDocId : shardDocIds) {
+                    String region = shardRegion.get(metadataDocId);
                     TreeSet<String> keys = new TreeSet<>();
                     TransactionGetResult metaGet = null;
                     try {
@@ -623,8 +644,8 @@ public class CouchbaseRepository implements Repository {
                     } catch (DocumentNotFoundException absent) {
                         metaGet = null;
                     }
-                    keys.addAll(adds.getOrDefault(region, new TreeSet<>()));
-                    keys.removeAll(removes.getOrDefault(region, new TreeSet<>()));
+                    keys.addAll(adds.getOrDefault(metadataDocId, new TreeSet<>()));
+                    keys.removeAll(removes.getOrDefault(metadataDocId, new TreeSet<>()));
 
                     JsonArray keyArray = JsonArray.create();
                     for (String currentKey : keys) {
@@ -751,7 +772,16 @@ public class CouchbaseRepository implements Repository {
         if (keys == null || keys.isEmpty()) {
             return;
         }
-        mutateKeySetMetadata(region, current -> current.addAll(keys), "batch_add:" + keys.size());
+        // Group the batch by shard doc so each shard is rewritten once (one CAS per shard, not per key).
+        Map<String, List<String>> byShard = new LinkedHashMap<>();
+        for (String key : keys) {
+            byShard.computeIfAbsent(keySetShardForKey(region, key), s -> new ArrayList<>()).add(key);
+        }
+        for (Map.Entry<String, List<String>> entry : byShard.entrySet()) {
+            List<String> shardKeys = entry.getValue();
+            mutateKeySetShard(entry.getKey(), region, current -> current.addAll(shardKeys),
+                    "batch_add:" + shardKeys.size());
+        }
     }
 
     @Override
@@ -817,7 +847,9 @@ public class CouchbaseRepository implements Repository {
                 throw new RepositoryException("clear failed for region=" + region, e);
             }
         }
-        mutateKeySetMetadata(region, TreeSet::clear, "clear:" + keys.size());
+        for (String shardDocId : keySetShardDocIds(region)) {
+            mutateKeySetShard(shardDocId, region, TreeSet::clear, "clear");
+        }
         log.info(StructuredLog.event("repository_clear_ok", "region", region, "removed", keys.size()));
     }
 
@@ -1038,57 +1070,58 @@ public class CouchbaseRepository implements Repository {
 
     @Override
     public List<String> keySet(String region) {
+        List<String> shardDocIds = keySetShardDocIds(region);
         try {
-            String metadataDocId = keySetMetadataDocId(region);
-
-            GetResult result = collection.get(metadataDocId);
-            JsonObject content = result.contentAsObject();
-            JsonArray rawKeys = content.getArray(FIELD_KEYS);
-
-            List<String> keys = new ArrayList<>();
-
-            if (rawKeys != null) {
-                for (Object rawKey : rawKeys) {
-                    if (rawKey != null) {
-                        keys.add(String.valueOf(rawKey));
+            // Read all shards concurrently and union their keys (a single doc when unsharded). A missing
+            // shard contributes nothing. Keys are unique across shards (each key maps to exactly one).
+            List<CompletableFuture<GetResult>> futures = new ArrayList<>(shardDocIds.size());
+            for (String docId : shardDocIds) {
+                futures.add(collection.async().get(docId).toCompletableFuture());
+            }
+            TreeSet<String> keys = new TreeSet<>();
+            for (CompletableFuture<GetResult> future : futures) {
+                try {
+                    JsonArray rawKeys = future.join().contentAsObject().getArray(FIELD_KEYS);
+                    if (rawKeys != null) {
+                        for (Object rawKey : rawKeys) {
+                            if (rawKey != null) {
+                                keys.add(String.valueOf(rawKey));
+                            }
+                        }
                     }
+                } catch (Exception perShard) {
+                    if (rootCause(perShard) instanceof DocumentNotFoundException) {
+                        continue; // this shard has no keys yet
+                    }
+                    throw perShard;
                 }
             }
 
-            // Keyset eviction: when a TTL applies to this region, value docs can expire out from
-            // under the keyset metadata. Verify which keys still exist and prune the expired ones so
-            // size/keySet stay correct.
-            if (ttlConfig.enabledFor(region) && !keys.isEmpty()) {
-                keys = pruneExpiredKeys(region, keys);
+            List<String> result = new ArrayList<>(keys);
+            // Keyset eviction: when a TTL applies to this region, value docs can expire out from under
+            // the keyset metadata. Prune the expired ones so size/keySet stay correct.
+            if (ttlConfig.enabledFor(region) && !result.isEmpty()) {
+                result = pruneExpiredKeys(region, result);
             }
 
             log.info(StructuredLog.event(
-                    "repository_key_set_ok",
-                    "region", region,
-                    "metadataDocId", metadataDocId,
-                    "count", keys.size(),
-                    "keys", keys
-            ));
-
-            return keys;
-        } catch (DocumentNotFoundException e) {
-            log.info(StructuredLog.event(
-                    "repository_key_set_miss",
-                    "region", region,
-                    "metadataDocId", keySetMetadataDocId(region),
-                    "count", 0
-            ));
-
-            return new ArrayList<>();
+                    "repository_key_set_ok", "region", region, "shards", shardDocIds.size(),
+                    "count", result.size()));
+            return result;
         } catch (Exception e) {
             log.error(StructuredLog.event(
-                    "repository_key_set_error",
-                    "region", region,
-                    "metadataDocId", keySetMetadataDocId(region),
-                    "error", e.getMessage()
-            ), e);
+                    "repository_key_set_error", "region", region, "error", e.getMessage()), e);
             throw new RepositoryException("keySet failed for region=" + region, e);
         }
+    }
+
+    /** Unwrap to the root cause (Couchbase wraps async failures in CompletionException). */
+    private static Throwable rootCause(Throwable t) {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     /** A simple field name safe to embed as an N1QL identifier (matches the parser's field grammar). */
@@ -1306,7 +1339,16 @@ public class CouchbaseRepository implements Repository {
             }
 
             if (!stale.isEmpty()) {
-                mutateKeySetMetadata(region, current -> current.removeAll(stale), "evict:" + stale.size());
+                // Group stale keys by shard so each shard doc is rewritten once.
+                Map<String, List<String>> byShard = new LinkedHashMap<>();
+                for (String staleKey : stale) {
+                    byShard.computeIfAbsent(keySetShardForKey(region, staleKey), s -> new ArrayList<>()).add(staleKey);
+                }
+                for (Map.Entry<String, List<String>> entry : byShard.entrySet()) {
+                    List<String> shardStale = entry.getValue();
+                    mutateKeySetShard(entry.getKey(), region, current -> current.removeAll(shardStale),
+                            "evict:" + shardStale.size());
+                }
                 log.info(StructuredLog.event(
                         "repository_keyset_evicted", "region", region, "evicted", stale.size()));
             }
@@ -1347,18 +1389,19 @@ public class CouchbaseRepository implements Repository {
             addKeyToKeySetMetadata(region, key);
             return;
         }
-        mutateKeySetMetadata(region, current -> current.remove(key), "remove:" + key);
+        mutateKeySetShard(keySetShardForKey(region, key), region, current -> current.remove(key), "remove:" + key);
     }
 
     /**
      * Add {@code key} to the region's keyset metadata via an atomic sub-document {@code arrayAddUnique}
      * (creating the document/array if absent), which the server applies without CAS — so concurrent
-     * adds do not conflict and none is lost. {@code keySet}/{@code size} read the {@code keys} array, so
-     * the informational {@code length} field is intentionally not maintained here (the CAS remove path
-     * rewrites it). Falls back to the CAS read-modify-write on any unexpected sub-document failure.
+     * adds do not conflict and none is lost. Targets the key's shard doc. {@code keySet}/{@code size}
+     * read the {@code keys} array, so the informational {@code length} field is intentionally not
+     * maintained here (the CAS remove path rewrites it). Falls back to the CAS read-modify-write on any
+     * unexpected sub-document failure.
      */
     private void addKeyToKeySetMetadata(String region, String key) {
-        String metadataDocId = keySetMetadataDocId(region);
+        String metadataDocId = keySetShardForKey(region, key);
         try {
             collection.mutateIn(metadataDocId,
                     java.util.List.of(
@@ -1372,7 +1415,7 @@ public class CouchbaseRepository implements Repository {
             log.warn(StructuredLog.event(
                     "repository_key_set_subdoc_add_fallback",
                     "region", region, "key", key, "error", e.getMessage()));
-            mutateKeySetMetadata(region, current -> current.add(key), "add:" + key);
+            mutateKeySetShard(metadataDocId, region, current -> current.add(key), "add:" + key);
         }
     }
 
@@ -1396,8 +1439,8 @@ public class CouchbaseRepository implements Repository {
      * document already created), so we re-read and re-apply. This keeps {@code size}/{@code keySet}
      * correct under concurrency. It remains best-effort: if all attempts conflict, we log and move on.
      */
-    private void mutateKeySetMetadata(String region, Consumer<TreeSet<String>> mutation, String description) {
-        String metadataDocId = keySetMetadataDocId(region);
+    private void mutateKeySetShard(String metadataDocId, String region,
+                                   Consumer<TreeSet<String>> mutation, String description) {
         int maxAttempts = CAS_MAX_ATTEMPTS;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -1490,10 +1533,37 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
-    private static String keySetMetadataDocId(String region) {
+    /** The base (unsharded / shard-0) keyset doc id for a region — also the legacy id when shards=1. */
+    private static String keySetBaseDocId(String region) {
         return KEYSET_META_PREFIX + Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(region.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * The keyset shard doc that holds {@code key} for {@code region}. With {@code keysetShards == 1} this
+     * is the legacy single doc (byte-identical behavior); otherwise the key is routed to
+     * {@code …::s<floorMod(key.hashCode(), shards)>}. {@code String.hashCode} is spec-deterministic, so a
+     * key maps to the same shard on every replica (cross-process-safe).
+     */
+    private String keySetShardForKey(String region, String key) {
+        if (keysetShards <= 1) {
+            return keySetBaseDocId(region);
+        }
+        return keySetBaseDocId(region) + "::s" + Math.floorMod(key.hashCode(), keysetShards);
+    }
+
+    /** Every keyset shard doc id for a region (one entry when unsharded) — the read/clear/prune set. */
+    private List<String> keySetShardDocIds(String region) {
+        if (keysetShards <= 1) {
+            return List.of(keySetBaseDocId(region));
+        }
+        String base = keySetBaseDocId(region);
+        List<String> ids = new ArrayList<>(keysetShards);
+        for (int shard = 0; shard < keysetShards; shard++) {
+            ids.add(base + "::s" + shard);
+        }
+        return ids;
     }
 
     // --- Durable-subscription persistence primitive (1.2.0-M1) -------------------------------------
