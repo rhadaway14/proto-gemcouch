@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Standalone cross-version client harness. Deliberately NOT a module of the parent build: it depends
+  ONLY on the public Geode CLIENT API (geode-core) at a parameterizable version, with no dependency on
+  the shim's own code. That decoupling is the whole point — the shim is built/run at its pinned Geode
+  version (1.15.x, in docker), and this harness runs a REAL client of a different Geode version against
+  it to confirm wire interoperability. The shim's main code uses Geode *internal* APIs that can differ
+  across minors, so it must not be recompiled against the client version; a public-API-only client can.
+
+  Run a single version against a running shim (see .github/workflows/cross-version-matrix.yml):
+    mvn -f cross-version-client/pom.xml -Dgeode.client.version=1.14.0 \
+        compile exec:java -Dexec.mainClass=com.protogemcouch.crossversion.CrossVersionClient \
+        -Dexec.args="127.0.0.1 40415"
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.protogemcouch</groupId>
+  <artifactId>cross-version-client</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Override per matrix entry, e.g. -Dgeode.client.version=1.13.0 / 1.14.0 / 1.15.1 -->
+    <geode.client.version>1.15.1</geode.client.version>
+    <exec.plugin.version>3.1.0</exec.plugin.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.geode</groupId>
+      <artifactId>geode-core</artifactId>
+      <version>${geode.client.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>${exec.plugin.version}</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

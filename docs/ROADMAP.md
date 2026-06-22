@@ -89,8 +89,12 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
 - Swap option (not taken): multi-replica durable subscriptions remain in the 1.2.0 backlog.
 
 ### 1.1.0-M4 — Hardening + RC → 1.1.0 GA · freeze 2026-08-31 · RC 2026-09-02 · GA 2026-09-04
-- [ ] Cross-version client matrix **in CI** with real 1.14.x / 1.13.x client jars (blocked offline
-  locally) to widen the validated client support beyond 1.15.x.
+- [x] **Cross-version client matrix in CI — DONE.** New `.github/workflows/cross-version-matrix.yml`
+  runs real Geode `1.13.0`/`1.14.0`/`1.15.1` clients (standalone `cross-version-client/` harness, public
+  client API only — no shim recompile, since the shim's internal-API use is version-sensitive) against a
+  shim with `SUPPORTED_VERSION_ORDINALS=120,125,150`, asserting CRUD/bulk/metadata + OQL over map & PDX.
+  Validated the harness + widened-shim path locally with the cached 1.15.1 client (the 1.13/1.14 entries
+  resolve + run online in CI). `COMPATABILITY_MATRIX.md` updated.
 - [x] **Keyset-metadata at-scale re-characterization — DONE.** Quantified the cold path with
   `tools.KeysetScaleProbe`: `KEY_SET`/`SIZE`/`REMOVE`/`PUT_ALL` are O(region size) (whole-keyset-doc
   read or CAS-rewrite) while single `PUT` stays flat (sub-doc append) and CRUD-by-key is O(1). Measured

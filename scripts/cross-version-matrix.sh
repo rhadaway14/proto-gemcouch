@@ -20,6 +20,12 @@
 # OFFLINE CAVEAT: `mvn -o` can only resolve a client version whose FULL transitive dependency tree is
 # already in ~/.m2 — otherwise it fails before any test runs. CI (with network) can run the full
 # matrix; a stock offline checkout typically only has the build's pinned client version cached.
+#
+# NOTE: this script recompiles the whole project (incl. the shim's MAIN code) against the client version
+# — fine for PATCH interop (same minor) but fragile across MINORS, since the shim uses Geode *internal*
+# APIs that can differ. The authoritative MINOR-version matrix (real 1.13/1.14/1.15 clients) is the
+# standalone `cross-version-client/` harness (public client API only, no shim recompile), driven by
+# `.github/workflows/cross-version-matrix.yml`.
 set -euo pipefail
 
 CLIENT_VERSION="${1:-}"

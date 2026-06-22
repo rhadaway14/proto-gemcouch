@@ -20,6 +20,15 @@ Operators who have validated additional wire-compatible Geode versions in their 
 widen the allowlist via `SUPPORTED_VERSION_ORDINALS` (comma-separated ordinals). (Capture a new
 client's ordinal with `com.protogemcouch.tools.HandshakeCapture`.)
 
+**Cross-version interop (CI-validated).** A CI matrix (`.github/workflows/cross-version-matrix.yml`) runs
+**real Geode `1.13.0` / `1.14.0` / `1.15.1` clients** against a shim with `SUPPORTED_VERSION_ORDINALS`
+widened to `120,125,150`, exercising the core wire surface (CRUD, bulk, `size`/`containsKey`, and OQL over
+both map and PDX values) via the standalone `cross-version-client/` harness — which depends only on the
+public Geode client API, so each version compiles cleanly without recompiling the shim (whose internal-API
+use is version-sensitive). A green matrix confirms the shim's 1.15.x wire forms are interoperable with
+1.13.x/1.14.x clients; the **default** policy still accepts 1.15.x only, so widening is an opt-in operators
+make after seeing this validation.
+
 **Geode client protocol version → ordinal** (authoritative, from `KnownVersion`; the value the shim
 reads from the handshake). The protocol ordinal is per **minor** release — every patch within a minor
 (e.g. all of 1.15.x) shares it, so cross-patch interop is guaranteed and validated implicitly by the
