@@ -6,6 +6,26 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-21
+
+The **performance + operability + parity-depth** release. All changes are additive and non-breaking (a
+semantic-versioning minor). Highlights since 1.0.0:
+
+- **OQL query pushdown** (opt-in `OQL_PUSHDOWN`) — eligible queries pre-filter at Couchbase via N1QL
+  (string + numeric equality/range, `LIMIT`, partial-`AND` subsets, and a queryable PDX scalar sidecar)
+  instead of scanning the region in the shim, with a measured ≈6× throughput / ~5× lower query-p99 win,
+  while staying byte-identical to the scan (the shim's matcher is authoritative). Guarded by a CI
+  query-weighted perf-gate.
+- **Deeper OQL/CQ field querying** — **nested object paths** (`r.address.zip`) and **scalar arrays**
+  (`r.tags[0]`, `'x' IN r.tags`) for both map and PDX values, in `WHERE`/projection/`ORDER BY` and CQ,
+  lifting the prior "scalars only" limit.
+- **Operability** — Prometheus gauges for the in-memory registries (PDX types/enums, transactions,
+  subscription feeds, interests/CQs, durable clients/queue), optional `MAX_PDX_TYPES`/`MAX_PDX_ENUMS`
+  caps, Grafana panels + Alertmanager rules.
+- **Hardening** — full-surface soak with pushdown enabled (0 shim errors), a security re-review of the
+  new query/index path, a quantified keyset-metadata at-scale operating envelope, and a CI cross-version
+  client matrix (real Geode 1.13/1.14/1.15 clients).
+
 ### Added
 - **OQL array-field querying (1.1.0-M3)** — completes M3: OQL paths now support **array index access**
   (a `[index]` suffix indexes a `List`/array, e.g. `r.tags[0]`, `r.addresses[0].zip`) and **`IN`
