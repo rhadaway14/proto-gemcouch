@@ -4,7 +4,7 @@ This is the shim's **compatibility contract**: the Geode client surface it suppo
 it round-trips, and its explicit non-goals. Per-feature details and byte encodings follow; the
 narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGELOG.md`.
 
-## Compatibility contract (as of 1.0.0)
+## Compatibility contract (as of 1.1.0)
 
 **Client / runtime.** Apache Geode (and GemFire-compatible) **Java clients on the 1.15.x line**,
 validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
