@@ -1,0 +1,24 @@
+# App-of-apps root. This is the ONLY manifest you kubectl-apply by hand; everything else is then
+# git-driven. It watches gitops/apps/ and creates/updates the four child Applications
+# (couchbase-staging, shim-staging, couchbase-prod, shim-prod). Add a new environment by dropping
+# another Application YAML into gitops/apps/ — the root picks it up on the next sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pgc-bootstrap
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rhadaway14/proto-gemcouch
+    targetRevision: main
+    path: gitops/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

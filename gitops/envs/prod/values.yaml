@@ -1,0 +1,31 @@
+# Helm values overlay for the protogemcouch shim in the PROD environment (namespace pgc-prod).
+# Consumed by the Argo CD Application gitops/apps/shim-prod.yaml. Prod is MANUAL-sync: a change here
+# does not deploy until you sync the Application (the promotion gate).
+#
+# Promotion flow: validate a tag in staging, then open a PR bumping image.tag below; merging + syncing
+# pgc-prod is the audited promotion.
+
+replicaCount: 2
+
+image:
+  repository: docker.io/rhadaway14/protogemcouch
+  tag: "1.1.0"
+  pullPolicy: IfNotPresent
+
+couchbase:
+  connectionString: "couchbase://couchbase"
+  bucket: "test"
+  scope: "_default"
+  collection: "_default"
+  existingSecret: "pgc-couchbase-creds"
+
+eventing:
+  backplane: "mesh"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
