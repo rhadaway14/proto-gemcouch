@@ -153,8 +153,18 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   feed → mutation enqueued on A → reconnect to **replica B** → replay from Couchbase), with the existing
   single-instance durable suite still green under persistence. (CQ-*definition* persistence is deferred
   to Slice 3 — durable CQ *events* already replay via the persisted queue.)
-- [ ] **Slice 3 — cross-replica origin enqueue:** the mutation's origin replica reads the persisted
-  durable registry and enqueues matching events for *all* away durable clients (not just locally-owned).
+- [~] **Slice 3 — cross-replica origin enqueue.** **3a (interest events) DONE:** the replica that
+  processes a mutation (its *origin*) enqueues matching **register-interest** events for *all* away
+  durable clients by reading the persisted registry — not just the ones it owned in memory — so delivery
+  survives the client's former owner replica failing. `Repository.listAwayDurable()` (N1QL) feeds a
+  background-refreshed cache (`DURABLE_AWAY_REFRESH_MS`, default 1000); the **local origin** publish path
+  is the single writer (backplane echoes don't enqueue → exactly-once); clients stay "away" until
+  `CLIENT_READY` so reconnect-window events are captured. Replaces Slice 2's in-memory/owner interest
+  enqueue. Real-client validated by `ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest`
+  (`nonOwnerReplicaEnqueuesForAwayClientFromTheRegistry`: a mutation on replica **B**, which never owned
+  the client, replays on reconnect). **3b (TODO) — CQ events:** make CQ events owner-independent too
+  (capture CQ OQL text at registration, persist CQ definitions, have the origin recompile + evaluate each
+  away client's CQ). Known bound: away-registry cache freshness ≈ the refresh interval.
 - [ ] **Slice 4 — multi-replica (k8s) validation:** durable client on replica A, A killed, reconnect to
   B replays the queue. Real-client + the k8s test cluster. Risk: high (riskiest 1.2.0 item).
 

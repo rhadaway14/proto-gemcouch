@@ -106,6 +106,65 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
         }
     }
 
+    @Test
+    void nonOwnerReplicaEnqueuesForAwayClientFromTheRegistry() throws Exception {
+        String region = "dpo" + UUID.randomUUID().toString().replace("-", "");
+        String durableId = "ITDPO" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+
+        // Phase 1: durable client connects to replica A, registers interest, is ready, then closes
+        // keeping its subscription. A persists the away record (interests) to Couchbase.
+        ClientCache a = durableCache(durableId, A_PORT);
+        Region<String, Object> ra = a.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .create(region);
+        ra.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+        a.readyForEvents();
+        Thread.sleep(1000);
+        a.close(true);
+
+        // Give replica B time to refresh its away-registry cache from Couchbase (it never owned this
+        // client), so B knows to enqueue for it. (DURABLE_AWAY_REFRESH_MS default 1000ms.)
+        Thread.sleep(2000);
+
+        // Phase 2: the mutation lands on replica B — which never saw this client. As the origin, B reads
+        // the persisted registry and enqueues the event for the away client (Slice 3, owner-independent).
+        runPutOnce(B_PORT, region, "by-nonowner", "hello-from-B");
+
+        // Phase 3: the durable client reconnects (to B) and readyForEvents() replays the event that the
+        // non-owner replica enqueued from the registry.
+        CountDownLatch replayed = new CountDownLatch(1);
+        AtomicReference<Object> value = new AtomicReference<>();
+        ClientCache b = durableCache(durableId, B_PORT);
+        try {
+            Region<String, Object> rb = b.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                    .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                        @Override
+                        public void afterCreate(EntryEvent<String, Object> event) {
+                            if ("by-nonowner".equals(event.getKey())) {
+                                value.set(event.getNewValue());
+                                replayed.countDown();
+                            }
+                        }
+
+                        @Override
+                        public void afterUpdate(EntryEvent<String, Object> event) {
+                            if ("by-nonowner".equals(event.getKey())) {
+                                value.set(event.getNewValue());
+                                replayed.countDown();
+                            }
+                        }
+                    })
+                    .create(region);
+            rb.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+            b.readyForEvents();
+
+            assertTrue(replayed.await(20, TimeUnit.SECONDS),
+                    "a non-owner replica enqueues an away client's event from the persisted registry");
+            assertEquals("hello-from-B", value.get());
+        } finally {
+            b.close(false);
+        }
+    }
+
     private static ClientCache durableCache(String durableId, int port) {
         return new ClientCacheFactory()
                 .set("log-level", "warn")

@@ -1766,6 +1766,38 @@ public class CouchbaseRepository implements Repository {
     }
 
     /**
+     * Read every away durable record (N1QL, REQUEST_PLUS), so the origin replica can enqueue for all
+     * away clients regardless of which replica owned them. Returns the decoded records (interests, CQs,
+     * timeout); best-effort (empty on any error). Callers cache this — it is not a per-mutation read.
+     */
+    @Override
+    public java.util.List<DurableRecord> listAwayDurable() {
+        if (!durablePersistenceEnabled) {
+            return java.util.List.of();
+        }
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT c.* FROM " + keyspace + " c"
+                + " WHERE c.`type` = \"" + TYPE_DURABLE_REGISTRY + "\" AND c.`away` = true";
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            java.util.List<JsonObject> rows = result.rowsAs(JsonObject.class);
+            java.util.List<DurableRecord> records = new ArrayList<>(rows.size());
+            for (JsonObject row : rows) {
+                if (row.getString(FIELD_DURABLE_ID) != null) {
+                    records.add(decodeDurableRecord(row));
+                }
+            }
+            return records;
+        } catch (Exception e) {
+            log.warn(StructuredLog.event("repository_durable_list_away_failed", "error", e.getMessage()));
+            return java.util.List.of();
+        }
+    }
+
+    /**
      * Encode a {@link DurableRecord}'s metadata (no queue) to its JSON document form. Package-private
      * so a unit test can round-trip the codec without a live Couchbase (pairs with
      * {@link #decodeDurableRecord}).
