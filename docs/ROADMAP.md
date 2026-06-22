@@ -123,14 +123,23 @@ depth**. All items are additive/non-breaking (a semver minor). Milestone dates a
 ~2026-06-23 start.
 
 ### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · target 2026-07-18
-- [ ] Make a durable client's queued events survive a **replica failover**: today durable state
-  (retained interest + the disconnect-time event queue) is held in-memory per shim instance, so a
-  durable client that reconnects to a *different* replica loses its queue. Back the durable queue with
-  **Couchbase** (a durable-state document / queue per durable id) so any replica can enqueue on a
-  matching mutation and replay on reconnect + `CLIENT_READY`, with timeout-based cleanup.
-- [ ] Coordinate with the existing cross-replica eventing backplane (`EVENT_BACKPLANE=mesh|redis`) to
-  avoid double-delivery; real-client + multi-replica (k8s) validation. Risk: high (the riskiest 1.2.0
-  item) — front-loaded.
+Today durable state (retained interest + the disconnect-time event queue, in `SubscriptionRegistry`'s
+`DurableState`) is **in-memory per shim instance**, so a durable client that reconnects to a *different*
+replica (after a failover) loses its queue. Decided architecture: **full HA via a Couchbase-backed
+durable registry + single-writer origin enqueue** — persist each durable client's interest/CQs + queue
+in Couchbase; the replica that *processes a mutation* (its origin) appends matching events to away
+durable clients' queue docs (single writer per event → no dedup, and no dependence on the client's former
+owner replica → survives any replica failing). Behind a flag (default off) for safe rollout.
+- [ ] **Slice 1 — Couchbase durable-queue persistence primitive.** Repository methods (default no-op +
+  `CouchbaseRepository` impl) for a `__protogemcouch::durable::<id>` doc: save/load the durable record
+  (interests, CQs, timeout, away-flag), `enqueue` (subdoc array_append, bounded), `drain`, `drop`. Flag
+  `DURABLE_PERSISTENCE` (default off). Integration-tested.
+- [ ] **Slice 2 — wire `SubscriptionRegistry`:** persist on disconnect + mark away; replay-from-Couchbase
+  on reconnect + `CLIENT_READY` to *any* instance; timeout sweep drops expired docs.
+- [ ] **Slice 3 — cross-replica origin enqueue:** the mutation's origin replica reads the persisted
+  durable registry and enqueues matching events for *all* away durable clients (not just locally-owned).
+- [ ] **Slice 4 — multi-replica (k8s) validation:** durable client on replica A, A killed, reconnect to
+  B replays the queue. Real-client + the k8s test cluster. Risk: high (riskiest 1.2.0 item).
 
 ### 1.2.0-M2 — Keyset-metadata at-scale improvement · target 2026-08-08
 - [ ] Lift the **O(region) keyset-doc cost + the 20 MiB per-region key-count ceiling** characterized in
