@@ -1,0 +1,118 @@
+# One-shot Couchbase initialization, run as an Argo CD PostSync hook (after the StatefulSet/Service
+# are healthy) and re-created on every sync (BeforeHookCreation) — the script is idempotent, so a
+# re-run is safe. It mirrors scripts/init-couchbase.sh, plus a node "rename" to the stable pod FQDN so
+# the Couchbase SDK (the shim) can route to the node from elsewhere in the cluster.
+#
+# Admin credentials come from the out-of-band Secret pgc-couchbase-creds (keys cb-username/cb-password)
+# — the same Secret the shim mounts (couchbase.existingSecret), so the two always agree.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: couchbase-init
+  labels:
+    app.kubernetes.io/name: couchbase-init
+    app.kubernetes.io/part-of: protogemcouch
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: couchbase-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: couchbase:enterprise-7.6.2
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CB_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pgc-couchbase-creds
+                  key: cb-username
+            - name: CB_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: pgc-couchbase-creds
+                  key: cb-password
+            - name: CB_BUCKET
+              value: "test"
+            - name: CB_RAMSIZE_MB
+              value: "512"
+            - name: CB_INDEX_RAMSIZE_MB
+              value: "256"
+            - name: CB_BUCKET_RAM_MB
+              value: "256"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              FQDN="couchbase-0.couchbase.${POD_NAMESPACE}.svc.cluster.local"
+              echo "Init target node: ${FQDN}"
+
+              echo "Waiting for Couchbase UI/API at http://${FQDN}:8091 ..."
+              i=0
+              until curl -fs "http://${FQDN}:8091/ui/index.html" >/dev/null 2>&1; do
+                i=$((i+1)); [ "$i" -ge 60 ] && { echo "Timed out waiting for UI/API"; exit 1; }
+                echo "  not ready, retry ${i} ..."; sleep 5
+              done
+              echo "UI/API reachable."
+
+              if curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" "http://${FQDN}:8091/pools/default" >/dev/null 2>&1; then
+                echo "Cluster already initialized."
+              else
+                echo "Setting node hostname to ${FQDN} (pre-provision rename) ..."
+                curl -fs -X POST "http://${FQDN}:8091/node/controller/rename" \
+                  --data-urlencode "hostname=${FQDN}" >/dev/null 2>&1 \
+                  || echo "  rename returned non-zero (may already be set); continuing."
+
+                echo "Initializing cluster ..."
+                i=0
+                until couchbase-cli cluster-init \
+                    -c "${FQDN}:8091" \
+                    --cluster-username "${CB_ADMIN_USER}" \
+                    --cluster-password "${CB_ADMIN_PASS}" \
+                    --services data,index,query \
+                    --cluster-ramsize "${CB_RAMSIZE_MB}" \
+                    --cluster-index-ramsize "${CB_INDEX_RAMSIZE_MB}" \
+                    --index-storage-setting default; do
+                  i=$((i+1)); [ "$i" -ge 12 ] && { echo "Timed out on cluster-init"; exit 1; }
+                  echo "  cluster-init retry ${i} ..."; sleep 5
+                done
+              fi
+
+              echo "Waiting for authenticated cluster access ..."
+              i=0
+              until curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" "http://${FQDN}:8091/pools/default" >/dev/null 2>&1; do
+                i=$((i+1)); [ "$i" -ge 60 ] && { echo "Timed out on auth access"; exit 1; }
+                echo "  retry ${i} ..."; sleep 5
+              done
+
+              if curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" "http://${FQDN}:8091/pools/default/buckets/${CB_BUCKET}" >/dev/null 2>&1; then
+                echo "Bucket ${CB_BUCKET} already exists."
+              else
+                echo "Creating bucket ${CB_BUCKET} ..."
+                couchbase-cli bucket-create -c "${FQDN}:8091" \
+                  -u "${CB_ADMIN_USER}" -p "${CB_ADMIN_PASS}" \
+                  --bucket "${CB_BUCKET}" --bucket-type couchbase \
+                  --bucket-ramsize "${CB_BUCKET_RAM_MB}" --max-ttl 0 \
+                  --compression-mode passive --bucket-replica 0 --wait \
+                  || echo "  bucket-create returned non-zero (may already exist); continuing."
+              fi
+
+              echo "Ensuring a primary index (dev/test N1QL pushdown) ..."
+              i=0
+              until curl -fs -u "${CB_ADMIN_USER}:${CB_ADMIN_PASS}" "http://${FQDN}:8093/query/service" \
+                  --data-urlencode "statement=CREATE PRIMARY INDEX IF NOT EXISTS ON ${CB_BUCKET}" >/dev/null 2>&1; do
+                i=$((i+1)); [ "$i" -ge 24 ] && { echo "Primary index not created (non-fatal)"; break; }
+                echo "  query service retry ${i} ..."; sleep 5
+              done
+
+              echo "Couchbase initialization complete."

@@ -1,0 +1,33 @@
+# Helm values overlay for the protogemcouch shim in the STAGING environment (namespace pgc-staging).
+# Consumed by the Argo CD Application gitops/apps/shim-staging.yaml as a $values reference.
+# Image is tag-pinned here (the promotion knob); digest pinning + auto-update is a later step.
+
+replicaCount: 2
+
+image:
+  repository: docker.io/rhadaway14/protogemcouch
+  tag: "1.1.0"
+  pullPolicy: IfNotPresent
+
+couchbase:
+  connectionString: "couchbase://couchbase"   # the in-namespace headless Couchbase Service
+  bucket: "test"
+  scope: "_default"
+  collection: "_default"
+  # Credentials are NOT in git — an out-of-band Secret (sealed-secrets / external-secrets / kubectl)
+  # named pgc-couchbase-creds with keys cb-username / cb-password. The Couchbase init Job reads the
+  # same Secret, so shim and backend always agree.
+  existingSecret: "pgc-couchbase-creds"
+
+# Cross-replica eventing: with 2 replicas, the self-contained peer mesh propagates subscription/CQ
+# events between them (no external broker). Validates the multi-replica path on the cluster.
+eventing:
+  backplane: "mesh"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

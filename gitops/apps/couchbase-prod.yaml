@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: couchbase-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rhadaway14/proto-gemcouch
+    targetRevision: main
+    path: gitops/couchbase
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pgc-prod
+  # No automated syncPolicy: prod is MANUAL sync (the promotion gate). Argo shows drift; you sync it
+  # explicitly (UI "Sync", or `argocd app sync couchbase-prod`).
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

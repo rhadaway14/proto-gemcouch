@@ -1,0 +1,57 @@
+# Single-node Couchbase for an in-namespace dev/staging backend (one per environment).
+# NOTE: this is a dev-grade backend — emptyDir storage (the cluster has no dynamic provisioner), a
+# single node, bucket replica 0. Data is lost if the pod is rescheduled. Production should use the
+# Couchbase Autonomous Operator (or a managed cluster) with persistent volumes and replicas.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: couchbase
+  labels:
+    app.kubernetes.io/name: couchbase
+    app.kubernetes.io/part-of: protogemcouch
+spec:
+  serviceName: couchbase
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: couchbase
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: couchbase
+        app.kubernetes.io/part-of: protogemcouch
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: couchbase
+          image: couchbase:enterprise-7.6.2
+          ports:
+            - { name: mgmt, containerPort: 8091 }
+            - { name: query, containerPort: 8093 }
+            - { name: kv, containerPort: 11210 }
+          readinessProbe:
+            httpGet:
+              path: /ui/index.html
+              port: 8091
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: 8091
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/couchbase/var
+      volumes:
+        - name: data
+          emptyDir: {}

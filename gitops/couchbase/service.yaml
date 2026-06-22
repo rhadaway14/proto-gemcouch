@@ -1,0 +1,27 @@
+# Headless Service giving the single-node Couchbase a stable in-namespace DNS name.
+# - "couchbase" (the service) resolves to the pod for SDK bootstrap (the shim uses
+#   couchbase://couchbase).
+# - The StatefulSet's serviceName=couchbase also gives the pod the stable name
+#   couchbase-0.couchbase.<namespace>.svc.cluster.local, which the init Job sets as the node's
+#   advertised hostname so the Couchbase SDK can route to it cluster-internally.
+apiVersion: v1
+kind: Service
+metadata:
+  name: couchbase
+  labels:
+    app.kubernetes.io/name: couchbase
+    app.kubernetes.io/part-of: protogemcouch
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: couchbase
+  ports:
+    - { name: mgmt, port: 8091 }
+    - { name: views, port: 8092 }
+    - { name: query, port: 8093 }
+    - { name: search, port: 8094 }
+    - { name: kv, port: 11210 }
+    - { name: kv-tls, port: 11207 }
+    - { name: mgmt-tls, port: 18091 }
+    - { name: query-tls, port: 18093 }

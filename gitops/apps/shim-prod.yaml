@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shim-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/rhadaway14/proto-gemcouch
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/rhadaway14/proto-gemcouch
+      targetRevision: main
+      path: charts/protogemcouch
+      helm:
+        valueFiles:
+          - $values/gitops/envs/prod/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pgc-prod
+  # No automated syncPolicy: prod is MANUAL sync (the promotion gate).
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

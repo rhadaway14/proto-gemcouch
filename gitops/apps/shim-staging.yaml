@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shim-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # The repo as a bare "values" ref, so the Helm source below can pull an out-of-chart values file.
+    - repoURL: https://github.com/rhadaway14/proto-gemcouch
+      targetRevision: main
+      ref: values
+    # The shim Helm chart, rendered with the staging overlay.
+    - repoURL: https://github.com/rhadaway14/proto-gemcouch
+      targetRevision: main
+      path: charts/protogemcouch
+      helm:
+        valueFiles:
+          - $values/gitops/envs/staging/values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pgc-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
