@@ -6,6 +6,10 @@ import org.apache.geode.cache.Region;
 import org.apache.geode.cache.client.ClientCache;
 import org.apache.geode.cache.client.ClientCacheFactory;
 import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.cache.query.CqAttributesFactory;
+import org.apache.geode.cache.query.CqEvent;
+import org.apache.geode.cache.query.CqListener;
+import org.apache.geode.cache.query.QueryService;
 import org.apache.geode.cache.util.CacheListenerAdapter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -163,6 +167,82 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
         } finally {
             b.close(false);
         }
+    }
+
+    @Test
+    void nonOwnerReplicaEnqueuesCqEventForAwayClient() throws Exception {
+        String region = "dpc" + UUID.randomUUID().toString().replace("-", "");
+        String durableId = "ITDPC" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String cqName = "durCqCrossReplica";
+        String cqText = "SELECT * FROM /" + region; // no predicate -> matches any value
+
+        // Phase 1: durable client registers a CQ on replica A, is ready, then closes keeping its queue.
+        // A persists the CQ definition (name/region/OQL text) into the away record.
+        ClientCache a = durableCache(durableId, A_PORT);
+        a.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(region);
+        QueryService qsa = a.getQueryService();
+        CqAttributesFactory cafa = new CqAttributesFactory();
+        cafa.addCqListener(noopCqListener());
+        qsa.newCq(cqName, cqText, cafa.create()).execute();
+        a.readyForEvents();
+        Thread.sleep(1000);
+        a.close(true);
+
+        // Let replica B refresh its away-registry cache (incl. the CQ definition) from Couchbase.
+        Thread.sleep(2000);
+
+        // Phase 2: the CQ-matching mutation lands on replica B (which never saw this client). As the
+        // origin, B recompiles the away client's persisted CQ, matches it, and enqueues the CQ event.
+        runPutOnce(B_PORT, region, "cq-by-b", "v");
+
+        // Phase 3: reconnect to B, re-register the CQ with a listener; readyForEvents replays the CQ event.
+        CountDownLatch fired = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+        ClientCache b = durableCache(durableId, B_PORT);
+        try {
+            b.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(region);
+            QueryService qsb = b.getQueryService();
+            CqAttributesFactory cafb = new CqAttributesFactory();
+            cafb.addCqListener(new CqListener() {
+                @Override
+                public void onEvent(CqEvent event) {
+                    key.set(event.getKey());
+                    fired.countDown();
+                }
+
+                @Override
+                public void onError(CqEvent event) {
+                }
+
+                @Override
+                public void close() {
+                }
+            });
+            qsb.newCq(cqName, cqText, cafb.create()).execute();
+            b.readyForEvents();
+
+            assertTrue(fired.await(20, TimeUnit.SECONDS),
+                    "a non-owner replica enqueues an away client's CQ event from the persisted registry");
+            assertEquals("cq-by-b", key.get());
+        } finally {
+            b.close(false);
+        }
+    }
+
+    private static CqListener noopCqListener() {
+        return new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     private static ClientCache durableCache(String durableId, int port) {

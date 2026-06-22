@@ -54,7 +54,7 @@ public class ExecuteCqHandler implements OperationHandler {
         OqlQuery query = null;
         try {
             query = OqlQuery.parse(queryText);
-            subscriptions.registerCq(SubscriptionRegistry.clientId(ctx), cqName, query);
+            subscriptions.registerCq(SubscriptionRegistry.clientId(ctx), cqName, query, queryText);
             log.info(StructuredLog.event(
                     "handler_execute_cq", "cq", cqName, "query", queryText, "withInitialResults",
                     withInitialResults, "region", query.regionPath(), "txId", frame.getTransactionId()));
