@@ -9,11 +9,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ---
 
-## Current focus — 1.1.0 backlog (target GA 2026-09-04)
+## 1.1.0 — SHIPPED 2026-06-21 (performance + operability + parity-depth)
 
-1.1.0 is the **performance + operability + parity-depth** release: make OQL fast, make the in-memory
-state observable and bounded, and lift the top "scalars only" parity limit. All items are
-additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026-06-23 start.
+1.1.0 made OQL fast (N1QL pushdown), made the in-memory state observable and bounded, and lifted the
+top "scalars only" parity limit (nested-object + scalar-array field querying). All M1–M4 below are DONE
+and the `v1.1.0` GA shipped. (Kept here as the delivered record; the **current focus is 1.2.0**, further
+below.)
 
 ### 1.1.0-M1 — Operability: registry observability + bounds · **DONE** (merged, ahead of the 2026-07-03 target)
 - [x] Prometheus gauges for the in-memory registries: PDX type & enum registry size, active
@@ -107,13 +108,49 @@ additive/non-breaking (a semver minor). Milestone dates are targets, from a 2026
   leak → `SOAK_VERDICT PASS` (`docs/SOAK_RESULTS.md`). Security review found no N1QL injection (params +
   strict field-name validation), a size-bounded `pdxFields` sidecar, hardcoded+guarded `getRaw`
   reflection, and query-string-bounded recursion (`docs/SECURITY.md`).
-- [ ] `CHANGELOG.md` `[1.1.0]`; cut `v1.1.0-rc1` → verify gates → cut `v1.1.0` GA + GitHub Release.
+- [x] **`CHANGELOG.md` `[1.1.0]`; cut `v1.1.0-rc1` → verify → cut `v1.1.0` GA — DONE.** Version bumped
+  (pom + Helm chart/appVersion + image tag); CHANGELOG finalized. rc1 surfaced a CI perf-gate
+  threshold mis-calibration (fixed: wait for the GSI online + CI-tolerant gross-guard thresholds); rc2
+  went green on all four gates (full `mvn verify`, signed image, perf-gate, cross-version matrix with
+  real 1.13/1.14/1.15 clients). **`v1.1.0` GA cut on the green rc2 commit + GitHub Release published.**
 
-### Deferred to the 1.2.0 backlog
-Multi-replica durable subscriptions (if not chosen for M3); JTA `TX_SYNCHRONIZATION` (op 90, only if a
-JTA-coordinated client enters scope); an algorithmic keyset-metadata-at-scale improvement (beyond the
-M4 envelope); 4+-shim horizontal-scale characterization; broader DataSerializer marker coverage /
-arbitrary object graphs; hot TLS cert reload (currently a zero-downtime rolling restart).
+---
+
+## Current focus — 1.2.0 backlog (theme: HA + scale + operability depth)
+
+1.2.0 builds on the 1.1.0 query/observability work toward **high availability, scale, and operability
+depth**. All items are additive/non-breaking (a semver minor). Milestone dates are targets, from a
+~2026-06-23 start.
+
+### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · target 2026-07-18
+- [ ] Make a durable client's queued events survive a **replica failover**: today durable state
+  (retained interest + the disconnect-time event queue) is held in-memory per shim instance, so a
+  durable client that reconnects to a *different* replica loses its queue. Back the durable queue with
+  **Couchbase** (a durable-state document / queue per durable id) so any replica can enqueue on a
+  matching mutation and replay on reconnect + `CLIENT_READY`, with timeout-based cleanup.
+- [ ] Coordinate with the existing cross-replica eventing backplane (`EVENT_BACKPLANE=mesh|redis`) to
+  avoid double-delivery; real-client + multi-replica (k8s) validation. Risk: high (the riskiest 1.2.0
+  item) — front-loaded.
+
+### 1.2.0-M2 — Keyset-metadata at-scale improvement · target 2026-08-08
+- [ ] Lift the **O(region) keyset-doc cost + the 20 MiB per-region key-count ceiling** characterized in
+  1.1.0-M4 (a single per-region keyset document) — e.g. chunked/sharded keyset-metadata documents — so
+  `SIZE`/`KEY_SET`/`PUT_ALL` scale and multi-million-key regions are viable. Re-run `KeysetScaleProbe`
+  to show the new envelope; keep behavior identical (cross-process-safe).
+
+### 1.2.0-M3 — Operability + parity depth · target 2026-08-29
+- [ ] **Hot TLS cert reload** — rotate the inbound TLS keystore/truststore without a restart (today it's
+  a zero-downtime rolling restart).
+- [ ] **Broader DataSerializer marker coverage** — make more stored value types structured/queryable
+  rather than opaque. Optional: a **4+-shim horizontal-scale characterization** on the capacity rig.
+
+### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
+- [ ] Soak the new HA/scale paths; security re-review; cross-version matrix; `CHANGELOG.md` `[1.2.0]`;
+  cut `v1.2.0-rc1` → verify gates → cut `v1.2.0` GA + GitHub Release.
+
+### Deferred (conditional)
+JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
+validate against today).
 
 ### Housekeeping (not gated to a milestone)
 - [ ] Enable **Dependency Graph** in the GitHub repo settings so the CI `dependency-submission` step
