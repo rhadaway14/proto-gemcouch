@@ -42,10 +42,20 @@ jobs:
       - name: Start pushdown shim
         run: docker compose up -d --build protogemcouch-pushdown
 
-      - name: Create the query-field GSI (pushdown index)
+      - name: Create the query-field GSI and wait until it is online
         run: |
           curl -fsS -u Administrator:password http://127.0.0.1:8093/query/service \
             --data-urlencode 'statement=CREATE INDEX idx_perf_k IF NOT EXISTS ON `test`(TO_NUMBER(`value`.`k`.`value`))'
+          # GSI build is asynchronous; the gate must not run until the index is online or its queries
+          # fall back to a primary scan (slow), which would skew the measurement.
+          for i in $(seq 1 30); do
+            resp=$(curl -fsS -u Administrator:password http://127.0.0.1:8093/query/service \
+              --data-urlencode 'statement=SELECT RAW state FROM system:indexes WHERE name="idx_perf_k"')
+            echo "idx_perf_k: $resp"
+            echo "$resp" | grep -q '"online"' && exit 0
+            sleep 2
+          done
+          echo "idx_perf_k did not come online" >&2; exit 1
 
       - name: Run query-weighted (pushdown) perf-gate
         run: PERF_BASELINE=scripts/perf-baseline.query.env PERF_SHIM_PORT=40414 PERF_HEALTH_PORT=8090 bash scripts/perf-gate.sh
