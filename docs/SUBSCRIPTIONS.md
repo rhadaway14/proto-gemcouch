@@ -169,9 +169,12 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     Single-writer: only the local-origin publish path enqueues (backplane echoes don't), so events are
     enqueued exactly once; a reconnecting client stays "away" until `CLIENT_READY` so reconnect-window
     events are captured. Validated by the same test's `nonOwnerReplicaEnqueuesForAwayClientFromTheRegistry`.
-    Remaining: **Slice 3b** — make *CQ* events owner-independent too (capture CQ OQL text, persist CQ
-    definitions, origin recompiles + evaluates each away client's CQ); and **Slice 4** — k8s failover
-    validation. Known bound: away-registry cache freshness ≈ the refresh interval.
+    **Slice 3b DONE — CQ events:** CQ OQL text is captured at `registerCq` and persisted in the durable
+    record, so the origin recompiles (cached) + evaluates each away client's CQ and enqueues CQ
+    create/update/destroy — making CQ delivery owner-independent too (validated by
+    `nonOwnerReplicaEnqueuesCqEventForAwayClient`). **Slice 3 COMPLETE.** Remaining: **Slice 4** — k8s
+    failover validation (kill a replica, reconnect to another). Known bound: away-registry cache freshness
+    ≈ the refresh interval.
   - **P3 — redundancy / keepalive DONE.** A real redundancy-enabled, keepalive-pinging client
     (`tools/RedundancyKeepaliveProbe`) produces no unhandled opcodes: client PINGs (5) are acked,
     MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK (52) is drained. Subscription

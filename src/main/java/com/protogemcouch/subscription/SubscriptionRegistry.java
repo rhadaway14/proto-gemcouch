@@ -76,8 +76,12 @@ public final class SubscriptionRegistry {
     private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>>> interests =
             new ConcurrentHashMap<>();
 
-    /** A registered continuous query: the parsed OQL (its region path is the CQ's region). */
-    public record Cq(String cqName, String region, OqlQuery query) {
+    /**
+     * A registered continuous query: the parsed OQL (its region path is the CQ's region) plus the
+     * original OQL text, so the origin replica can recompile + evaluate it for away clients it doesn't
+     * hold in memory (Slice 3b). {@code queryText} may be null for CQs registered before text capture.
+     */
+    public record Cq(String cqName, String region, OqlQuery query, String queryText) {
     }
 
     // Per-client continuous queries: client id -> (cqName -> Cq).
@@ -322,6 +326,92 @@ public final class SubscriptionRegistry {
         return false;
     }
 
+    // Compiled-CQ cache for the origin CQ-enqueue path (Slice 3b): away clients' CQ OQL text is parsed
+    // once and reused, so evaluating CQs for away clients on every mutation isn't a re-parse each time.
+    private final java.util.concurrent.ConcurrentMap<String, OqlQuery> cqCompileCache = new ConcurrentHashMap<>();
+
+    private OqlQuery compileCq(String queryText) {
+        if (queryText == null || queryText.isBlank()) {
+            return null;
+        }
+        OqlQuery cached = cqCompileCache.get(queryText);
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            OqlQuery parsed = OqlQuery.parse(queryText);
+            cqCompileCache.put(queryText, parsed);
+            return parsed;
+        } catch (RuntimeException e) {
+            return null; // unsupported/invalid predicate: skip (graceful, like the live CQ path)
+        }
+    }
+
+    /**
+     * Origin CQ enqueue (Slice 3b): for a write processed locally, evaluate every away durable client's
+     * persisted CQs (recompiled from text) and append the matching CQ event to that client's Couchbase
+     * queue — so CQ delivery, like interest delivery, no longer depends on the client's former owner
+     * replica. Single-writer (local origin only); live-ready clients here are skipped (delivered live).
+     */
+    private void enqueueCqForAwayClients(String region, String key, StoredValue value,
+                                         StoredValue priorValue, String originClientId) {
+        java.util.Map<String, DurableRecord> away = awayRegistryCache;
+        if (away.isEmpty() || value == null) {
+            return;
+        }
+        for (DurableRecord record : away.values()) {
+            String durableId = record.durableId();
+            if (durableId.equals(originClientId) || liveReadyFeed(durableId) != null) {
+                continue;
+            }
+            for (DurableRecord.CqSpec spec : record.cqs()) {
+                if (!region.equals(spec.region())) {
+                    continue;
+                }
+                OqlQuery query = compileCq(spec.query());
+                if (query == null) {
+                    continue;
+                }
+                boolean newMatches = query.matches(value, cqFieldResolver);
+                boolean priorMatches = priorValue != null && query.matches(priorValue, cqFieldResolver);
+                if (newMatches) {
+                    int op = priorMatches ? MessageTypes.LOCAL_UPDATE : MessageTypes.LOCAL_CREATE;
+                    durableRepository.enqueueDurableEvent(durableId, GemResponseWriter.buildCqEvent(
+                            op, region, key, value, nextVersionTag(), nextEventId(), spec.cqName(), op));
+                } else if (priorMatches) {
+                    durableRepository.enqueueDurableEvent(durableId, GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), spec.cqName(), MessageTypes.LOCAL_DESTROY));
+                }
+            }
+        }
+    }
+
+    /** Origin CQ-DESTROY enqueue for a removed entry: enqueue CQ DESTROY for away clients whose CQ
+     *  matched the prior value (Slice 3b). */
+    private void enqueueCqDestroyForAwayClients(String region, String key, StoredValue priorValue,
+                                                String originClientId) {
+        java.util.Map<String, DurableRecord> away = awayRegistryCache;
+        if (away.isEmpty() || priorValue == null) {
+            return;
+        }
+        for (DurableRecord record : away.values()) {
+            String durableId = record.durableId();
+            if (durableId.equals(originClientId) || liveReadyFeed(durableId) != null) {
+                continue;
+            }
+            for (DurableRecord.CqSpec spec : record.cqs()) {
+                if (!region.equals(spec.region())) {
+                    continue;
+                }
+                OqlQuery query = compileCq(spec.query());
+                if (query != null && query.matches(priorValue, cqFieldResolver)) {
+                    durableRepository.enqueueDurableEvent(durableId, GemResponseWriter.buildCqDestroy(
+                            region, key, nextVersionTag(), nextEventId(), spec.cqName(), MessageTypes.LOCAL_DESTROY));
+                }
+            }
+        }
+    }
+
     /** Build the persistable record for a durable client from its current in-memory interests. */
     private DurableRecord buildDurableRecord(String durableId, int timeoutSeconds, boolean away) {
         java.util.List<DurableRecord.InterestSpec> specs = new java.util.ArrayList<>();
@@ -333,9 +423,19 @@ public final class SubscriptionRegistry {
                 }
             }
         }
-        // CQ-definition persistence (needed only for cross-replica CQ *evaluation*) is Slice 3; durable
-        // CQ *events* already replay via the persisted queue, so they survive here regardless.
-        return new DurableRecord(durableId, timeoutSeconds, away, specs, java.util.List.of());
+        // Persist CQ definitions (name + region + OQL text) so the origin replica can recompile and
+        // evaluate them for this away client across replicas (Slice 3b). A CQ whose text wasn't captured
+        // (queryText null) is skipped — its events fall back to the owner-local path.
+        java.util.List<DurableRecord.CqSpec> cqSpecs = new java.util.ArrayList<>();
+        java.util.concurrent.ConcurrentMap<String, Cq> clientCqs = cqs.get(durableId);
+        if (clientCqs != null) {
+            for (Cq cq : clientCqs.values()) {
+                if (cq.queryText() != null && !cq.queryText().isBlank()) {
+                    cqSpecs.add(new DurableRecord.CqSpec(cq.cqName(), cq.region(), cq.queryText()));
+                }
+            }
+        }
+        return new DurableRecord(durableId, timeoutSeconds, away, specs, cqSpecs);
     }
 
     private static DurableRecord.InterestSpec toInterestSpec(String region, Interest interest) {
@@ -365,9 +465,9 @@ public final class SubscriptionRegistry {
             case DESTROY -> deliverDestroy(event.region(), event.key(), event.originClientId(), false);
             case INVALIDATE -> deliverInvalidate(event.region(), event.key(), event.originClientId(), false);
             case CQ_EVENT -> deliverCqEvent(event.region(), event.key(), event.value(), event.priorValue(),
-                    event.originClientId());
+                    event.originClientId(), false);
             case CQ_DESTROY -> deliverCqDestroy(event.region(), event.key(), event.priorValue(),
-                    event.originClientId());
+                    event.originClientId(), false);
         }
     }
 
@@ -515,11 +615,19 @@ public final class SubscriptionRegistry {
 
     /** Register a continuous query for a client (region is the query's FROM region path). */
     public void registerCq(String clientId, String cqName, OqlQuery query) {
+        registerCq(clientId, cqName, query, null);
+    }
+
+    /**
+     * Register a continuous query, retaining its OQL {@code queryText} so the origin replica can
+     * recompile + evaluate it for away durable clients across replicas (Slice 3b).
+     */
+    public void registerCq(String clientId, String cqName, OqlQuery query, String queryText) {
         if (clientId == null || cqName == null || query == null) {
             return;
         }
         cqs.computeIfAbsent(clientId, k -> new ConcurrentHashMap<>())
-                .put(cqName, new Cq(cqName, query.regionPath(), query));
+                .put(cqName, new Cq(cqName, query.regionPath(), query, queryText));
     }
 
     /** Stop/close a continuous query (both just deregister it in this first cut). */
@@ -731,18 +839,19 @@ public final class SubscriptionRegistry {
         if (value == null) {
             return;
         }
-        deliverCqEvent(region, key, value, priorValue, originClientId);
+        deliverCqEvent(region, key, value, priorValue, originClientId, true);
         backplane.publish(new RemoteEvent(
                 RemoteEvent.Kind.CQ_EVENT, region, key, value, priorValue, false, originClientId, instanceId));
     }
 
     private void deliverCqEvent(String region, String key, StoredValue value, StoredValue priorValue,
-                                String originClientId) {
-        if (cqs.isEmpty() || value == null) {
+                                String originClientId, boolean localOrigin) {
+        if (value == null) {
             return;
         }
-        // Iterate every client with CQs (so a single mutation fires each of a client's matching CQs, and
-        // a disconnected durable client's CQ events are queued for replay rather than lost).
+        // Live delivery to clients holding the CQ in memory on this replica (connected). When persistence
+        // is on, an away client's CQ event is NOT enqueued here (deliverOrQueueCq skips it) — the origin
+        // path below is the single writer for away clients.
         for (java.util.Map.Entry<String, java.util.concurrent.ConcurrentMap<String, Cq>> entry : cqs.entrySet()) {
             String clientId = entry.getKey();
             if (clientId.equals(originClientId)) {
@@ -769,6 +878,11 @@ public final class SubscriptionRegistry {
                 }
             }
         }
+        // Slice 3b: the origin enqueues CQ events for away clients from the persisted registry, so CQ
+        // delivery survives the client's former owner replica failing.
+        if (localOrigin && durablePersistenceActive()) {
+            enqueueCqForAwayClients(region, key, value, priorValue, originClientId);
+        }
     }
 
     /** Deliver a CQ event live to the client's ready feed, or queue it for a disconnected durable client. */
@@ -780,14 +894,11 @@ public final class SubscriptionRegistry {
             return;
         }
         DurableState durable = durableClients.get(clientId);
-        if (durable != null) {
-            // disconnected / not-yet-ready durable client: queue for replay (Couchbase when persistence
-            // is on, so the queue survives a replica failing; in-memory otherwise).
-            if (durablePersistenceActive()) {
-                durableRepository.enqueueDurableEvent(clientId, message);
-            } else {
-                enqueueDurable(durable, message);
-            }
+        if (durable != null && !durablePersistenceActive()) {
+            // disconnected / not-yet-ready durable client (persistence off): queue in memory for replay.
+            // When persistence is ON, the origin CQ-enqueue path (enqueueCqForAwayClients) is the single
+            // writer for away clients — enqueuing here too would duplicate on replay.
+            enqueueDurable(durable, message);
         }
         // else: a non-durable client with no live feed — dropped (the client is gone)
     }
@@ -809,13 +920,24 @@ public final class SubscriptionRegistry {
     /** True if any client (connected or a retained durable client) has a CQ on this region — gates the
      *  prior-value read on remove so a CQ DESTROY can be computed. */
     public boolean hasCqOnRegion(String region) {
-        if (cqs.isEmpty() || region == null) {
+        if (region == null) {
             return false;
         }
         for (java.util.concurrent.ConcurrentMap<String, Cq> clientCqs : cqs.values()) {
             for (Cq cq : clientCqs.values()) {
                 if (region.equals(cq.region())) {
                     return true;
+                }
+            }
+        }
+        // Slice 3b: an away client's CQ (in the persisted registry) on this region also requires the
+        // prior value on remove, so the origin can compute a cross-replica CQ DESTROY for it.
+        if (durablePersistenceActive()) {
+            for (DurableRecord record : awayRegistryCache.values()) {
+                for (DurableRecord.CqSpec spec : record.cqs()) {
+                    if (region.equals(spec.region())) {
+                        return true;
+                    }
                 }
             }
         }
@@ -831,13 +953,14 @@ public final class SubscriptionRegistry {
         if (priorValue == null) {
             return;
         }
-        deliverCqDestroy(region, key, priorValue, originClientId);
+        deliverCqDestroy(region, key, priorValue, originClientId, true);
         backplane.publish(new RemoteEvent(
                 RemoteEvent.Kind.CQ_DESTROY, region, key, null, priorValue, false, originClientId, instanceId));
     }
 
-    private void deliverCqDestroy(String region, String key, StoredValue priorValue, String originClientId) {
-        if (cqs.isEmpty() || priorValue == null) {
+    private void deliverCqDestroy(String region, String key, StoredValue priorValue,
+                                 String originClientId, boolean localOrigin) {
+        if (priorValue == null) {
             return;
         }
         for (java.util.Map.Entry<String, java.util.concurrent.ConcurrentMap<String, Cq>> entry : cqs.entrySet()) {
@@ -854,6 +977,10 @@ public final class SubscriptionRegistry {
                             "region", region, "key", key));
                 }
             }
+        }
+        // Slice 3b: origin enqueues CQ DESTROY for away clients whose CQ matched the removed value.
+        if (localOrigin && durablePersistenceActive()) {
+            enqueueCqDestroyForAwayClients(region, key, priorValue, originClientId);
         }
     }
 
