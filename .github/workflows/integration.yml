@@ -6,11 +6,9 @@ name: Integration and Failure Tests
 on:
   push:
     branches:
-      - master
       - main
   pull_request:
     branches:
-      - master
       - main
   workflow_dispatch:
 
@@ -23,7 +21,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Deploy-only / docs-only changes (gitops/**, docs/**) can't affect the integration suite, so
+      # skip it for them. The job still runs and succeeds, so this required check always reports.
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!gitops/**'
+              - '!docs/**'
+
       - name: Set up Java 17
+        if: steps.filter.outputs.code == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -31,6 +42,7 @@ jobs:
           cache: maven
 
       - name: Show Docker / Compose versions
+        if: steps.filter.outputs.code == 'true'
         run: |
           docker version
           docker compose version
@@ -39,8 +51,13 @@ jobs:
         # verify packages the shaded jar, brings up Couchbase + the shim via Docker Compose
         # (pre-integration-test), runs the failsafe @Tag("integration") suite, then tears the
         # stack down (post-integration-test).
+        if: steps.filter.outputs.code == 'true'
         run: mvn -B verify
 
       - name: Dump shim logs on failure
-        if: failure()
+        if: failure() && steps.filter.outputs.code == 'true'
         run: docker compose logs --no-color --tail 400 || true
+
+      - name: Skip note (no code changes)
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Only gitops/docs changed — skipping integration suite; required check passes."

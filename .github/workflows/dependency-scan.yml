@@ -3,11 +3,9 @@ name: Dependency and Code Scan
 on:
   push:
     branches:
-      - master
       - main
   pull_request:
     branches:
-      - master
       - main
   schedule:
     - cron: '0 9 * * 1'
@@ -22,7 +20,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!gitops/**'
+              - '!docs/**'
+
       - name: Set up Java 17
+        if: steps.filter.outputs.code == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,7 +39,12 @@ jobs:
           cache: maven
 
       - name: Submit dependency graph
+        if: steps.filter.outputs.code == 'true'
         uses: advanced-security/maven-dependency-submission-action@v4
+
+      - name: Skip note (no code changes)
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Only gitops/docs changed — skipping dependency submission."
 
   codeql:
     runs-on: ubuntu-latest
@@ -48,7 +62,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Deploy-only / docs-only changes have no Java to analyze, so skip CodeQL for them. The job still
+      # runs and succeeds, so the required "codeql (java)" check always reports — no PR deadlock.
+      - name: Detect code changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!gitops/**'
+              - '!docs/**'
+
       - name: Initialize CodeQL
+        if: steps.filter.outputs.code == 'true'
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
@@ -58,6 +85,7 @@ jobs:
           queries: security-and-quality
 
       - name: Set up Java 17
+        if: steps.filter.outputs.code == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -65,7 +93,13 @@ jobs:
           cache: maven
 
       - name: Build with Maven
+        if: steps.filter.outputs.code == 'true'
         run: mvn -B -DskipTests package
 
       - name: Perform CodeQL analysis
+        if: steps.filter.outputs.code == 'true'
         uses: github/codeql-action/analyze@v3
+
+      - name: Skip note (no code changes)
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Only gitops/docs changed — skipping CodeQL; required check passes."
