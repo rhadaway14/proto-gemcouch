@@ -152,9 +152,18 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     frames). The `Repository` exposes `saveDurable` / `loadDurable` (metadata via sub-document upserts
     that leave the queue intact), `enqueueDurableEvent` (atomic subdoc `arrayAppend`, bounded by
     `DURABLE_MAX_QUEUE`), `drainDurableQueue` (CAS-guarded clear), and `dropDurable` — all behind the
-    **`DURABLE_PERSISTENCE`** flag (default off → no-ops, single-instance behavior unchanged). The
-    registry wiring (persist on disconnect, replay-from-Couchbase on reconnect, cross-replica origin
-    enqueue, k8s failover validation) is Slices 2–4.
+    **`DURABLE_PERSISTENCE`** flag (default off → no-ops, single-instance behavior unchanged), plus
+    `markDurableAway` (flip away/awaySince without rewriting interests) and `sweepExpiredDurable`
+    (cross-replica timeout reclaim). **Slice 2 DONE — `SubscriptionRegistry` wired** (behind the same
+    flag): on a durable feed's disconnect it persists the record (away) + flushes the queue to
+    Couchbase; while away, matching events enqueue to Couchbase; on reconnect to **any** replica +
+    `readyForEvents()` it drains the Couchbase queue and replays, marking the doc not-away; a periodic
+    `sweepExpiredDurable` (`DURABLE_SWEEP_SECONDS`, default 60) reclaims expired docs, so the per-client
+    local timer only frees memory (never drops a doc the client may have reconnected to elsewhere).
+    Validated real-client by `ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest` (reconnect to a
+    *different* replica replays from Couchbase). Remaining: cross-replica origin enqueue so *any* replica
+    (not just the client's former owner) enqueues for away clients (Slice 3 — also persists CQ
+    definitions for cross-replica CQ evaluation), and k8s failover validation (Slice 4).
   - **P3 — redundancy / keepalive DONE.** A real redundancy-enabled, keepalive-pinging client
     (`tools/RedundancyKeepaliveProbe`) produces no unhandled opcodes: client PINGs (5) are acked,
     MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK (52) is drained. Subscription

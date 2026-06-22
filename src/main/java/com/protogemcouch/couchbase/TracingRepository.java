@@ -181,6 +181,11 @@ public class TracingRepository implements Repository {
     }
 
     @Override
+    public void markDurableAway(String durableId, boolean away) {
+        traced("markDurableAway", "durable.id", durableId, () -> delegate.markDurableAway(durableId, away));
+    }
+
+    @Override
     public int sweepExpiredDurable() {
         return traced("sweepExpiredDurable", null, null, delegate::sweepExpiredDurable);
     }

@@ -1,0 +1,180 @@
+package com.protogemcouch.integration;
+
+import org.apache.geode.cache.EntryEvent;
+import org.apache.geode.cache.InterestResultPolicy;
+import org.apache.geode.cache.Region;
+import org.apache.geode.cache.client.ClientCache;
+import org.apache.geode.cache.client.ClientCacheFactory;
+import org.apache.geode.cache.client.ClientRegionShortcut;
+import org.apache.geode.cache.util.CacheListenerAdapter;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+
+import java.io.File;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.time.Duration;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+/**
+ * 1.2.0-M1 Slice 2 gate: with {@code DURABLE_PERSISTENCE} on, a durable client's missed events survive
+ * in Couchbase and replay on a reconnect to a <em>different</em> replica — proving the queue is no
+ * longer tied to the replica that owned the client.
+ *
+ * <p>Flow: durable client connects to replica A and registers interest, then disconnects (keepalive).
+ * A mutation on A is enqueued to Couchbase for the away client. The durable client reconnects to
+ * replica B (same durable id) and {@code readyForEvents()} replays the missed event from Couchbase.
+ *
+ * <p>Requires both shims from {@code docker-compose.yml} ({@code protogemcouch} at A, and
+ * {@code protogemcouch-replica} at B), both with {@code DURABLE_PERSISTENCE=true}.
+ */
+@Tag("integration")
+class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
+
+    private static final String HOST = envOrDefault("IT_SHIM_HOST", "127.0.0.1");
+    private static final int A_PORT = intEnv("IT_SHIM_PORT", 40405);
+    private static final int A_HEALTH = intEnv("IT_HEALTH_PORT", 8081);
+    private static final int B_PORT = intEnv("IT_REPLICA_PORT", 40409);
+    private static final int B_HEALTH = intEnv("IT_REPLICA_HEALTH_PORT", 8085);
+
+    @BeforeEach
+    void setUp() {
+        waitForReady("http://" + HOST + ":" + A_HEALTH + "/ready", Duration.ofSeconds(90));
+        waitForReady("http://" + HOST + ":" + B_HEALTH + "/ready", Duration.ofSeconds(90));
+    }
+
+    @Test
+    void durableClientReplaysMissedEventAfterReconnectingToAnotherReplica() throws Exception {
+        String region = "dpm" + UUID.randomUUID().toString().replace("-", "");
+        String durableId = "ITDPM" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+
+        // Phase 1: durable client connects to replica A, registers interest, is ready, then closes
+        // keeping its subscription (keepalive). A retains its interest and persists the record (away).
+        ClientCache a = durableCache(durableId, A_PORT);
+        Region<String, Object> ra = a.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                .create(region);
+        ra.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+        a.readyForEvents();
+        Thread.sleep(1000);
+        a.close(true);
+
+        // Phase 2: a mutation lands on replica A while the durable client is away -> A enqueues the
+        // event to the durable client's Couchbase queue (not just A's memory).
+        runPutOnce(A_PORT, region, "missed-x", "hello-from-A");
+
+        // Phase 3: the durable client reconnects to replica B (which never saw it) and readyForEvents()
+        // must replay the missed event by draining the Couchbase queue.
+        CountDownLatch replayed = new CountDownLatch(1);
+        AtomicReference<Object> value = new AtomicReference<>();
+        ClientCache b = durableCache(durableId, B_PORT);
+        try {
+            Region<String, Object> rb = b.<String, Object>createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                    .addCacheListener(new CacheListenerAdapter<String, Object>() {
+                        @Override
+                        public void afterCreate(EntryEvent<String, Object> event) {
+                            if ("missed-x".equals(event.getKey())) {
+                                value.set(event.getNewValue());
+                                replayed.countDown();
+                            }
+                        }
+
+                        @Override
+                        public void afterUpdate(EntryEvent<String, Object> event) {
+                            if ("missed-x".equals(event.getKey())) {
+                                value.set(event.getNewValue());
+                                replayed.countDown();
+                            }
+                        }
+                    })
+                    .create(region);
+            rb.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
+            b.readyForEvents();
+
+            assertTrue(replayed.await(20, TimeUnit.SECONDS),
+                    "durable client replays the missed event after reconnecting to the other replica");
+            assertEquals("hello-from-A", value.get());
+        } finally {
+            b.close(false);
+        }
+    }
+
+    private static ClientCache durableCache(String durableId, int port) {
+        return new ClientCacheFactory()
+                .set("log-level", "warn")
+                .set("durable-client-id", durableId)
+                .set("durable-client-timeout", "300")
+                .setPoolSubscriptionEnabled(true)
+                .setPoolSubscriptionRedundancy(0)
+                .setPoolSubscriptionAckInterval(100)
+                .addPoolServer(HOST, port)
+                .create();
+    }
+
+    private static void runPutOnce(int port, String region, String key, String value) throws Exception {
+        String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+        String classpath = System.getProperty("java.class.path");
+        Process process = new ProcessBuilder(
+                javaBin, "-cp", classpath, "com.protogemcouch.tools.PutOnce",
+                HOST, Integer.toString(port), region, key, value)
+                .inheritIO()
+                .start();
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            fail("PutOnce mutator process did not finish in time");
+        }
+        assertEquals(0, process.exitValue(), "PutOnce mutator process succeeded");
+    }
+
+    private static void waitForReady(String url, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            try {
+                HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+                connection.setConnectTimeout(1500);
+                connection.setReadTimeout(1500);
+                connection.setRequestMethod("GET");
+                try {
+                    if (connection.getResponseCode() == 200) {
+                        return;
+                    }
+                } finally {
+                    connection.disconnect();
+                }
+            } catch (Exception ignored) {
+                // retry
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        fail("shim not ready at " + url + " within timeout");
+    }
+
+    private static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static int intEnv(String name, int fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+}

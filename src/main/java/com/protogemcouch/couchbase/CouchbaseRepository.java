@@ -1697,6 +1697,33 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    /**
+     * Flip the away flag + awaySince timestamp via sub-document upserts, using REPLACE store semantics
+     * (the default) so it does NOT create a doc — a client that never went away has none to mark.
+     * Best-effort: a missing doc or any error is swallowed.
+     */
+    @Override
+    public void markDurableAway(String durableId, boolean away) {
+        if (!durablePersistenceEnabled || durableId == null) {
+            return;
+        }
+        try {
+            MutateInOptions options = MutateInOptions.mutateInOptions(); // REPLACE semantics: no create
+            if (writeDurability != DurabilityLevel.NONE) {
+                options.durability(writeDurability);
+            }
+            collection.mutateIn(durableDocId(durableId), java.util.List.of(
+                    MutateInSpec.upsert(FIELD_AWAY, away),
+                    MutateInSpec.upsert(FIELD_AWAY_SINCE, away ? System.currentTimeMillis() : 0L)),
+                    options);
+        } catch (DocumentNotFoundException absent) {
+            // no persisted doc yet (client never went away) — nothing to mark
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_durable_mark_away_failed", "durableId", durableId, "error", e.getMessage()));
+        }
+    }
+
     private MutateInOptions durableCasOptions(long cas) {
         MutateInOptions options = MutateInOptions.mutateInOptions().cas(cas);
         if (writeDurability != DurabilityLevel.NONE) {

@@ -1,5 +1,7 @@
 package com.protogemcouch.subscription;
 
+import com.protogemcouch.couchbase.DurableRecord;
+import com.protogemcouch.couchbase.Repository;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
@@ -102,6 +104,15 @@ public final class SubscriptionRegistry {
                 return t;
             });
 
+    // Multi-replica durable persistence (1.2.0-M1 Slice 2): when enabled, a durable client's registry
+    // record (interests/timeout/away) AND its disconnect-time event queue are persisted to Couchbase via
+    // the Repository, so they survive this replica failing and replay on a reconnect to ANY replica. Off
+    // (the default) keeps the in-memory single-instance behavior byte-for-byte unchanged. The flag is set
+    // once at startup from DURABLE_PERSISTENCE (see HandlerRegistryFactory).
+    private static final int DURABLE_SWEEP_SECONDS = intEnv("DURABLE_SWEEP_SECONDS", 60);
+    private volatile Repository durableRepository;
+    private volatile boolean durablePersistence;
+
     /** In-memory state for one durable client: its current feed (or null while away) + its event queue. */
     private static final class DurableState {
         volatile Channel liveFeed;        // current feed channel, or null while disconnected
@@ -201,6 +212,58 @@ public final class SubscriptionRegistry {
     }
 
     /**
+     * Enable Couchbase-backed durable persistence (1.2.0-M1): durable records + event queues are
+     * persisted via {@code repository}, and a periodic cross-replica timeout sweep runs. Called once at
+     * startup when {@code DURABLE_PERSISTENCE} is set. A null repository leaves persistence off.
+     */
+    public void enableDurablePersistence(Repository repository) {
+        this.durableRepository = repository;
+        this.durablePersistence = repository != null;
+        if (this.durablePersistence) {
+            // Authoritative, instance-independent expiry: drops away docs whose timeout elapsed even if
+            // the replica that owned the client is gone (the local per-client timer only frees memory).
+            durableExpiry.scheduleWithFixedDelay(() -> {
+                try {
+                    durableRepository.sweepExpiredDurable();
+                } catch (RuntimeException e) {
+                    log.warn(StructuredLog.event("durable_sweep_failed", "error", e.getMessage()));
+                }
+            }, DURABLE_SWEEP_SECONDS, DURABLE_SWEEP_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+            log.info(StructuredLog.event("durable_persistence_enabled", "sweepSeconds", DURABLE_SWEEP_SECONDS));
+        }
+    }
+
+    private boolean durablePersistenceActive() {
+        return durablePersistence && durableRepository != null;
+    }
+
+    /** Build the persistable record for a durable client from its current in-memory interests. */
+    private DurableRecord buildDurableRecord(String durableId, int timeoutSeconds, boolean away) {
+        java.util.List<DurableRecord.InterestSpec> specs = new java.util.ArrayList<>();
+        java.util.concurrent.ConcurrentMap<String, java.util.List<Interest>> byRegion = interests.get(durableId);
+        if (byRegion != null) {
+            for (java.util.Map.Entry<String, java.util.List<Interest>> e : byRegion.entrySet()) {
+                for (Interest interest : e.getValue()) {
+                    specs.add(toInterestSpec(e.getKey(), interest));
+                }
+            }
+        }
+        // CQ-definition persistence (needed only for cross-replica CQ *evaluation*) is Slice 3; durable
+        // CQ *events* already replay via the persisted queue, so they survive here regardless.
+        return new DurableRecord(durableId, timeoutSeconds, away, specs, java.util.List.of());
+    }
+
+    private static DurableRecord.InterestSpec toInterestSpec(String region, Interest interest) {
+        if (interest instanceof Interest.Keys k) {
+            return DurableRecord.InterestSpec.keys(region, new java.util.ArrayList<>(k.keys()));
+        }
+        if (interest instanceof Interest.Regex r) {
+            return DurableRecord.InterestSpec.regex(region, r.pattern().pattern());
+        }
+        return DurableRecord.InterestSpec.allKeys(region);
+    }
+
+    /**
      * Apply an event broadcast by another replica to this replica's local feeds. Drops this replica's
      * own echoed events (already delivered locally when published) by {@code originInstanceId}, then
      * dispatches to the same local-delivery cores the local publish path uses (no re-broadcast).
@@ -251,8 +314,19 @@ public final class SubscriptionRegistry {
                     }
                     scheduleDurableExpiry(durableId, state);
                 }
+                if (durablePersistenceActive()) {
+                    // Persist the registry record (away) so any replica can serve this client, and flush
+                    // any in-memory pending to Couchbase so the queue survives this replica failing.
+                    byte[] m;
+                    while ((m = state.pending.pollFirst()) != null) {
+                        state.pendingCount.decrementAndGet();
+                        durableRepository.enqueueDurableEvent(durableId, m);
+                    }
+                    durableRepository.saveDurable(buildDurableRecord(durableId, state.timeoutSeconds, true));
+                }
                 log.info(StructuredLog.event("durable_client_disconnected", "durableId", durableId,
-                        "queued", state.pendingCount.get(), "timeoutSeconds", state.timeoutSeconds));
+                        "queued", state.pendingCount.get(), "timeoutSeconds", state.timeoutSeconds,
+                        "persisted", durablePersistenceActive()));
             }
             return;
         }
@@ -279,8 +353,14 @@ public final class SubscriptionRegistry {
                 state.expiry = null;
             }
         }
+        if (durablePersistenceActive()) {
+            // The client may be reconnecting to a replica that never saw it; its persisted queue is
+            // waiting in Couchbase (drained on CLIENT_READY). Mark the doc not-away so the timeout sweep
+            // won't reclaim it mid-reconnect (no-op if no doc exists — a never-disconnected client).
+            durableRepository.markDurableAway(durableId, false);
+        }
         log.info(StructuredLog.event("durable_client_connected", "durableId", durableId,
-                "queued", state.pendingCount.get()));
+                "queued", state.pendingCount.get(), "persisted", durablePersistenceActive()));
     }
 
     private void scheduleDurableExpiry(String durableId, DurableState state) {
@@ -297,7 +377,12 @@ public final class SubscriptionRegistry {
             interests.remove(durableId);
             cqs.remove(durableId);
             state.pending.clear();
-            log.info(StructuredLog.event("durable_client_expired", "durableId", durableId));
+            // When persistence is on, this local per-client timer only frees in-memory state — it must
+            // NOT drop the Couchbase doc, because the client may have reconnected to another replica.
+            // The authoritative, instance-independent cleanup is sweepExpiredDurable() (checks the away
+            // flag + awaySince), so the persisted record/queue outlive this replica losing the client.
+            log.info(StructuredLog.event("durable_client_expired", "durableId", durableId,
+                    "persisted", durablePersistenceActive()));
         } else if (state != null) {
             // Reconnected between expiry firing and now: keep it.
             durableClients.put(durableId, state);
@@ -329,8 +414,18 @@ public final class SubscriptionRegistry {
             feed.writeAndFlush(Unpooled.wrappedBuffer(msg));
             replayed++;
         }
+        if (durablePersistenceActive()) {
+            // Replay the Couchbase-persisted queue — this is what lets a reconnect to ANY replica recover
+            // the events missed while away, even if the original owner replica is gone.
+            for (byte[] event : durableRepository.drainDurableQueue(durableId)) {
+                feed.writeAndFlush(Unpooled.wrappedBuffer(event));
+                replayed++;
+            }
+            durableRepository.markDurableAway(durableId, false);
+        }
         state.ready = true;
-        log.info(StructuredLog.event("durable_client_replayed", "durableId", durableId, "events", replayed));
+        log.info(StructuredLog.event("durable_client_replayed", "durableId", durableId, "events", replayed,
+                "persisted", durablePersistenceActive()));
     }
 
     /** Register a continuous query for a client (region is the query's FROM region path). */
@@ -564,7 +659,13 @@ public final class SubscriptionRegistry {
         }
         DurableState durable = durableClients.get(clientId);
         if (durable != null) {
-            enqueueDurable(durable, message); // disconnected / not-yet-ready durable client
+            // disconnected / not-yet-ready durable client: queue for replay (Couchbase when persistence
+            // is on, so the queue survives a replica failing; in-memory otherwise).
+            if (durablePersistenceActive()) {
+                durableRepository.enqueueDurableEvent(clientId, message);
+            } else {
+                enqueueDurable(durable, message);
+            }
         }
         // else: a non-durable client with no live feed — dropped (the client is gone)
     }
@@ -687,7 +788,11 @@ public final class SubscriptionRegistry {
             if (originClientId != null && originClientId.equals(durableId)) {
                 continue;
             }
-            enqueueDurable(state, message.clone());
+            if (durablePersistenceActive()) {
+                durableRepository.enqueueDurableEvent(durableId, message.clone());
+            } else {
+                enqueueDurable(state, message.clone());
+            }
             queued++;
         }
         log.info(StructuredLog.event("subscription_event_pushed", "kind", kind, "region", region,
