@@ -122,7 +122,7 @@ below.)
 depth**. All items are additive/non-breaking (a semver minor). Milestone dates are targets, from a
 ~2026-06-23 start.
 
-### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · target 2026-07-18
+### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · **COMPLETE** (all 4 slices, ahead of the 2026-07-18 target)
 Today durable state (retained interest + the disconnect-time event queue, in `SubscriptionRegistry`'s
 `DurableState`) is **in-memory per shim instance**, so a durable client that reconnects to a *different*
 replica (after a failover) loses its queue. Decided architecture: **full HA via a Couchbase-backed
@@ -166,8 +166,15 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   for interest, `nonOwnerReplicaEnqueuesCqEventForAwayClient` for CQ): a mutation on replica **B**, which
   never owned the client, replays on reconnect. Known bound: away-registry cache freshness ≈ the refresh
   interval.
-- [ ] **Slice 4 — multi-replica (k8s) validation:** durable client on replica A, A killed, reconnect to
-  B replays the queue. Real-client + the k8s test cluster. Risk: high (riskiest 1.2.0 item).
+- [x] **Slice 4 — multi-replica (k8s) failover validation — DONE.** Validated on the real Kubernetes
+  test cluster with **no eventing backplane** (so delivery comes purely from the Couchbase registry/queue,
+  not any in-memory cross-replica path): a 2-replica shim (`DURABLE_PERSISTENCE=true`), a durable client
+  subscribes on **replica A**, **A is hard-killed**, a mutation lands on **replica B** (B's origin enqueues
+  for the away client from the persisted registry), and the durable client **reconnects to B and replays
+  the missed event** → `DURABLE_FAILOVER_CHECK PASS`. Tooling: `tools.DurableFailoverCheck` (subscribe /
+  mutate / verify roles) driven by `scripts/k8s-durable-failover-e2e.sh` (deploy → kill → mutate → verify),
+  mirroring the mesh-e2e pattern. **1.2.0-M1 COMPLETE** — durable subscriptions now survive a replica
+  failing and replay on reconnect to any replica, for both interest and CQ events.
 
 ### 1.2.0-M2 — Keyset-metadata at-scale improvement · target 2026-08-08
 - [ ] Lift the **O(region) keyset-doc cost + the 20 MiB per-region key-count ceiling** characterized in
