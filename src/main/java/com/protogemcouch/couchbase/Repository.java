@@ -180,4 +180,50 @@ public interface Repository {
     default void setPdxScalarExtractor(Function<byte[], Map<String, Object>> extractor) {
         // no-op by default
     }
+
+    // --- Durable-subscription persistence primitive (1.2.0-M1, behind DURABLE_PERSISTENCE) ----------
+    // A durable client's retained registry record + disconnect-time event queue live in a single
+    // Couchbase doc (`__protogemcouch::durable::<id>`), so they survive a replica failing and can be
+    // replayed on a reconnect to any replica. These defaults are no-ops (single-instance, in-memory
+    // behavior unchanged); CouchbaseRepository overrides them with the real, flag-gated implementation.
+    // Slice 1 delivers only this primitive; SubscriptionRegistry wiring is Slice 2.
+
+    /**
+     * Persist (create or update) a durable client's registry record — its interests, CQs, timeout, and
+     * away flag — without touching its event queue. Disabled (no-op) unless durable persistence is on.
+     */
+    default void saveDurable(DurableRecord record) {
+        // no-op by default
+    }
+
+    /**
+     * Load a durable client's persisted registry record, or {@link Optional#empty()} when none exists
+     * (or persistence is off). The event queue is drained separately via {@link #drainDurableQueue}.
+     */
+    default Optional<DurableRecord> loadDurable(String durableId) {
+        return Optional.empty();
+    }
+
+    /**
+     * Append one already-serialized event frame to a durable client's persisted queue (an atomic,
+     * contention-free sub-document array append, bounded by {@code DURABLE_MAX_QUEUE}: oldest dropped on
+     * overflow). Creates the queue doc if absent. No-op unless durable persistence is on.
+     */
+    default void enqueueDurableEvent(String durableId, byte[] event) {
+        // no-op by default
+    }
+
+    /**
+     * Atomically remove and return all queued event frames for a durable client, in order (oldest
+     * first), leaving the registry record intact. Empty when there is nothing queued or persistence is
+     * off. Concurrent enqueues are not lost (the clear is CAS-guarded).
+     */
+    default List<byte[]> drainDurableQueue(String durableId) {
+        return List.of();
+    }
+
+    /** Delete a durable client's persisted doc entirely (record + queue). No-op unless persistence is on. */
+    default void dropDurable(String durableId) {
+        // no-op by default
+    }
 }

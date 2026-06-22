@@ -130,10 +130,16 @@ durable registry + single-writer origin enqueue** — persist each durable clien
 in Couchbase; the replica that *processes a mutation* (its origin) appends matching events to away
 durable clients' queue docs (single writer per event → no dedup, and no dependence on the client's former
 owner replica → survives any replica failing). Behind a flag (default off) for safe rollout.
-- [ ] **Slice 1 — Couchbase durable-queue persistence primitive.** Repository methods (default no-op +
-  `CouchbaseRepository` impl) for a `__protogemcouch::durable::<id>` doc: save/load the durable record
-  (interests, CQs, timeout, away-flag), `enqueue` (subdoc array_append, bounded), `drain`, `drop`. Flag
-  `DURABLE_PERSISTENCE` (default off). Integration-tested.
+- [x] **Slice 1 — Couchbase durable-queue persistence primitive — DONE.** Repository methods (default
+  no-op + `CouchbaseRepository` impl) over a `__protogemcouch::durable::<id>` doc: `saveDurable` /
+  `loadDurable` of the durable record (`DurableRecord`: interests, CQs, timeout, away-flag) via
+  sub-document upserts that don't clobber the queue; `enqueueDurableEvent` (atomic subdoc
+  `arrayAppend`, bounded by `DURABLE_MAX_QUEUE` — oldest dropped on overflow); `drainDurableQueue`
+  (CAS-guarded clear so a concurrent enqueue is never lost); `dropDurable`. Behind the
+  `DURABLE_PERSISTENCE` flag (default off → the methods are no-ops and single-instance behavior is
+  unchanged); `TracingRepository` delegates all five. Validated by `DurableRecordCodecTest` (codec
+  round-trip) + `DurablePersistenceIntegrationTest` (7 cases against real Couchbase: save/load, drain
+  ordering, the bound, save-doesn't-clobber-queue, drop, and the off-by-default no-op).
 - [ ] **Slice 2 — wire `SubscriptionRegistry`:** persist on disconnect + mark away; replay-from-Couchbase
   on reconnect + `CLIENT_READY` to *any* instance; timeout sweep drops expired docs.
 - [ ] **Slice 3 — cross-replica origin enqueue:** the mutation's origin replica reads the persisted

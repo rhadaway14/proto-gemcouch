@@ -15,6 +15,8 @@ import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.ExistsResult;
 import com.couchbase.client.java.kv.GetResult;
 import com.couchbase.client.java.kv.InsertOptions;
+import com.couchbase.client.java.kv.LookupInResult;
+import com.couchbase.client.java.kv.LookupInSpec;
 import com.couchbase.client.java.kv.MutateInOptions;
 import com.couchbase.client.java.kv.MutateInSpec;
 import com.couchbase.client.java.kv.RemoveOptions;
@@ -67,6 +69,23 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_PDX_FIELDS = "pdxFields";
     private static final String TYPE_INVALIDATED = "invalidated";
     private static final String KEYSET_META_PREFIX = "__protogemcouch::keyset::";
+
+    // Durable-subscription persistence (1.2.0-M1): one Couchbase doc per durable client holds its
+    // retained registry record (interests/CQs/timeout/away) plus its disconnect-time event queue.
+    private static final String DURABLE_META_PREFIX = "__protogemcouch::durable::";
+    private static final String TYPE_DURABLE_REGISTRY = "durableRegistry";
+    private static final String FIELD_DURABLE_ID = "durableId";
+    private static final String FIELD_TIMEOUT_SECONDS = "timeoutSeconds";
+    private static final String FIELD_AWAY = "away";
+    private static final String FIELD_INTERESTS = "interests";
+    private static final String FIELD_CQS = "cqs";
+    private static final String FIELD_QUEUE = "queue";
+    private static final String FIELD_REGION = "region";
+    private static final String FIELD_KIND = "kind";
+    private static final String FIELD_REGEX = "regex";
+    private static final String FIELD_CQ_NAME = "cqName";
+    private static final String FIELD_QUERY = "query";
+    private static final int DEFAULT_DURABLE_MAX_QUEUE = 100_000;
 
     /** Bounded retries for compare-and-swap atomic operations under concurrent contention. */
     private static final int CAS_MAX_ATTEMPTS = 32;
@@ -136,6 +155,12 @@ public class CouchbaseRepository implements Repository {
     static final long DEFAULT_MAX_VALUE_BYTES = 20L * 1024 * 1024;
     private long maxValueBytes = DEFAULT_MAX_VALUE_BYTES;
 
+    // Durable-subscription persistence is opt-in (DURABLE_PERSISTENCE, default off) for safe rollout:
+    // when off, the durable repository methods are no-ops (single-instance, in-memory behavior is
+    // unchanged). DURABLE_MAX_QUEUE bounds each persisted queue (oldest dropped on overflow).
+    private boolean durablePersistenceEnabled = false;
+    private int durableMaxQueue = DEFAULT_DURABLE_MAX_QUEUE;
+
     public CouchbaseRepository(ServerConfig config) {
         this.config = config;
     }
@@ -166,6 +191,12 @@ public class CouchbaseRepository implements Repository {
         this.maxValueBytes = parseMaxValueBytes(System.getenv("CB_MAX_VALUE_BYTES"));
         log.info(StructuredLog.event("repository_max_value_bytes_configured",
                 "maxValueBytes", maxValueBytes, "enabled", maxValueBytes > 0));
+
+        this.durablePersistenceEnabled = Boolean.parseBoolean(System.getenv("DURABLE_PERSISTENCE"));
+        this.durableMaxQueue =
+                (int) parsePositiveLongOrDefault(System.getenv("DURABLE_MAX_QUEUE"), DEFAULT_DURABLE_MAX_QUEUE);
+        log.info(StructuredLog.event("repository_durable_persistence_configured",
+                "enabled", durablePersistenceEnabled, "maxQueue", durableMaxQueue));
 
         log.info(StructuredLog.event(
                 "repository_timeouts_configured",
@@ -1462,6 +1493,304 @@ public class CouchbaseRepository implements Repository {
         return KEYSET_META_PREFIX + Base64.getUrlEncoder()
                 .withoutPadding()
                 .encodeToString(region.getBytes(StandardCharsets.UTF_8));
+    }
+
+    // --- Durable-subscription persistence primitive (1.2.0-M1) -------------------------------------
+    // All five methods short-circuit to the no-op interface behavior unless DURABLE_PERSISTENCE is on,
+    // so the single-instance path is byte-for-byte unchanged by default.
+
+    /** Enable the durable-persistence primitive with the given queue bound. Package-private test seam. */
+    void enableDurablePersistenceForTesting(int maxQueue) {
+        this.durablePersistenceEnabled = true;
+        this.durableMaxQueue = maxQueue;
+    }
+
+    private static String durableDocId(String durableId) {
+        return DURABLE_META_PREFIX + Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(durableId.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Persist the durable client's registry record (interests/CQs/timeout/away) via sub-document upserts
+     * so an existing event queue on the same doc is left untouched; the doc is created if absent.
+     */
+    @Override
+    public void saveDurable(DurableRecord record) {
+        if (!durablePersistenceEnabled || record == null || record.durableId() == null) {
+            return;
+        }
+        String docId = durableDocId(record.durableId());
+        JsonObject encoded = encodeDurableRecord(record);
+        try {
+            collection.mutateIn(docId, java.util.List.of(
+                    MutateInSpec.upsert(FIELD_TYPE, TYPE_DURABLE_REGISTRY),
+                    MutateInSpec.upsert(FIELD_DURABLE_ID, record.durableId()),
+                    MutateInSpec.upsert(FIELD_TIMEOUT_SECONDS, record.timeoutSeconds()),
+                    MutateInSpec.upsert(FIELD_AWAY, record.away()),
+                    MutateInSpec.upsert(FIELD_INTERESTS, encoded.getArray(FIELD_INTERESTS)),
+                    MutateInSpec.upsert(FIELD_CQS, encoded.getArray(FIELD_CQS))),
+                    mutateInOptions());
+            log.info(StructuredLog.event("repository_durable_saved",
+                    "durableId", record.durableId(), "away", record.away(),
+                    "interests", record.interests().size(), "cqs", record.cqs().size()));
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_durable_save_error", "durableId", record.durableId(),
+                    "error", e.getMessage()), e);
+            throw new RepositoryException("saveDurable failed for durableId=" + record.durableId(), e);
+        }
+    }
+
+    @Override
+    public Optional<DurableRecord> loadDurable(String durableId) {
+        if (!durablePersistenceEnabled || durableId == null) {
+            return Optional.empty();
+        }
+        try {
+            JsonObject content = collection.get(durableDocId(durableId)).contentAsObject();
+            log.info(StructuredLog.event("repository_durable_loaded", "durableId", durableId));
+            return Optional.of(decodeDurableRecord(content));
+        } catch (DocumentNotFoundException e) {
+            log.info(StructuredLog.event("repository_durable_load_miss", "durableId", durableId));
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_durable_load_error", "durableId", durableId, "error", e.getMessage()), e);
+            throw new RepositoryException("loadDurable failed for durableId=" + durableId, e);
+        }
+    }
+
+    /**
+     * Append one event frame to the durable client's persisted queue with an atomic sub-document
+     * {@code arrayAppend} (contention-free, no read-modify-write CAS), creating the doc/array if absent
+     * and stamping it identifiable. Bounds the queue at {@code DURABLE_MAX_QUEUE} via a best-effort trim
+     * of the oldest entries when it overflows.
+     */
+    @Override
+    public void enqueueDurableEvent(String durableId, byte[] event) {
+        if (!durablePersistenceEnabled || durableId == null || event == null) {
+            return;
+        }
+        String docId = durableDocId(durableId);
+        String encoded = Base64.getEncoder().encodeToString(event);
+        try {
+            collection.mutateIn(docId, java.util.List.of(
+                    MutateInSpec.arrayAppend(FIELD_QUEUE, java.util.List.of(encoded)).createPath(),
+                    MutateInSpec.upsert(FIELD_TYPE, TYPE_DURABLE_REGISTRY),
+                    MutateInSpec.upsert(FIELD_DURABLE_ID, durableId)),
+                    mutateInOptions());
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_durable_enqueue_error", "durableId", durableId, "error", e.getMessage()), e);
+            throw new RepositoryException("enqueueDurableEvent failed for durableId=" + durableId, e);
+        }
+        if (durableMaxQueue > 0) {
+            trimDurableQueueIfNeeded(docId, durableId);
+        }
+    }
+
+    /**
+     * Drop the oldest entries when a durable queue exceeds the bound, keeping the newest
+     * {@code durableMaxQueue}. Best-effort and CAS-guarded so a concurrent enqueue is never lost; on any
+     * failure the queue is left as-is (the hard 20 MiB document ceiling still applies).
+     */
+    private void trimDurableQueueIfNeeded(String docId, String durableId) {
+        try {
+            LookupInResult counted = collection.lookupIn(
+                    docId, java.util.List.of(LookupInSpec.count(FIELD_QUEUE)));
+            int size = counted.contentAs(0, Integer.class);
+            if (size <= durableMaxQueue) {
+                return;
+            }
+            for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
+                GetResult existing = collection.get(docId);
+                JsonArray queue = existing.contentAsObject().getArray(FIELD_QUEUE);
+                if (queue == null || queue.size() <= durableMaxQueue) {
+                    return;
+                }
+                int drop = queue.size() - durableMaxQueue;
+                JsonArray trimmed = JsonArray.create();
+                for (int i = drop; i < queue.size(); i++) {
+                    trimmed.add(queue.get(i));
+                }
+                try {
+                    collection.mutateIn(docId,
+                            java.util.List.of(MutateInSpec.upsert(FIELD_QUEUE, trimmed)),
+                            durableCasOptions(existing.cas()));
+                    log.info(StructuredLog.event("repository_durable_queue_trimmed",
+                            "durableId", durableId, "dropped", drop, "kept", durableMaxQueue));
+                    return;
+                } catch (CasMismatchException retry) {
+                    // a concurrent enqueue grew the queue; re-read and re-trim
+                }
+            }
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_durable_queue_trim_failed", "durableId", durableId, "error", e.getMessage()));
+        }
+    }
+
+    @Override
+    public java.util.List<byte[]> drainDurableQueue(String durableId) {
+        if (!durablePersistenceEnabled || durableId == null) {
+            return java.util.List.of();
+        }
+        String docId = durableDocId(durableId);
+        for (int attempt = 1; attempt <= CAS_MAX_ATTEMPTS; attempt++) {
+            try {
+                GetResult existing;
+                try {
+                    existing = collection.get(docId);
+                } catch (DocumentNotFoundException none) {
+                    return java.util.List.of();
+                }
+                JsonArray queue = existing.contentAsObject().getArray(FIELD_QUEUE);
+                if (queue == null || queue.isEmpty()) {
+                    return java.util.List.of();
+                }
+                java.util.List<byte[]> events = new ArrayList<>(queue.size());
+                for (Object raw : queue) {
+                    if (raw != null) {
+                        events.add(Base64.getDecoder().decode(String.valueOf(raw)));
+                    }
+                }
+                // Clear only if unchanged since our read, so an event enqueued concurrently is retained
+                // (the CAS fails and we re-read), never silently dropped.
+                collection.mutateIn(docId,
+                        java.util.List.of(MutateInSpec.upsert(FIELD_QUEUE, JsonArray.create())),
+                        durableCasOptions(existing.cas()));
+                log.info(StructuredLog.event(
+                        "repository_durable_drained", "durableId", durableId, "events", events.size()));
+                return events;
+            } catch (CasMismatchException conflict) {
+                // a concurrent enqueue changed the doc; re-read and retry
+            } catch (Exception e) {
+                log.error(StructuredLog.event(
+                        "repository_durable_drain_error", "durableId", durableId, "error", e.getMessage()), e);
+                throw new RepositoryException("drainDurableQueue failed for durableId=" + durableId, e);
+            }
+        }
+        log.warn(StructuredLog.event("repository_durable_drain_cas_exhausted", "durableId", durableId));
+        return java.util.List.of();
+    }
+
+    @Override
+    public void dropDurable(String durableId) {
+        if (!durablePersistenceEnabled || durableId == null) {
+            return;
+        }
+        try {
+            collection.remove(durableDocId(durableId), removeOptions());
+            log.info(StructuredLog.event("repository_durable_dropped", "durableId", durableId));
+        } catch (DocumentNotFoundException alreadyGone) {
+            log.info(StructuredLog.event("repository_durable_drop_miss", "durableId", durableId));
+        } catch (Exception e) {
+            log.error(StructuredLog.event(
+                    "repository_durable_drop_error", "durableId", durableId, "error", e.getMessage()), e);
+            throw new RepositoryException("dropDurable failed for durableId=" + durableId, e);
+        }
+    }
+
+    private MutateInOptions durableCasOptions(long cas) {
+        MutateInOptions options = MutateInOptions.mutateInOptions().cas(cas);
+        if (writeDurability != DurabilityLevel.NONE) {
+            options.durability(writeDurability);
+        }
+        return options;
+    }
+
+    /**
+     * Encode a {@link DurableRecord}'s metadata (no queue) to its JSON document form. Package-private
+     * so a unit test can round-trip the codec without a live Couchbase (pairs with
+     * {@link #decodeDurableRecord}).
+     */
+    static JsonObject encodeDurableRecord(DurableRecord record) {
+        JsonObject body = JsonObject.create()
+                .put(FIELD_TYPE, TYPE_DURABLE_REGISTRY)
+                .put(FIELD_DURABLE_ID, record.durableId())
+                .put(FIELD_TIMEOUT_SECONDS, record.timeoutSeconds())
+                .put(FIELD_AWAY, record.away());
+
+        JsonArray interests = JsonArray.create();
+        for (DurableRecord.InterestSpec spec : record.interests()) {
+            JsonObject entry = JsonObject.create()
+                    .put(FIELD_REGION, spec.region())
+                    .put(FIELD_KIND, spec.kind().name());
+            if (spec.kind() == DurableRecord.InterestSpec.Kind.KEYS) {
+                JsonArray keys = JsonArray.create();
+                for (String key : spec.keys()) {
+                    keys.add(key);
+                }
+                entry.put(FIELD_KEYS, keys);
+            } else if (spec.kind() == DurableRecord.InterestSpec.Kind.REGEX) {
+                entry.put(FIELD_REGEX, spec.regex());
+            }
+            interests.add(entry);
+        }
+        body.put(FIELD_INTERESTS, interests);
+
+        JsonArray cqs = JsonArray.create();
+        for (DurableRecord.CqSpec cq : record.cqs()) {
+            cqs.add(JsonObject.create()
+                    .put(FIELD_CQ_NAME, cq.cqName())
+                    .put(FIELD_REGION, cq.region())
+                    .put(FIELD_QUERY, cq.query()));
+        }
+        body.put(FIELD_CQS, cqs);
+        return body;
+    }
+
+    /** Decode a durable doc's metadata (queue ignored) back into a {@link DurableRecord}. */
+    static DurableRecord decodeDurableRecord(JsonObject body) {
+        String durableId = body.getString(FIELD_DURABLE_ID);
+        Integer timeout = body.getInt(FIELD_TIMEOUT_SECONDS);
+        boolean away = Boolean.TRUE.equals(body.getBoolean(FIELD_AWAY));
+
+        java.util.List<DurableRecord.InterestSpec> interests = new ArrayList<>();
+        JsonArray interestArray = body.getArray(FIELD_INTERESTS);
+        if (interestArray != null) {
+            for (Object raw : interestArray) {
+                if (!(raw instanceof JsonObject entry)) {
+                    continue;
+                }
+                String region = entry.getString(FIELD_REGION);
+                DurableRecord.InterestSpec.Kind kind =
+                        DurableRecord.InterestSpec.Kind.valueOf(entry.getString(FIELD_KIND));
+                switch (kind) {
+                    case KEYS -> {
+                        java.util.List<String> keys = new ArrayList<>();
+                        JsonArray keyArray = entry.getArray(FIELD_KEYS);
+                        if (keyArray != null) {
+                            for (Object key : keyArray) {
+                                if (key != null) {
+                                    keys.add(String.valueOf(key));
+                                }
+                            }
+                        }
+                        interests.add(DurableRecord.InterestSpec.keys(region, keys));
+                    }
+                    case REGEX -> interests.add(
+                            DurableRecord.InterestSpec.regex(region, entry.getString(FIELD_REGEX)));
+                    default -> interests.add(DurableRecord.InterestSpec.allKeys(region));
+                }
+            }
+        }
+
+        java.util.List<DurableRecord.CqSpec> cqs = new ArrayList<>();
+        JsonArray cqArray = body.getArray(FIELD_CQS);
+        if (cqArray != null) {
+            for (Object raw : cqArray) {
+                if (raw instanceof JsonObject entry) {
+                    cqs.add(new DurableRecord.CqSpec(
+                            entry.getString(FIELD_CQ_NAME),
+                            entry.getString(FIELD_REGION),
+                            entry.getString(FIELD_QUERY)));
+                }
+            }
+        }
+
+        return new DurableRecord(durableId, timeout == null ? 0 : timeout, away, interests, cqs);
     }
 
     private static ParsedDocumentKey parseDocumentKey(String docId) {

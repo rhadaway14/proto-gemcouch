@@ -141,9 +141,20 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     53, `ClientReadyHandler`), and dropping the queue if it doesn't return within the timeout. A durable
     client's UNREGISTER-on-close is ignored so its interest survives the disconnect. Validated against a
     real Geode 1.15 client by `ProtoGemCouchDurableClientIntegrationTest` + `DurableSubscriptionTest`.
-    **Deferred (documented):** multi-replica durable persistence — the queue surviving replica death or a
-    reconnect to a different replica (would be Couchbase-backed); a durable client can't unregister
-    interest mid-session; and the per-client wire timeout is honored but capped by `DURABLE_MAX_QUEUE`.
+    **Deferred (documented):** a durable client can't unregister interest mid-session; and the
+    per-client wire timeout is honored but capped by `DURABLE_MAX_QUEUE`.
+  - **Multi-replica durable persistence — IN PROGRESS (1.2.0-M1).** Lifting the single-instance limit
+    so a durable client's retained interest + event queue survive a replica failing and replay on a
+    reconnect to *any* replica (Couchbase-backed durable registry + single-writer origin enqueue; see
+    `docs/ROADMAP.md` § 1.2.0-M1). **Slice 1 DONE — the persistence primitive:** a per-durable-client
+    Couchbase doc `__protogemcouch::durable::<id>` holds the registry record (`type=durableRegistry`,
+    `durableId`, `timeoutSeconds`, `away`, `interests[]`, `cqs[]`) plus its event `queue[]` (base64
+    frames). The `Repository` exposes `saveDurable` / `loadDurable` (metadata via sub-document upserts
+    that leave the queue intact), `enqueueDurableEvent` (atomic subdoc `arrayAppend`, bounded by
+    `DURABLE_MAX_QUEUE`), `drainDurableQueue` (CAS-guarded clear), and `dropDurable` — all behind the
+    **`DURABLE_PERSISTENCE`** flag (default off → no-ops, single-instance behavior unchanged). The
+    registry wiring (persist on disconnect, replay-from-Couchbase on reconnect, cross-replica origin
+    enqueue, k8s failover validation) is Slices 2–4.
   - **P3 — redundancy / keepalive DONE.** A real redundancy-enabled, keepalive-pinging client
     (`tools/RedundancyKeepaliveProbe`) produces no unhandled opcodes: client PINGs (5) are acked,
     MAKE_PRIMARY is drained on the feed connection, and PERIODIC_ACK (52) is drained. Subscription
