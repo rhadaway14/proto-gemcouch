@@ -151,4 +151,32 @@ public class TracingRepository implements Repository {
             java.util.function.Function<byte[], java.util.Map<String, Object>> extractor) {
         delegate.setPdxScalarExtractor(extractor);
     }
+
+    @Override
+    public void saveDurable(DurableRecord record) {
+        traced("saveDurable", "durable.id", record == null ? null : record.durableId(),
+                () -> delegate.saveDurable(record));
+    }
+
+    @Override
+    public java.util.Optional<DurableRecord> loadDurable(String durableId) {
+        return traced("loadDurable", "durable.id", durableId, () -> delegate.loadDurable(durableId));
+    }
+
+    @Override
+    public void enqueueDurableEvent(String durableId, byte[] event) {
+        traced("enqueueDurableEvent", "durable.id", durableId,
+                () -> delegate.enqueueDurableEvent(durableId, event));
+    }
+
+    @Override
+    public List<byte[]> drainDurableQueue(String durableId) {
+        return traced("drainDurableQueue", "durable.id", durableId,
+                () -> delegate.drainDurableQueue(durableId));
+    }
+
+    @Override
+    public void dropDurable(String durableId) {
+        traced("dropDurable", "durable.id", durableId, () -> delegate.dropDurable(durableId));
+    }
 }
