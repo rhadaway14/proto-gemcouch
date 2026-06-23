@@ -99,11 +99,17 @@ hot path):
 | **single shim**, direct, concurrency 32 | **~16.9k ops/sec**, GET p50 1.5 ms / p99 4.3 ms, 0 errors |
 | **single shim**, sweep knee | ~conc 128: ~17.7k ops/sec at p99 ~26 ms (beyond it, +2% throughput for +50% p99) |
 | **two shims**, NLB, two load gens (aggregate) | **~35k ops/sec @ conc 128/shim** (p99 ~26 ms), rising to ~36.6k @ conc 256 (p99 ~39 ms), 0 errors; Couchbase ~40k KV ops/s |
+| **four shims**, NLB, four load gens (aggregate, read-heavy) | **~58k ops/sec** (climbing 55.4k@128 → 56.5k@256 → 58.5k@384 total conc, p99 8 → 17 → 25 ms), **0 errors**; shim CPU ~95% busy, Couchbase only ~21% busy at ~58k KV ops/s |
 
-**Scaling:** **near-linear** — one shim ≈ 16.9k, two shims ≈ **35k** (~2×), 0 errors. (The first
-two-shim run with a *single* load generator capped at ~25k because the load gen itself was ~90% CPU;
-driving from two load gens removed that and the aggregate doubled, confirming the shim tier scales
-horizontally.)
+**Scaling:** **near-linear** — one shim ≈ 16.9k, two ≈ **35k** (~2.07×), four ≈ **58k** (~3.45× of a
+single shim), 0 errors throughout. (The first two-shim run with a *single* load generator capped at
+~25k because the load gen itself was ~90% CPU; driving from multiple load gens removed that and
+confirmed the shim tier scales horizontally.) The four-shim run (2026-06-23, `shim_count=4`,
+`loadgen_count=4`, read-heavy) was directly CPU-attributed mid-load: **shim hosts ~95% busy
+(saturated) while the single `r6i.xlarge` Couchbase sat at ~21% CPU** serving ~58k KV ops/s — so at
+4 shims the backend still has large headroom and the shim tier is the constraint. The slight
+sub-linearity at four (3.45× vs an ideal 4×, ~14.5k/shim vs the 16.9k single-shim figure) is minor
+cross-shim/NLB/backend-latency overhead, not a backend wall.
 
 **Bottleneck:** the **shim tier (CPU)** — shim hosts pinned ~90% at peak. The Couchbase node stayed at
 ~15% CPU with a ~0 disk-write queue and no OOM while serving ~40k KV ops/s, i.e. **the backend has
@@ -123,8 +129,9 @@ multi-second `REMOVE`/`PUT_ALL` latencies. Treat these as cold-path/administrati
 hot-path application calls; a large-keyspace, mutation-heavy workload would need the keyset-metadata
 design reworked (or avoided).
 
-**Still open:** the 4-shim point (1→2 measured near-linear; extending to 4 is just more of the same on
-the rig).
+**4-shim point — DONE (2026-06-23).** Measured ~58k aggregate (0 errors), shim-CPU-bound (~95%) with
+Couchbase at ~21% — near-linear 1→2→4 (16.9k → 35k → 58k). Confirms the thesis: scale read throughput
+by adding shim replicas; one `r6i.xlarge` Couchbase has headroom well past four shims.
 
 ### Failure injection at scale (EC2 rig)
 

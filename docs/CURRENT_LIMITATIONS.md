@@ -54,8 +54,9 @@ evolution beyond the per-type path; `DataSerializable` *field* access (needs the
 object graphs / complete DataSerializer marker coverage; full opcode golden-wire coverage.
 
 **Capacity qualification** is characterized on a dedicated rig (`docs/SOAK_RESULTS.md`: per-shim read
-ceiling ~16.9k ops/sec, near-linear two-shim scaling, shim-CPU-bound with Couchbase headroom).
-Remaining: the 4+-shim point and failure-injection-at-scale — both reproducible on the `deploy/` rigs.
+ceiling ~16.9k ops/sec, and a near-linear scaling curve **16.9k → 35k → 58k for 1/2/4 shims**,
+shim-CPU-bound with large Couchbase headroom — the four-shim point was measured at ~95% shim CPU vs
+~21% Couchbase). Failure-injection-at-scale is also rig-validated; both are reproducible on `deploy/`.
 
 ## Positioning
 

@@ -203,7 +203,12 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   putAll/getAll through a live Geode client + shim + Couchbase). Still opaque-when-nested (round-trip
   only, need the user's classes or exact component types): Serializable POJOs, PDX instances, typed
   object arrays (`Integer[]`/`UUID[]`/…), and non-`ArrayList` `List`s.
-- [ ] Optional: a **4+-shim horizontal-scale characterization** on the capacity rig (rig-based; not yet run).
+- [x] Optional **4+-shim horizontal-scale characterization — DONE** (2026-06-23, EC2 rig `shim_count=4`,
+  `loadgen_count=4`, read-heavy): **~58k aggregate ops/sec, 0 errors**, extending the near-linear curve
+  16.9k → 35k → 58k (1/2/4 shims). CPU-attributed mid-load: shim hosts ~95% busy (saturated), the single
+  `r6i.xlarge` Couchbase only ~21% — shim-CPU-bound with backend headroom past four shims. See
+  `docs/SOAK_RESULTS.md`. (Also fixed the rig's `git_ref` default `master`→`main` after the trunk migration.)
+- **1.2.0-M3 COMPLETE** (hot TLS reload + nested java.time coverage + the 4-shim characterization).
 
 ### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
 - [ ] Soak the new HA/scale paths; security re-review; cross-version matrix; `CHANGELOG.md` `[1.2.0]`;
