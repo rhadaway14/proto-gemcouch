@@ -39,6 +39,7 @@ class ProtoGemCouchDurableClientIntegrationTest {
     private static final String HOST = envOrDefault("IT_SHIM_HOST", "127.0.0.1");
     private static final int SHIM_PORT = intEnv("IT_SHIM_PORT", 40405);
     private static final int HEALTH_PORT = intEnv("IT_HEALTH_PORT", 8081);
+    private static final String AWAY_REGISTERED_METRIC = "protogemcouch_durable_away_registered";
 
     @BeforeEach
     void setUp() {
@@ -57,7 +58,13 @@ class ProtoGemCouchDurableClientIntegrationTest {
         r1.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
         d1.readyForEvents();
         Thread.sleep(1000); // let the server-side interest register
+        double awayBefore = readMetric(HEALTH_PORT, AWAY_REGISTERED_METRIC);
         d1.close(true);     // keepalive: retain the subscription queue while away
+
+        // Gate: the origin enqueues only for away clients in its registry cache (refreshed on an
+        // interval), so wait until the shim actually sees this client as away before mutating —
+        // otherwise the missed event is never enqueued. Far more load-tolerant than a fixed sleep.
+        awaitMetricAtLeast(HEALTH_PORT, AWAY_REGISTERED_METRIC, awayBefore + 1, Duration.ofSeconds(30));
 
         // Phase 2: a separate client mutates the region while the durable client is disconnected.
         runPutOnce(region, "missed1", "hello");
@@ -114,7 +121,12 @@ class ProtoGemCouchDurableClientIntegrationTest {
         qs1.newCq(cqName, cqText, caf1.create()).execute();
         d1.readyForEvents();
         Thread.sleep(1000);
+        double awayBefore = readMetric(HEALTH_PORT, AWAY_REGISTERED_METRIC);
         d1.close(true);
+
+        // Gate on the shim seeing this client as away (its persisted CQ def loaded into the origin's
+        // registry cache) before mutating, so the CQ-enqueue path actually runs.
+        awaitMetricAtLeast(HEALTH_PORT, AWAY_REGISTERED_METRIC, awayBefore + 1, Duration.ofSeconds(30));
 
         // Phase 2: a CQ-matching mutation arrives while the durable client is disconnected.
         runPutOnce(region, "cqmissed", "v");
@@ -194,6 +206,61 @@ class ProtoGemCouchDurableClientIntegrationTest {
             fail("PutOnce mutator process did not finish in time");
         }
         assertEquals(0, process.exitValue(), "PutOnce mutator process succeeded");
+    }
+
+    /** Polls a shim's Prometheus {@code /metrics} until {@code metric >= atLeast} or the timeout. */
+    private static void awaitMetricAtLeast(int healthPort, String metric, double atLeast, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        double last = -1;
+        while (System.nanoTime() < deadline) {
+            last = readMetric(healthPort, metric);
+            if (last >= atLeast) {
+                return;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted awaiting metric " + metric);
+            }
+        }
+        fail("metric " + metric + " did not reach " + atLeast + " within " + timeout + " (last=" + last + ")");
+    }
+
+    /** Reads a single numeric gauge from the shim's Prometheus {@code /metrics} text, or -1 if absent. */
+    private static double readMetric(int healthPort, String metric) {
+        try {
+            HttpURLConnection connection =
+                    (HttpURLConnection) URI.create("http://" + HOST + ":" + healthPort + "/metrics").toURL().openConnection();
+            connection.setConnectTimeout(1500);
+            connection.setReadTimeout(1500);
+            connection.setRequestMethod("GET");
+            try {
+                if (connection.getResponseCode() != 200) {
+                    return -1;
+                }
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(connection.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("#") || !line.startsWith(metric)) {
+                            continue;
+                        }
+                        // Match the bare metric name (no labels) followed by whitespace + value.
+                        String rest = line.substring(metric.length());
+                        if (rest.isEmpty() || !Character.isWhitespace(rest.charAt(0))) {
+                            continue;
+                        }
+                        return Double.parseDouble(rest.trim());
+                    }
+                }
+            } finally {
+                connection.disconnect();
+            }
+        } catch (Exception ignored) {
+            // treat as not-yet-available
+        }
+        return -1;
     }
 
     private static void waitForReady(String url, Duration timeout) {

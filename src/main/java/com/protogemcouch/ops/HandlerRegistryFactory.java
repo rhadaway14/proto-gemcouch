@@ -157,6 +157,9 @@ public final class HandlerRegistryFactory {
                     "Durable subscription clients currently retained.", () -> (long) subscriptions.durableClientCount());
             metrics.registerGauge("protogemcouch_durable_queue_depth",
                     "Total queued (undelivered) events across durable clients.", subscriptions::durableQueueDepth);
+            metrics.registerGauge("protogemcouch_durable_away_registered",
+                    "Away durable clients this replica knows about (origin-enqueue scan set).",
+                    () -> (long) subscriptions.awayRegisteredCount());
         }
 
         return registry;

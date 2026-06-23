@@ -48,6 +48,7 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
     private static final int A_HEALTH = intEnv("IT_HEALTH_PORT", 8081);
     private static final int B_PORT = intEnv("IT_REPLICA_PORT", 40409);
     private static final int B_HEALTH = intEnv("IT_REPLICA_HEALTH_PORT", 8085);
+    private static final String AWAY_REGISTERED_METRIC = "protogemcouch_durable_away_registered";
 
     @BeforeEach
     void setUp() {
@@ -68,7 +69,12 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
         ra.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
         a.readyForEvents();
         Thread.sleep(1000);
+        double awayBeforeA = readMetric(A_HEALTH, AWAY_REGISTERED_METRIC);
         a.close(true);
+
+        // Gate: A (the origin for the Phase-2 mutation) only enqueues for clients in its away-registry
+        // cache, so wait until A sees this client as away before mutating. Load-tolerant vs. a fixed sleep.
+        awaitMetricAtLeast(A_HEALTH, AWAY_REGISTERED_METRIC, awayBeforeA + 1, Duration.ofSeconds(30));
 
         // Phase 2: a mutation lands on replica A while the durable client is away -> A enqueues the
         // event to the durable client's Couchbase queue (not just A's memory).
@@ -123,11 +129,13 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
         ra.registerInterest("ALL_KEYS", InterestResultPolicy.NONE);
         a.readyForEvents();
         Thread.sleep(1000);
+        double awayBeforeB = readMetric(B_HEALTH, AWAY_REGISTERED_METRIC); // client still connected -> not yet away
         a.close(true);
 
-        // Give replica B time to refresh its away-registry cache from Couchbase (it never owned this
-        // client), so B knows to enqueue for it. (DURABLE_AWAY_REFRESH_MS default 1000ms.)
-        Thread.sleep(2000);
+        // Gate: B (the origin for the Phase-2 mutation) never owned this client, so it must refresh its
+        // away-registry cache from Couchbase before it knows to enqueue. Wait until B sees the away
+        // client rather than guessing with a fixed sleep (DURABLE_AWAY_REFRESH_MS default 1000ms).
+        awaitMetricAtLeast(B_HEALTH, AWAY_REGISTERED_METRIC, awayBeforeB + 1, Duration.ofSeconds(30));
 
         // Phase 2: the mutation lands on replica B — which never saw this client. As the origin, B reads
         // the persisted registry and enqueues the event for the away client (Slice 3, owner-independent).
@@ -186,10 +194,12 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
         qsa.newCq(cqName, cqText, cafa.create()).execute();
         a.readyForEvents();
         Thread.sleep(1000);
+        double awayBeforeB = readMetric(B_HEALTH, AWAY_REGISTERED_METRIC); // client still connected -> not yet away
         a.close(true);
 
-        // Let replica B refresh its away-registry cache (incl. the CQ definition) from Couchbase.
-        Thread.sleep(2000);
+        // Gate: wait until replica B has refreshed its away-registry cache (incl. the persisted CQ
+        // definition) from Couchbase and sees this away client, before the Phase-2 mutation.
+        awaitMetricAtLeast(B_HEALTH, AWAY_REGISTERED_METRIC, awayBeforeB + 1, Duration.ofSeconds(30));
 
         // Phase 2: the CQ-matching mutation lands on replica B (which never saw this client). As the
         // origin, B recompiles the away client's persisted CQ, matches it, and enqueues the CQ event.
@@ -270,6 +280,60 @@ class ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest {
             fail("PutOnce mutator process did not finish in time");
         }
         assertEquals(0, process.exitValue(), "PutOnce mutator process succeeded");
+    }
+
+    /** Polls a shim's Prometheus {@code /metrics} until {@code metric >= atLeast} or the timeout. */
+    private static void awaitMetricAtLeast(int healthPort, String metric, double atLeast, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        double last = -1;
+        while (System.nanoTime() < deadline) {
+            last = readMetric(healthPort, metric);
+            if (last >= atLeast) {
+                return;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted awaiting metric " + metric);
+            }
+        }
+        fail("metric " + metric + " did not reach " + atLeast + " within " + timeout + " (last=" + last + ")");
+    }
+
+    /** Reads a single numeric gauge from a shim's Prometheus {@code /metrics} text, or -1 if absent. */
+    private static double readMetric(int healthPort, String metric) {
+        try {
+            HttpURLConnection connection =
+                    (HttpURLConnection) URI.create("http://" + HOST + ":" + healthPort + "/metrics").toURL().openConnection();
+            connection.setConnectTimeout(1500);
+            connection.setReadTimeout(1500);
+            connection.setRequestMethod("GET");
+            try {
+                if (connection.getResponseCode() != 200) {
+                    return -1;
+                }
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(connection.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("#") || !line.startsWith(metric)) {
+                            continue;
+                        }
+                        String rest = line.substring(metric.length());
+                        if (rest.isEmpty() || !Character.isWhitespace(rest.charAt(0))) {
+                            continue;
+                        }
+                        return Double.parseDouble(rest.trim());
+                    }
+                }
+            } finally {
+                connection.disconnect();
+            }
+        } catch (Exception ignored) {
+            // treat as not-yet-available
+        }
+        return -1;
     }
 
     private static void waitForReady(String url, Duration timeout) {

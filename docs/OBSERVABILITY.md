@@ -181,6 +181,7 @@ protogemcouch_registered_interests       # total registered interests across cli
 protogemcouch_registered_cqs             # total registered continuous queries across clients
 protogemcouch_durable_clients            # durable subscription clients currently retained
 protogemcouch_durable_queue_depth        # total queued (undelivered) events across durable clients
+protogemcouch_durable_away_registered    # away durable clients this replica will enqueue missed events for
 protogemcouch_pdx_registry_rejected_total  # PDX type/enum registrations rejected for hitting the cap
 ```
 
