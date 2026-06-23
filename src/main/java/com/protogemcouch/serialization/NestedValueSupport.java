@@ -16,8 +16,9 @@ import java.util.UUID;
  *
  * <p>The supported set is recursive: nested {@code Map<String,Object>}, {@code Object[]}, and
  * {@code List} are supported when every nested value is itself supported, alongside the scalar
- * types, wrappers, {@link Date}, primitive / {@code String} arrays, and the common JDK scalar
- * extras {@link UUID}, {@link BigInteger}, {@link BigDecimal}, and {@code enum} constants.
+ * types, wrappers, {@link Date}, primitive / {@code String} arrays, the {@code java.time} scalars
+ * ({@code Instant}, {@code LocalDate}, {@code LocalDateTime}), and the common JDK scalar extras
+ * {@link UUID}, {@link BigInteger}, {@link BigDecimal}, and {@code enum} constants.
  *
  * <p><strong>Deliberate boundary:</strong> customer POJOs and PDX instances nested inside a map are
  * <em>not</em> supported here — the shim cannot load their classes to deserialize / query them, so
@@ -63,6 +64,9 @@ public final class NestedValueSupport {
                 || value instanceof Float
                 || value instanceof Double
                 || value instanceof Date
+                || value instanceof java.time.Instant
+                || value instanceof java.time.LocalDate
+                || value instanceof java.time.LocalDateTime
                 || value instanceof BigInteger
                 || value instanceof BigDecimal
                 || value instanceof UUID
@@ -180,7 +184,8 @@ public final class NestedValueSupport {
             return new Date(date.getTime());
         }
 
-        // String, wrappers, BigInteger, BigDecimal, UUID, Enum, and null are immutable.
+        // String, wrappers, BigInteger, BigDecimal, UUID, Enum, java.time (Instant/LocalDate/
+        // LocalDateTime), and null are immutable.
         return value;
     }
 }

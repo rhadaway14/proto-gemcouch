@@ -83,8 +83,9 @@ field-level querying of custom DataSerializable values (the objects round-trip o
 full PDX registry discovery — bulk type/enum registry sync (PDX round-trip, field querying, and
   schema evolution across versions ARE supported)
 some nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not queryable):
-  Serializable POJOs, PDX, typed object arrays, java.time values (generic Object[]/ArrayList/nested
-  Map/UUID/BigInteger/BigDecimal/enum nested in a map ARE now structured; top-level works; see below)
+  Serializable POJOs, PDX, typed object arrays, non-ArrayList Lists (generic Object[]/ArrayList/nested
+  Map/UUID/BigInteger/BigDecimal/enum AND java.time Instant/LocalDate/LocalDateTime nested in a map ARE
+  now structured; top-level works; see below)
 OQL joins
 the Geode application-level security handshake (use transport TLS / mutual TLS instead)
 ```

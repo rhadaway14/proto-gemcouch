@@ -124,6 +124,9 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_BIG_INTEGER = "bigInteger";
     private static final String TYPE_BIG_DECIMAL = "bigDecimal";
     private static final String TYPE_UUID = "uuid";
+    private static final String TYPE_INSTANT = "instant";
+    private static final String TYPE_LOCAL_DATE = "localDate";
+    private static final String TYPE_LOCAL_DATE_TIME = "localDateTime";
     private static final String TYPE_ENUM = "enum";
     private static final String FIELD_ENUM_CLASS = "enumClass";
     private static final String TYPE_NESTED_OBJECT_ARRAY = "nestedObjectArray";
@@ -3360,6 +3363,25 @@ public class CouchbaseRepository implements Repository {
             return out;
         }
 
+        // java.time scalars: stored as their ISO-8601 string form, which parses back to an equal value.
+        if (value instanceof java.time.Instant instant) {
+            out.put(FIELD_TYPE, TYPE_INSTANT);
+            out.put(FIELD_VALUE, instant.toString());
+            return out;
+        }
+
+        if (value instanceof java.time.LocalDate localDate) {
+            out.put(FIELD_TYPE, TYPE_LOCAL_DATE);
+            out.put(FIELD_VALUE, localDate.toString());
+            return out;
+        }
+
+        if (value instanceof java.time.LocalDateTime localDateTime) {
+            out.put(FIELD_TYPE, TYPE_LOCAL_DATE_TIME);
+            out.put(FIELD_VALUE, localDateTime.toString());
+            return out;
+        }
+
         if (value instanceof Enum<?> enumValue) {
             // The enum class was loadable to reach the structured path (it came in via Java
             // deserialization of the map), so it is loadable again on read.
@@ -3904,6 +3926,39 @@ public class CouchbaseRepository implements Repository {
                 try {
                     return UUID.fromString(text);
                 } catch (IllegalArgumentException e) {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        if (TYPE_INSTANT.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return java.time.Instant.parse(text);
+                } catch (DateTimeParseException e) {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        if (TYPE_LOCAL_DATE.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return java.time.LocalDate.parse(text);
+                } catch (DateTimeParseException e) {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        if (TYPE_LOCAL_DATE_TIME.equalsIgnoreCase(type)) {
+            if (value instanceof String text) {
+                try {
+                    return java.time.LocalDateTime.parse(text);
+                } catch (DateTimeParseException e) {
                     return text;
                 }
             }
