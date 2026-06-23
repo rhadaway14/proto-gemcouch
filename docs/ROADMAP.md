@@ -183,8 +183,15 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   to show the new envelope; keep behavior identical (cross-process-safe).
 
 ### 1.2.0-M3 — Operability + parity depth · target 2026-08-29
-- [ ] **Hot TLS cert reload** — rotate the inbound TLS keystore/truststore without a restart (today it's
-  a zero-downtime rolling restart).
+- [x] **Hot TLS cert reload — DONE.** `TLS_RELOAD_SECONDS=<n>` (default 0 = off) makes the shim poll the
+  keystore/truststore (a content hash, so it catches a k8s Secret's `..data` symlink swap that a
+  file-watch misses) and, on change, rebuild the Geode-listener `SslContext` and swap it for **new**
+  connections — no restart; established TLS sessions are untouched. A partial/bad keystore is ignored
+  (old context kept, retried next poll), so TLS never breaks; the swap is logged + audited. `shimSslContext`
+  is now volatile (read per-connection); `TlsCertReloader` does the polling. Validated by
+  `TlsCertReloaderTest` (real keytool keystores: rotate→rebuild+swap, unchanged→keep, corrupt→keep) +
+  full unit suite/coverage green. Caveat: covers the Geode listener; the `HEALTH_TLS_ENABLED` admin
+  endpoint still rotates via restart. Docs: `SECURITY.md` (rotation now hot-reloadable).
 - [ ] **Broader DataSerializer marker coverage** — make more stored value types structured/queryable
   rather than opaque. Optional: a **4+-shim horizontal-scale characterization** on the capacity rig.
 

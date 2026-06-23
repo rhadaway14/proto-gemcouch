@@ -140,6 +140,28 @@ public final class TlsConfig {
         return keystorePath;
     }
 
+    public String truststorePath() {
+        return truststorePath;
+    }
+
+    /**
+     * Poll interval (seconds) for hot-reloading the keystore/truststore without a restart (1.2.0-M3),
+     * from {@code TLS_RELOAD_SECONDS}. {@code 0} (default) disables hot reload — rotation is then a
+     * rolling restart, as before.
+     */
+    public static long reloadIntervalSecondsFromEnv() {
+        String raw = System.getenv("TLS_RELOAD_SECONDS");
+        if (raw == null || raw.isBlank()) {
+            return 0L;
+        }
+        try {
+            long v = Long.parseLong(raw.trim());
+            return v > 0 ? v : 0L;
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
     /**
      * Build the Netty server {@link SslContext} from the configured keystore (and truststore, if
      * mutual TLS is required). Fails fast with a clear message if required inputs are missing.
