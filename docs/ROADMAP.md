@@ -176,11 +176,23 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   mirroring the mesh-e2e pattern. **1.2.0-M1 COMPLETE** — durable subscriptions now survive a replica
   failing and replay on reconnect to any replica, for both interest and CQ events.
 
-### 1.2.0-M2 — Keyset-metadata at-scale improvement · target 2026-08-08
-- [ ] Lift the **O(region) keyset-doc cost + the 20 MiB per-region key-count ceiling** characterized in
-  1.1.0-M4 (a single per-region keyset document) — e.g. chunked/sharded keyset-metadata documents — so
-  `SIZE`/`KEY_SET`/`PUT_ALL` scale and multi-million-key regions are viable. Re-run `KeysetScaleProbe`
-  to show the new envelope; keep behavior identical (cross-process-safe).
+### 1.2.0-M2 — Keyset-metadata at-scale improvement · **DONE** (ahead of the 2026-08-08 target)
+- [x] **Sharded keyset metadata.** The per-region keyset is split across **`KEYSET_SHARDS`** docs
+  (`__protogemcouch::keyset::<region>::s<n>`), each key routed by `floorMod(key.hashCode(), shards)`
+  (`String.hashCode` is spec-deterministic → a key maps to the same shard on every replica, so it stays
+  cross-process-safe). This **lifts the single-doc 20 MiB key-count ceiling ~N×** (each shard is its own
+  20 MiB doc) and shrinks every `REMOVE` / `PUT_ALL` / TTL-evict / commit rewrite to ~`region/N` keys;
+  `KEY_SET`/`SIZE` read all shards **in parallel**. The hot contention-free single-key add (sub-document
+  `arrayAddUnique`) and the CAS remove are preserved exactly, now per-shard. **`KEYSET_SHARDS=1`
+  (default) reuses the legacy single-doc id → byte-identical behavior**, so sharding is opt-in (set at
+  deploy time; changing the count over existing data needs a keyset rebuild — documented).
+- [x] **Identical-behavior + concurrency validated** real-client: `ProtoGemCouchKeysetShardingIntegration
+  Test` (16 shards — exact `size`/`keySet` under concurrent puts, cross-shard removes, and clear) plus the
+  existing `ProtoGemCouchKeysetConcurrencyIntegrationTest` still green on the unsharded default path.
+- [x] **`KeysetScaleProbe` re-run** (unsharded vs 16-shard, 5k/20k keys): `REMOVE` flattens — unsharded
+  8.8→11.7 ms (5k→20k, grows with the whole-doc CAS) vs sharded ~6.0→5.3 ms (rewrites ~1/16); `PUT` flat
+  for both (~2–3 ms, sub-doc append); `KEY_SET`/`SIZE` comparable (inherently O(region), parallelized).
+- Exit: **M2 COMPLETE** — keyset scales past the single-doc ceiling, behavior unchanged by default.
 
 ### 1.2.0-M3 — Operability + parity depth · target 2026-08-29
 - [x] **Hot TLS cert reload — DONE.** `TLS_RELOAD_SECONDS=<n>` (default 0 = off) makes the shim poll the
