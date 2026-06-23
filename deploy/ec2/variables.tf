@@ -112,9 +112,9 @@ variable "git_repo" {
 }
 
 variable "git_ref" {
-  description = "Branch/tag/SHA to check out on the observability + load-gen hosts. Defaults to master (the live branch); the repo's `main` branch lags far behind."
+  description = "Branch/tag/SHA to check out on the observability + load-gen hosts. Defaults to main (the trunk; the old master branch was retired in the 2026-06 trunk migration)."
   type        = string
-  default     = "master"
+  default     = "main"
 }
 
 # ---- Self-driving failure-injection experiment (hands-off; no SSH) ----
