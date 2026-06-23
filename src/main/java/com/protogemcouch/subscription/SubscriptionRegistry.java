@@ -175,6 +175,16 @@ public final class SubscriptionRegistry {
         return durableClients.size();
     }
 
+    /**
+     * Number of <em>away</em> durable clients this replica currently knows about — the size of the
+     * persisted away-registry cache that the origin-enqueue path scans ({@code enqueueCqForAwayClients}
+     * / interest enqueue). Refreshed from Couchbase on the {@code DURABLE_AWAY_REFRESH_MS} interval, so
+     * it reflects how many away clients this replica would currently enqueue missed events for.
+     */
+    public int awayRegisteredCount() {
+        return awayRegistryCache.size();
+    }
+
     /** Total queued (undelivered) events across all durable clients. */
     public long durableQueueDepth() {
         long total = 0;

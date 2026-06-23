@@ -223,8 +223,19 @@ owner replica → survives any replica failing). Behind a flag (default off) for
 - **1.2.0-M3 COMPLETE** (hot TLS reload + nested java.time coverage + the 4-shim characterization).
 
 ### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
-- [ ] Soak the new HA/scale paths; security re-review; cross-version matrix; `CHANGELOG.md` `[1.2.0]`;
-  cut `v1.2.0-rc1` → verify gates → cut `v1.2.0` GA + GitHub Release.
+- [x] **Slice 1 — durable-replay IT hardening (DONE).** The CQ/multi-replica durable-replay ITs flaked
+  on starved CI runners (event "never replayed") because the Phase-2 mutation could fire before the
+  origin replica's away-registry cache (refreshed on `DURABLE_AWAY_REFRESH_MS`) had picked up the
+  now-away client, so nothing was enqueued. Fixed by exposing `protogemcouch_durable_away_registered`
+  (the size of a replica's away-registry scan set — also useful operationally) and gating each test on
+  the *enqueuing* replica seeing the away client (poll up to 30s) before mutating, replacing the blind
+  `Thread.sleep`s. Verified: full unit suite + all 5 durable ITs green, twice back-to-back.
+- [ ] **Slice 2 — soak the new HA/scale paths** (durable HA failover + keyset sharding under load).
+- [ ] **Slice 3 — security re-review** (SafeDeserialization allowlist, TLS hot-reload, durable/registry
+  surface, dependency review) → refresh `SECURITY.md`.
+- [ ] **Slice 4 — cross-version matrix** (Geode client versions) → refresh `COMPATABILITY_MATRIX.md`.
+- [ ] **Slice 5 — release.** `CHANGELOG.md` `[1.2.0]`; cut `v1.2.0-rc1` → verify gates → cut `v1.2.0`
+  GA + GitHub Release. (GA tag is operator-gated — confirm before tagging.)
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
