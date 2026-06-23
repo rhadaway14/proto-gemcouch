@@ -9,6 +9,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,6 +67,9 @@ class NestedComplexTypesTest {
         source.put("big", new BigInteger("123456789012345678901234567890"));
         source.put("price", new BigDecimal("19.99"));
         source.put("unit", TimeUnit.SECONDS);
+        source.put("ts", Instant.parse("2026-06-22T15:30:00Z"));
+        source.put("day", LocalDate.parse("2026-06-22"));
+        source.put("dt", LocalDateTime.parse("2026-06-22T15:30:00"));
 
         LinkedHashMap<String, Object> decoded =
                 ValueDecoding.decodeStringObjectHashMapValue(geodeMapBytes(source));
@@ -87,6 +93,9 @@ class NestedComplexTypesTest {
         assertEquals(new BigInteger("123456789012345678901234567890"), decoded.get("big"));
         assertEquals(new BigDecimal("19.99"), decoded.get("price"));
         assertEquals(TimeUnit.SECONDS, decoded.get("unit"));
+        assertEquals(Instant.parse("2026-06-22T15:30:00Z"), decoded.get("ts"));
+        assertEquals(LocalDate.parse("2026-06-22"), decoded.get("day"));
+        assertEquals(LocalDateTime.parse("2026-06-22T15:30:00"), decoded.get("dt"));
     }
 
     @Test
@@ -110,6 +119,9 @@ class NestedComplexTypesTest {
         assertTrue(NestedValueSupport.isSupportedValue(BigInteger.ONE));
         assertTrue(NestedValueSupport.isSupportedValue(BigDecimal.TEN));
         assertTrue(NestedValueSupport.isSupportedValue(TimeUnit.DAYS));
+        assertTrue(NestedValueSupport.isSupportedValue(Instant.now()));
+        assertTrue(NestedValueSupport.isSupportedValue(LocalDate.now()));
+        assertTrue(NestedValueSupport.isSupportedValue(LocalDateTime.now()));
 
         assertFalse(NestedValueSupport.isSupportedValue(new Widget("w")));
         assertFalse(NestedValueSupport.isSupportedValue(new Object[] {new Widget("w")}));

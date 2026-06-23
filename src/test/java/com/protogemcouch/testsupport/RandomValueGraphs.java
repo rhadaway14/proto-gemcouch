@@ -3,6 +3,10 @@ package com.protogemcouch.testsupport;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -72,7 +76,7 @@ public final class RandomValueGraphs {
 
     /** A random supported value; nested containers only while {@code depth > 0}. */
     public static Object randomValue(Random r, int depth) {
-        int leaves = 24;
+        int leaves = 27;
         int choices = depth > 0 ? leaves + 3 : leaves;
 
         switch (r.nextInt(choices)) {
@@ -100,8 +104,12 @@ public final class RandomValueGraphs {
             case 21: return randomFloatArray(r);
             case 22: return randomDoubleArray(r);
             case 23: return randomStringArray(r);
-            case 24: return randomObjectArray(r, depth);
-            case 25: return randomArrayList(r, depth);
+            case 24: return Instant.ofEpochMilli(Math.floorMod(r.nextLong(), 4_000_000_000_000L));
+            case 25: return LocalDate.ofEpochDay(r.nextInt(40_000)); // ~1970..2079
+            case 26: return LocalDateTime.ofEpochSecond(
+                    Math.floorMod(r.nextLong(), 4_000_000_000L), 0, ZoneOffset.UTC);
+            case 27: return randomObjectArray(r, depth);
+            case 28: return randomArrayList(r, depth);
             default: return randomMap(r, depth);
         }
     }

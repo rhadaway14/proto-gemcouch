@@ -122,7 +122,7 @@ below.)
 depth**. All items are additive/non-breaking (a semver minor). Milestone dates are targets, from a
 ~2026-06-23 start.
 
-### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · target 2026-07-18
+### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · **COMPLETE** (all 4 slices, ahead of the 2026-07-18 target)
 Today durable state (retained interest + the disconnect-time event queue, in `SubscriptionRegistry`'s
 `DurableState`) is **in-memory per shim instance**, so a durable client that reconnects to a *different*
 replica (after a failover) loses its queue. Decided architecture: **full HA via a Couchbase-backed
@@ -166,8 +166,15 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   for interest, `nonOwnerReplicaEnqueuesCqEventForAwayClient` for CQ): a mutation on replica **B**, which
   never owned the client, replays on reconnect. Known bound: away-registry cache freshness ≈ the refresh
   interval.
-- [ ] **Slice 4 — multi-replica (k8s) validation:** durable client on replica A, A killed, reconnect to
-  B replays the queue. Real-client + the k8s test cluster. Risk: high (riskiest 1.2.0 item).
+- [x] **Slice 4 — multi-replica (k8s) failover validation — DONE.** Validated on the real Kubernetes
+  test cluster with **no eventing backplane** (so delivery comes purely from the Couchbase registry/queue,
+  not any in-memory cross-replica path): a 2-replica shim (`DURABLE_PERSISTENCE=true`), a durable client
+  subscribes on **replica A**, **A is hard-killed**, a mutation lands on **replica B** (B's origin enqueues
+  for the away client from the persisted registry), and the durable client **reconnects to B and replays
+  the missed event** → `DURABLE_FAILOVER_CHECK PASS`. Tooling: `tools.DurableFailoverCheck` (subscribe /
+  mutate / verify roles) driven by `scripts/k8s-durable-failover-e2e.sh` (deploy → kill → mutate → verify),
+  mirroring the mesh-e2e pattern. **1.2.0-M1 COMPLETE** — durable subscriptions now survive a replica
+  failing and replay on reconnect to any replica, for both interest and CQ events.
 
 ### 1.2.0-M2 — Keyset-metadata at-scale improvement · **DONE** (ahead of the 2026-08-08 target)
 - [x] **Sharded keyset metadata.** The per-region keyset is split across **`KEYSET_SHARDS`** docs
@@ -188,10 +195,27 @@ owner replica → survives any replica failing). Behind a flag (default off) for
 - Exit: **M2 COMPLETE** — keyset scales past the single-doc ceiling, behavior unchanged by default.
 
 ### 1.2.0-M3 — Operability + parity depth · target 2026-08-29
-- [ ] **Hot TLS cert reload** — rotate the inbound TLS keystore/truststore without a restart (today it's
-  a zero-downtime rolling restart).
-- [ ] **Broader DataSerializer marker coverage** — make more stored value types structured/queryable
-  rather than opaque. Optional: a **4+-shim horizontal-scale characterization** on the capacity rig.
+- [x] **Hot TLS cert reload — DONE.** `TLS_RELOAD_SECONDS=<n>` (default 0 = off) makes the shim poll the
+  keystore/truststore (a content hash, so it catches a k8s Secret's `..data` symlink swap that a
+  file-watch misses) and, on change, rebuild the Geode-listener `SslContext` and swap it for **new**
+  connections — no restart; established TLS sessions are untouched. A partial/bad keystore is ignored
+  (old context kept, retried next poll), so TLS never breaks; the swap is logged + audited. `shimSslContext`
+  is now volatile (read per-connection); `TlsCertReloader` does the polling. Validated by
+  `TlsCertReloaderTest` (real keytool keystores: rotate→rebuild+swap, unchanged→keep, corrupt→keep) +
+  full unit suite/coverage green. Caveat: covers the Geode listener; the `HEALTH_TLS_ENABLED` admin
+  endpoint still rotates via restart. Docs: `SECURITY.md` (rotation now hot-reloadable).
+- [x] **Broader DataSerializer marker coverage — `java.time` nested scalars DONE.** `Instant`,
+  `LocalDate`, and `LocalDateTime` nested inside a `HashMap<String,Object>` now decode **structurally**
+  (queryable, exact round-trip) instead of falling to the opaque Java-serialized path — added to
+  `NestedValueSupport`'s structured set and the nested JSON codec (stored as their ISO-8601 string, which
+  parses back to an equal value). The inbound deserialization already allowed `java.time`
+  (`SafeDeserialization`). Validated: `NestedComplexTypesTest` (real inbound Java-deserialization decode),
+  `CouchbaseRepositoryRoundTripPropertyTest` (2000 iters across the JSON boundary), and the real-client
+  `ProtoGemCouchRoundTripPropertyIntegrationTest` (`RandomValueGraphs` now emits java.time → put/get +
+  putAll/getAll through a live Geode client + shim + Couchbase). Still opaque-when-nested (round-trip
+  only, need the user's classes or exact component types): Serializable POJOs, PDX instances, typed
+  object arrays (`Integer[]`/`UUID[]`/…), and non-`ArrayList` `List`s.
+- [ ] Optional: a **4+-shim horizontal-scale characterization** on the capacity rig (rig-based; not yet run).
 
 ### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
 - [ ] Soak the new HA/scale paths; security re-review; cross-version matrix; `CHANGELOG.md` `[1.2.0]`;
@@ -664,7 +688,8 @@ validate against today).
   (incl. a nested-bearing map matched by an OQL `WHERE` on its top-level field). **Deliberately still
   opaque** (round-trips exactly, just not queryable — the shim can't load/normalize them): nested
   Serializable POJOs, PDX instances, *typed* object arrays (`Integer[]`, `UUID[]`, …, kept type-exact),
-  `java.time` values, and non-`ArrayList` `List`s. Top-level forms of all types remain supported.
+  and non-`ArrayList` `List`s. Top-level forms of all types remain supported. (**Update — 1.2.0-M3:**
+  nested `java.time` scalars `Instant`/`LocalDate`/`LocalDateTime` are now structured/queryable too.)
 - [x] **Top-level value-type coverage breadth.** Validated end-to-end against a real Geode 1.15 client
   (`ProtoGemCouchTopLevelValueTypeIntegrationTest`) that the full value-type profile round-trips
   *exactly* as a top-level region value (not just nested in a Map/PDX): the JDK utility scalars

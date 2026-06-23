@@ -131,7 +131,10 @@ public class RawShimServer {
     private static EventExecutorGroup handlerExecutorGroup;
     private static ConnectionLimits connectionLimits;
     private static ConnectionLimiter connectionLimiter;
-    private static SslContext shimSslContext;
+    // volatile: swapped by TlsCertReloader on cert rotation and read per-connection in the channel
+    // initializer, so new connections pick up rotated material without a restart (1.2.0-M3).
+    private static volatile SslContext shimSslContext;
+    private static TlsCertReloader tlsCertReloader;
     private static Repository repository;
     private static OpcodeRegistry opcodeRegistry;
     private static com.protogemcouch.subscription.SubscriptionRegistry subscriptions;
@@ -194,14 +197,29 @@ public class RawShimServer {
             ));
 
             TlsConfig tlsConfig = TlsConfig.fromEnv();
+            long tlsReloadSeconds = TlsConfig.reloadIntervalSecondsFromEnv();
             if (tlsConfig.enabled()) {
                 shimSslContext = tlsConfig.buildServerSslContext();
+                // Hot cert reload (1.2.0-M3): poll the keystore/truststore and swap the SslContext used
+                // for NEW connections when the material rotates — no restart. shimSslContext is volatile
+                // and read per-connection in the channel initializer, so established sessions are
+                // unaffected. Opt-in via TLS_RELOAD_SECONDS (0 = off, rotation is a rolling restart).
+                if (tlsReloadSeconds > 0) {
+                    tlsCertReloader = new TlsCertReloader(
+                            tlsConfig.keystorePath(),
+                            tlsConfig.requireClientAuth() ? tlsConfig.truststorePath() : null,
+                            tlsConfig::buildServerSslContext,
+                            ctx -> shimSslContext = ctx,
+                            tlsReloadSeconds);
+                    tlsCertReloader.start();
+                }
             }
             log.info(StructuredLog.event(
                     "tls_configured",
                     "geodeListenerTls", tlsConfig.enabled(),
                     "clientAuth", tlsConfig.requireClientAuth() ? "require" : "none",
-                    "healthTls", tlsConfig.healthTlsEnabled()
+                    "healthTls", tlsConfig.healthTlsEnabled(),
+                    "hotReloadSeconds", tlsReloadSeconds
             ));
 
             javax.net.ssl.SSLContext healthSslContext =
@@ -363,6 +381,10 @@ public class RawShimServer {
         awaitQuietly(bossGroup, 6);
 
         closeRepository(repository);
+
+        if (tlsCertReloader != null) {
+            tlsCertReloader.stop();
+        }
 
         if (healthHttpServer != null) {
             healthHttpServer.stop();

@@ -165,10 +165,21 @@ handshake).
 
 ### Certificate rotation
 
-The shim reads its keystore/truststore once at startup, so rotation is a **rolling restart**, not a
-hot reload. Because the shim is stateless and runs multiple replicas, that restart is **zero-downtime**:
-a `RollingUpdate` replaces pods one at a time and the PodDisruptionBudget keeps `minAvailable` serving
-throughout (data lives in Couchbase, validated by `ProtoGemCouchChaosIntegrationTest`).
+**Hot reload (1.2.0-M3) — no restart.** Set `TLS_RELOAD_SECONDS=<n>` (default `0` = off) and the shim
+polls the keystore (and truststore, for mutual TLS) every `n` seconds; when the material changes it
+rebuilds the Geode-listener `SslContext` and swaps it for **new** connections — established TLS sessions
+are unaffected. A mid-rotation partial read or a bad keystore is ignored (the current context is kept,
+retried next poll), so TLS never breaks. The swap is logged + audited (`tls_cert_reloaded`). Validated by
+`TlsCertReloaderTest` (real keytool keystores: rotation rebuilds + swaps; unchanged keeps; corrupt keeps).
+Polling a content hash (not a file-watch) is deliberate — it reliably catches a Kubernetes Secret
+rotation, which swaps the mount's `..data` symlink. *Caveat: hot reload covers the Geode listener; the
+`HEALTH_TLS_ENABLED` admin HTTPS endpoint still rotates via restart.*
+
+**Without hot reload** (`TLS_RELOAD_SECONDS=0`), the shim reads its keystore/truststore once at startup,
+so rotation is a **rolling restart**. Because the shim is stateless and runs multiple replicas, that
+restart is **zero-downtime**: a `RollingUpdate` replaces pods one at a time and the PodDisruptionBudget
+keeps `minAvailable` serving throughout (data lives in Couchbase, validated by
+`ProtoGemCouchChaosIntegrationTest`).
 
 **Standalone / Docker.** Replace the keystore (and truststore) file the container mounts, then restart
 the container. Run more than one instance behind a load balancer to avoid a connectivity gap.
@@ -176,10 +187,13 @@ the container. Run more than one instance behind a load balancer to avoid a conn
 **Kubernetes (Helm).** The chart mounts the keystore/truststore from a Secret you manage
 (`tls.enabled=true`, `tls.existingSecret`); see `charts/protogemcouch/values.yaml`. To rotate:
 1. Update the Secret (e.g. via cert-manager, Vault, or `kubectl create secret ... --dry-run | kubectl apply`).
-2. Roll the Deployment. On the next `helm upgrade` the `checksum/tls-secret` pod annotation (the
-   Secret's `resourceVersion`) changes and triggers the rollout automatically; for an out-of-band
-   Secret update, run `kubectl rollout restart deploy/<release>-protogemcouch` or use a Secret-watching
-   controller (e.g. Stakater Reloader). RollingUpdate + PDB make this seamless.
+2. **With hot reload** (`TLS_RELOAD_SECONDS` set, e.g. via `extraEnv`): nothing else to do — Kubernetes
+   propagates the updated Secret into the mounted files within ~a minute and the shim picks it up on its
+   next poll, **no pod roll**. **Without it**: roll the Deployment — on the next `helm upgrade` the
+   `checksum/tls-secret` pod annotation (the Secret's `resourceVersion`) changes and triggers the rollout
+   automatically; for an out-of-band Secret update, run `kubectl rollout restart
+   deploy/<release>-protogemcouch` or use a Secret-watching controller (e.g. Stakater Reloader).
+   RollingUpdate + PDB make this seamless.
 
 **Server-certificate rotation** (same CA): issue the new cert from a CA the clients already trust, then
 roll the shim — clients keep validating against the unchanged CA, so there is no client-side change.
