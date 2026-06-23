@@ -192,8 +192,18 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   `TlsCertReloaderTest` (real keytool keystores: rotate→rebuild+swap, unchanged→keep, corrupt→keep) +
   full unit suite/coverage green. Caveat: covers the Geode listener; the `HEALTH_TLS_ENABLED` admin
   endpoint still rotates via restart. Docs: `SECURITY.md` (rotation now hot-reloadable).
-- [ ] **Broader DataSerializer marker coverage** — make more stored value types structured/queryable
-  rather than opaque. Optional: a **4+-shim horizontal-scale characterization** on the capacity rig.
+- [x] **Broader DataSerializer marker coverage — `java.time` nested scalars DONE.** `Instant`,
+  `LocalDate`, and `LocalDateTime` nested inside a `HashMap<String,Object>` now decode **structurally**
+  (queryable, exact round-trip) instead of falling to the opaque Java-serialized path — added to
+  `NestedValueSupport`'s structured set and the nested JSON codec (stored as their ISO-8601 string, which
+  parses back to an equal value). The inbound deserialization already allowed `java.time`
+  (`SafeDeserialization`). Validated: `NestedComplexTypesTest` (real inbound Java-deserialization decode),
+  `CouchbaseRepositoryRoundTripPropertyTest` (2000 iters across the JSON boundary), and the real-client
+  `ProtoGemCouchRoundTripPropertyIntegrationTest` (`RandomValueGraphs` now emits java.time → put/get +
+  putAll/getAll through a live Geode client + shim + Couchbase). Still opaque-when-nested (round-trip
+  only, need the user's classes or exact component types): Serializable POJOs, PDX instances, typed
+  object arrays (`Integer[]`/`UUID[]`/…), and non-`ArrayList` `List`s.
+- [ ] Optional: a **4+-shim horizontal-scale characterization** on the capacity rig (rig-based; not yet run).
 
 ### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
 - [ ] Soak the new HA/scale paths; security re-review; cross-version matrix; `CHANGELOG.md` `[1.2.0]`;
@@ -666,7 +676,8 @@ validate against today).
   (incl. a nested-bearing map matched by an OQL `WHERE` on its top-level field). **Deliberately still
   opaque** (round-trips exactly, just not queryable — the shim can't load/normalize them): nested
   Serializable POJOs, PDX instances, *typed* object arrays (`Integer[]`, `UUID[]`, …, kept type-exact),
-  `java.time` values, and non-`ArrayList` `List`s. Top-level forms of all types remain supported.
+  and non-`ArrayList` `List`s. Top-level forms of all types remain supported. (**Update — 1.2.0-M3:**
+  nested `java.time` scalars `Instant`/`LocalDate`/`LocalDateTime` are now structured/queryable too.)
 - [x] **Top-level value-type coverage breadth.** Validated end-to-end against a real Geode 1.15 client
   (`ProtoGemCouchTopLevelValueTypeIntegrationTest`) that the full value-type profile round-trips
   *exactly* as a top-level region value (not just nested in a Map/PDX): the JDK utility scalars
