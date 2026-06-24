@@ -222,7 +222,7 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   `docs/SOAK_RESULTS.md`. (Also fixed the rig's `git_ref` default `master`→`main` after the trunk migration.)
 - **1.2.0-M3 COMPLETE** (hot TLS reload + nested java.time coverage + the 4-shim characterization).
 
-### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · freeze 2026-09-08 · GA 2026-09-11
+### 1.2.0-M4 — Hardening + RC → 1.2.0 GA · **COMPLETE — 1.2.0 GA shipped 2026-06-24** (ahead of the 2026-09-11 target)
 - [x] **Slice 1 — durable-replay IT hardening (DONE).** The CQ/multi-replica durable-replay ITs flaked
   on starved CI runners (event "never replayed") because the Phase-2 mutation could fire before the
   origin replica's away-registry cache (refreshed on `DURABLE_AWAY_REFRESH_MS`) had picked up the
@@ -255,8 +255,11 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   validated client range is unchanged. Re-ran the cross-version CI matrix on 1.2.0 — **real Geode
   1.13.0 / 1.14.0 / 1.15.1 clients all PASS**. `COMPATABILITY_MATRIX.md` refreshed to "as of 1.2.0"
   (wire-compat note + durable HA in the supported surface).
-- [ ] **Slice 5 — release.** `CHANGELOG.md` `[1.2.0]`; cut `v1.2.0-rc1` → verify gates → cut `v1.2.0`
-  GA + GitHub Release. (GA tag is operator-gated — confirm before tagging.)
+- [x] **Slice 5 — release (DONE).** `CHANGELOG.md` `[1.2.0]` + version bumps (pom, Helm chart, image
+  tag) merged; cut **`v1.2.0-rc1`** → all release pipelines green (verify, perf, cross-version,
+  Trivy+cosign image); then cut **`v1.2.0` GA** on the same commit (`311870b`) with operator approval —
+  pipelines green again, GitHub Release published, GA image `1.2.0` live (matches the chart pin).
+  **1.2.0 GA shipped 2026-06-24.**
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
