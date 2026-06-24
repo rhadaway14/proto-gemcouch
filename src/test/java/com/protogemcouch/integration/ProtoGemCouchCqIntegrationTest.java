@@ -296,6 +296,48 @@ class ProtoGemCouchCqIntegrationTest {
     }
 
     @Test
+    void cqListenerFiresForPredicateMatchingPdxObjectArrayElementField() throws Exception {
+        String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
+        cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);
+        Thread.sleep(3000);
+
+        CountDownLatch matched = new CountDownLatch(1);
+        AtomicReference<Object> key = new AtomicReference<>();
+
+        QueryService qs = cache.getQueryService();
+        CqAttributesFactory caf = new CqAttributesFactory();
+        caf.addCqListener(new CqListener() {
+            @Override
+            public void onEvent(CqEvent event) {
+                key.set(event.getKey());
+                matched.countDown();
+            }
+
+            @Override
+            public void onError(CqEvent event) {
+            }
+
+            @Override
+            public void close() {
+            }
+        });
+        // Predicate on a PDX OBJECT-ARRAY element field — CQ matching must index into r.addresses and
+        // navigate the nested PDX element's zip, the same resolution the one-shot QUERY path uses.
+        CqQuery cq = qs.newCq("itCqObjArray",
+                "SELECT * FROM /" + regionName + " r WHERE r.addresses[0].zip = '78701'", caf.create());
+        cq.execute();
+
+        // From a separate client: a non-matching object-array PDX (zip 10001) then a matching one (78701).
+        runPutMap(regionName, "olow", 10001, "pdxobjarray");
+        runPutMap(regionName, "ohigh", 78701, "pdxobjarray");
+
+        assertTrue(matched.await(20, TimeUnit.SECONDS),
+                "the CqListener fired for the object-array element matching the predicate");
+        assertEquals("ohigh", key.get(),
+                "the CQ fired only for the object-array element match (not the non-matching 'olow')");
+    }
+
+    @Test
     void cqListenerFiresDestroyWhenMatchingEntryIsRemoved() throws Exception {
         String regionName = "cq" + UUID.randomUUID().toString().replace("-", "");
         cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY).create(regionName);

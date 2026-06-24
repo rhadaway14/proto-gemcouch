@@ -207,6 +207,16 @@ class PdxShapeTest {
         printShape("PDX_INSTANCE_WITH_NESTED_PDX_OBJECT_ARRAY_FIELD", value);
     }
 
+    @Test
+    void pdxInstanceWithStringObjectArrayFieldShape() throws IOException {
+        PdxInstance value = pdxFactory("demo.WithStringContacts")
+                .writeString("status", "active")
+                .writeObjectArray("contacts", new Object[] {"alice@x.com", "bob@x.com"})
+                .create();
+
+        printShape("PDX_INSTANCE_WITH_STRING_OBJECT_ARRAY_FIELD", value);
+    }
+
     private PdxInstanceFactory pdxFactory(String className) {
         return cache().createPdxInstanceFactory(className);
     }

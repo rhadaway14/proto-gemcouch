@@ -316,6 +316,40 @@ class ProtoGemCouchQueryIntegrationTest {
                 "projection of a later object-array element's nested field");
     }
 
+    @Test
+    void pdxObjectArrayInContainmentAndIndexEdgeCases() throws Exception {
+        // Object-array of scalar strings: IN does element-equality containment.
+        region.put("a", cache.createPdxInstanceFactory("demo.Contacts")
+                .writeString("status", "active")
+                .writeObjectArray("contacts", new Object[] {"alice@x.com", "bob@x.com"})
+                .create());
+        region.put("b", cache.createPdxInstanceFactory("demo.Contacts")
+                .writeString("status", "active")
+                .writeObjectArray("contacts", new Object[] {"carol@x.com"})
+                .create());
+
+        SelectResults<?> hasAlice = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE 'alice@x.com' IN r.contacts").execute();
+        assertEquals(1, hasAlice.size(), "IN containment over a scalar-string object-array");
+
+        SelectResults<?> hasNobody = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE 'nobody@x.com' IN r.contacts").execute();
+        assertEquals(0, hasNobody.size(), "IN over an object-array with no matching element yields nothing");
+
+        // An out-of-range index resolves cleanly to no match (never an error).
+        region.put("c", pdxWithAddresses("active", "78701"));
+        SelectResults<?> outOfRange = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE r.addresses[9].zip = '78701'").execute();
+        assertEquals(0, outOfRange.size(), "an out-of-range object-array index matches nothing, without error");
+
+        // IN over an object-array of nested PDX objects is well-defined (element-equality): a scalar
+        // literal never equals an object element, so it matches nothing — use indexed access for objects.
+        SelectResults<?> scalarInObjects = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE '78701' IN r.addresses").execute();
+        assertEquals(0, scalarInObjects.size(),
+                "a scalar literal does not match nested-PDX object elements (documented boundary)");
+    }
+
     private PdxInstance pdxWithAddresses(String status, String... zips) {
         PdxInstance[] addresses = new PdxInstance[zips.length];
         for (int i = 0; i < zips.length; i++) {
