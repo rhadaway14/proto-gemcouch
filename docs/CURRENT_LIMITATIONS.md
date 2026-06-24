@@ -65,6 +65,15 @@ ceiling ~16.9k ops/sec, and a near-linear scaling curve **16.9k → 35k → 58k 
 shim-CPU-bound with large Couchbase headroom — the four-shim point was measured at ~95% shim CPU vs
 ~21% Couchbase). Failure-injection-at-scale is also rig-validated; both are reproducible on `deploy/`.
 
+**Behaviour under overload / backend outage.** The handler thread pool has a **bounded queue**
+(`HANDLER_MAX_PENDING_TASKS`); once full — e.g. a slow/dead Couchbase, or keyset-metadata-heavy load at
+a large keyspace saturating the handler threads — the shim **sheds** excess requests (closes the
+connection, `protogemcouch_requests_shed_total`) rather than buffering until the heap exhausts. If the
+heap is ever exhausted anyway, the JVM **fails fast** (`-XX:+ExitOnOutOfMemoryError`) for a clean
+restart instead of lingering as a wedged process. A 1.2.0-M4 fault-injection soak confirmed a durable +
+sharded shim **survives and self-recovers** through a Couchbase hard-outage under load (see
+`docs/SOAK_RESULTS.md`).
+
 ## Positioning
 
 > A Geode-to-Couchbase protocol shim with a broad, real-client-validated compatibility profile and a
