@@ -32,4 +32,6 @@ docker run -d --restart unless-stopped --name shim \
   -e CB_COLLECTION=_default \
   -e SHIM_PORT=40405 \
   -e HEALTH_PORT=8081 \
+  -e KEYSET_SHARDS=${keyset_shards} \
+  -e DURABLE_PERSISTENCE=${durable_persistence} \
   ${shim_image}

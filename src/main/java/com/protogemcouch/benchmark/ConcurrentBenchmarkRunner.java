@@ -151,21 +151,75 @@ public class ConcurrentBenchmarkRunner {
         }
     }
 
-    private static void seed(Region<String, Object> region, BenchmarkConfig config) {
-        System.out.println("Seeding " + config.getSeedCount() + " keys...");
-        for (int i = 0; i < config.getSeedCount(); i++) {
-            if (config.isQueryableValues()) {
-                // A map with a unique top-level `k`, so `WHERE k = N` selects ~one row (a real,
-                // pushdown-eligible query) instead of a whole-value scan that matches nothing.
-                Map<String, Object> doc = new LinkedHashMap<>();
-                doc.put("k", i);
-                doc.put("v", "seed-value-" + i);
-                region.put("bench-key-" + i, doc);
-            } else {
-                region.put("bench-key-" + i, "seed-value-" + i);
+    /**
+     * Seed the keyspace concurrently with bounded per-key retry. Serial seeding of a large keyspace is
+     * slow (each put is a value write plus a keyset-metadata update) and, more importantly, a single
+     * transient backend blip used to throw an uncaught exception that aborted the whole run — fatal when
+     * a soak injects faults while seeding is still in flight. Concurrency shrinks the seed window to
+     * seconds and the retry rides out transient errors, matching the measured phase's per-op tolerance.
+     */
+    private static void seed(Region<String, Object> region, BenchmarkConfig config) throws InterruptedException {
+        int total = config.getSeedCount();
+        int threads = Math.max(1, Math.min(config.getConcurrency(), total));
+        System.out.println("Seeding " + total + " keys across " + threads + " threads...");
+        CountDownLatch done = new CountDownLatch(threads);
+        java.util.concurrent.atomic.AtomicInteger ok = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger failed = new java.util.concurrent.atomic.AtomicInteger();
+        for (int t = 0; t < threads; t++) {
+            final int start = (int) ((long) total * t / threads);
+            final int end = (int) ((long) total * (t + 1) / threads);
+            Thread thread = new Thread(() -> {
+                try {
+                    for (int i = start; i < end; i++) {
+                        if (seedOneWithRetry(region, config, i)) {
+                            ok.incrementAndGet();
+                        } else {
+                            failed.incrementAndGet();
+                        }
+                    }
+                } finally {
+                    done.countDown();
+                }
+            }, "seed-worker-" + t);
+            thread.setDaemon(true);
+            thread.start();
+        }
+        done.await();
+        System.out.println("Seeding complete: " + ok.get() + " ok, " + failed.get() + " failed after retries.");
+    }
+
+    /** Put one seed key, retrying transient backend errors with a short backoff. Returns false if it never succeeds. */
+    private static boolean seedOneWithRetry(Region<String, Object> region, BenchmarkConfig config, int i) {
+        // A map with a unique top-level `k` (queryable mode), so `WHERE k = N` selects ~one row (a real,
+        // pushdown-eligible query) instead of a whole-value scan; otherwise a plain string value.
+        Object value;
+        if (config.isQueryableValues()) {
+            Map<String, Object> doc = new LinkedHashMap<>();
+            doc.put("k", i);
+            doc.put("v", "seed-value-" + i);
+            value = doc;
+        } else {
+            value = "seed-value-" + i;
+        }
+        String key = "bench-key-" + i;
+        int attempts = 5;
+        for (int a = 1; a <= attempts; a++) {
+            try {
+                region.put(key, value);
+                return true;
+            } catch (Exception e) {
+                if (a == attempts) {
+                    return false;
+                }
+                try {
+                    Thread.sleep(Math.min(1000L, 50L * a));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
             }
         }
-        System.out.println("Seeding complete.");
+        return false;
     }
 
     /** A put value matching the seed shape: a queryable map in queryable mode, else a random string. */
