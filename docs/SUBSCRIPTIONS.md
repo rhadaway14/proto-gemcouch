@@ -143,7 +143,7 @@ the server replies a single byte `69` (=105 Successful) + a server-identity hand
     real Geode 1.15 client by `ProtoGemCouchDurableClientIntegrationTest` + `DurableSubscriptionTest`.
     **Deferred (documented):** a durable client can't unregister interest mid-session; and the
     per-client wire timeout is honored but capped by `DURABLE_MAX_QUEUE`.
-  - **Multi-replica durable persistence — IN PROGRESS (1.2.0-M1).** Lifting the single-instance limit
+  - **Multi-replica durable persistence — DONE (1.2.0 GA).** Lifting the single-instance limit
     so a durable client's retained interest + event queue survive a replica failing and replay on a
     reconnect to *any* replica (Couchbase-backed durable registry + single-writer origin enqueue; see
     `docs/ROADMAP.md` § 1.2.0-M1). **Slice 1 DONE — the persistence primitive:** a per-durable-client

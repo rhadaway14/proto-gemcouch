@@ -2,8 +2,9 @@
 
 A living backlog. **ProtoGemCouch reached 1.0.0 GA on 2026-06-20** — the road-to-1.0 work (Level 4
 production-readiness and the supportable GemFire/Geode SDK parity surface) is recorded as DONE in the
-sections below. The **current focus is the 1.1.0 backlog** immediately following. The contract for what
-is supported today is `docs/COMPATABILITY_MATRIX.md`.
+sections below. **1.1.0 GA shipped 2026-06-21 and 1.2.0 GA shipped 2026-06-24** (both recorded below);
+the **current focus is the 1.3.0 backlog**. The contract for what is supported today is
+`docs/COMPATABILITY_MATRIX.md`.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
@@ -116,11 +117,10 @@ below.)
 
 ---
 
-## Current focus — 1.2.0 backlog (theme: HA + scale + operability depth)
+## 1.2.0 — SHIPPED 2026-06-24 (theme: HA + scale + operability depth)
 
-1.2.0 builds on the 1.1.0 query/observability work toward **high availability, scale, and operability
-depth**. All items are additive/non-breaking (a semver minor). Milestone dates are targets, from a
-~2026-06-23 start.
+1.2.0 built on the 1.1.0 query/observability work toward **high availability, scale, and operability
+depth**. All items were additive/non-breaking (a semver minor). Shipped well ahead of the targets below.
 
 ### 1.2.0-M1 — Multi-replica durable subscriptions (headline) · **COMPLETE** (all 4 slices, ahead of the 2026-07-18 target)
 Today durable state (retained interest + the disconnect-time event queue, in `SubscriptionRegistry`'s
@@ -261,6 +261,43 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   pipelines green again, GitHub Release published, GA image `1.2.0` live (matches the chart pin).
   **1.2.0 GA shipped 2026-06-24.**
 
+---
+
+## Current focus — 1.3.0 backlog (theme: parity completeness — full value-type fidelity & queryability)
+
+With HA + scale delivered (1.2.0), 1.3.0 closes the remaining **value-type fidelity / queryability** gaps
+documented in `docs/CURRENT_LIMITATIONS.md` — the dominant "not queryable / preserved opaquely" caveats —
+so more real Geode workloads run unchanged. Items target additive/non-breaking semver minors (no new
+client-facing wire forms expected). Milestone dates are targets, from a ~2026-06-25 start.
+
+### 1.3.0-M1 — PDX object-array field querying (headline) · target 2026-07-16
+Arrays of nested PDX objects (a PDX field that is a `PdxInstance[]`) are currently **not queryable** —
+scalar arrays and single nested-object paths landed in 1.1.0-M3, but object-arrays were explicitly
+deferred. Extend OQL/CQ path resolution so `r.addresses[0].zip` and `'x' IN r.contacts` navigate
+object-arrays. Tractable without the user's classes (PDX is self-describing), reusing the existing
+array-index + nested-PDX (`PdxReaderImpl`) reflection path. Completes the PDX query surface;
+real-client validated; refresh `docs/OQL.md` + the matrix.
+
+### 1.3.0-M2 — PDX registry discovery + schema-evolution depth · target 2026-08-06
+Harden PDX type/enum discovery and **multi-version schema evolution** beyond the current per-type path:
+fields added/removed across PDX versions must query and round-trip correctly, and id→type discovery
+(`GET_PDX_TYPE_BY_ID`) must be robust under a registry serving many evolving types. Lifts the "full PDX
+registry discovery + schema evolution beyond the per-type path" limitation.
+
+### 1.3.0-M3 — DataSerializer marker coverage + golden-wire completeness · target 2026-08-27
+Decode a broader set of built-in/JDK `DataSerializer` markers **structurally** (more values queryable
+round-trip instead of opaque) and close documented golden-wire opcode-coverage gaps with captured
+fixtures. **Boundary (stays a non-goal):** customer `Serializable` POJO / custom `DataSerializable`
+*field* access needs the user's classes and conflicts with the deserialization allowlist
+(`SafeDeserialization`) — these remain preserved-opaque (round-trip only) unless an explicit opt-in
+class-allowlist is introduced.
+
+### 1.3.0-M4 — Hardening + RC → 1.3.0 GA · freeze target 2026-09-06 · GA target 2026-09-10
+The established pattern: soak the new decode paths; a security re-review of the **expanded
+deserialization/decoding surface** (highest-risk part — re-confirm the allowlist + process-wide gadget
+filter still hold); cross-version matrix re-validation; `CHANGELOG.md` `[1.3.0]`; cut `v1.3.0-rc1` →
+verify gates → cut `v1.3.0` GA + GitHub Release (GA tag operator-gated — confirm before tagging).
+
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
 validate against today).
@@ -268,6 +305,9 @@ validate against today).
 ### Housekeeping (not gated to a milestone)
 - [ ] Enable **Dependency Graph** in the GitHub repo settings so the CI `dependency-submission` step
   stops failing (CodeQL — the actual static gate — already passes). Do before M1 so CI is fully green.
+- [ ] Add a consolidated **`docs/CONFIGURATION.md`** env-var reference — configuration is currently
+  spread across `RUNBOOK.md` / `SECURITY.md` / `DEPLOYMENT.md` (`CB_*`, `TLS_*`, `DURABLE_*`,
+  `KEYSET_SHARDS`, `HANDLER_MAX_PENDING_TASKS`, `MAX_CONNECTIONS`, `OQL_PUSHDOWN`, `CB_TTL_*`, …).
 
 ---
 

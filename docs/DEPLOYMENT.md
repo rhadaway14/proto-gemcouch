@@ -198,8 +198,16 @@ podDisruptionBudget           minAvailable for safe rollouts/drains
 Geode clients connect to the Service on the Geode port (default `40405`). For TLS, supply a keystore
 (see the TLS variables in `docs/RUNBOOK.md` / `docs/SECURITY.md`).
 
-Validated with `helm lint` and `helm template`. (A live-cluster smoke test is a follow-up; it
-requires a cluster.)
+Validated with `helm lint` / `helm template`, and on a real Kubernetes cluster by the durable-subscription
+replica-failover e2e (`scripts/k8s-durable-failover-e2e.sh`).
+
+### GitOps (Argo CD)
+
+For declarative, continuously-reconciled deployment, the repo ships an **Argo CD** setup under `gitops/`
+(app-of-apps; staging auto-syncs, prod is a manual promotion gate; the image tag is the promotion knob).
+Git is the source of truth; CI only builds/publishes the image the manifests reference. See
+[`gitops/README.md`](../gitops/README.md). The plain `helm install` above remains supported for
+non-GitOps environments.
 
 ---
 

@@ -7,13 +7,14 @@ data in Couchbase.
 
 ## Current status
 
-**ProtoGemCouch 1.0.0 — first general-availability release (2026-06-20).** The authoritative, maintained
-references are:
+**ProtoGemCouch 1.2.0 — latest GA (2026-06-24)** (1.0.0 GA 2026-06-20; 1.1.0 2026-06-21). 1.2.0 adds
+multi-replica durable-subscription HA, keyset-metadata sharding, hot TLS reload, structured nested
+`java.time`, and resilience hardening. The authoritative, maintained references are:
 
 - `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals.
 - `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*.
 - `CHANGELOG.md` — released history.
-- `docs/ROADMAP.md` — the post-1.0 (1.1.0) backlog.
+- `docs/ROADMAP.md` — the post-GA backlog (current focus: 1.3.0).
 
 This file is a feature/encoding overview; where it disagrees with the matrix, the matrix wins.
 
@@ -365,5 +366,7 @@ Out of scope by design (documented non-goals — see `docs/CURRENT_LIMITATIONS.m
 
 ## Next
 
-Post-1.0 work is tracked in `docs/ROADMAP.md` (the 1.1.0 backlog): OQL query pushdown (performance),
-in-memory registry observability + bounds, and PDX nested/object/array field querying.
+Post-GA work is tracked in `docs/ROADMAP.md`. Shipped since 1.0: 1.1.0 (OQL pushdown, nested/array field
+querying, registry observability) and 1.2.0 (multi-replica durable-subscription HA, keyset sharding, hot
+TLS reload). Current focus is the **1.3.0** backlog (theme: parity completeness — full value-type
+fidelity & queryability).
