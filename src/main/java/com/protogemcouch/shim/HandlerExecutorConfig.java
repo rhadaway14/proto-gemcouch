@@ -22,8 +22,17 @@ public final class HandlerExecutorConfig {
     /** Default handler-thread count. */
     public static final int DEFAULT_THREADS = 64;
 
-    /** Default per-thread pending-task bound before requests are shed. */
-    public static final int DEFAULT_MAX_PENDING_TASKS = 10_000;
+    /**
+     * Default per-thread pending-task bound before requests are shed. Kept deliberately small: the
+     * total queued backlog is {@code threads * maxPendingTasks}, and every queued task pins its
+     * request frame in heap. A large bound (the previous 10_000 → 640k total at 64 threads) let the
+     * backlog grow faster than a stalled backend could drain it, exhausting the heap and OOM-killing
+     * the process during a backend outage under load (observed in the 1.2.0-M4 capacity soak). A small
+     * bound makes the {@link SheddingRejectedExecutionHandler} shed early (fail fast, close the
+     * connection) long before heap pressure — the shim stays alive and recovers when the backend does.
+     * Tune up via {@code HANDLER_MAX_PENDING_TASKS} only with heap headroom for the larger backlog.
+     */
+    public static final int DEFAULT_MAX_PENDING_TASKS = 256;
 
     private final int threads;
     private final int maxPendingTasks; // effective value; Integer.MAX_VALUE means unbounded
