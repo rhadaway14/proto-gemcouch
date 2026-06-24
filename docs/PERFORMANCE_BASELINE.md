@@ -854,6 +854,7 @@ Class A: fast KV-style operations
 - GET
 - PUT
 - REMOVE
+
 - CONTAINS_KEY
 - GET_ALL
 - PUT_ALL
