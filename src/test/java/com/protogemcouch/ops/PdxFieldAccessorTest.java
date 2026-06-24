@@ -3,10 +3,14 @@ package com.protogemcouch.ops;
 import com.protogemcouch.util.ByteUtils;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,5 +82,131 @@ class PdxFieldAccessorTest {
                 "unknown type id");
         assertNull(PdxFieldAccessor.read(new byte[] {0x01, 0x02}, registry, "status"),
                 "not a PDX instance");
+    }
+
+    // --- OBJECT_ARRAY element walker (parseObjectArrayElements) ---
+    // Synthetic 0x5d-framed elements are sufficient: the parser slices by the self-describing framing
+    // and never deserializes against a PdxType registry.
+
+    /**
+     * A {@code writeObjectArray} form (count <= 252): single-byte length, the real component-type header
+     * (DSCODE.CLASS 0x2b + {@code org.apache.geode.pdx.PdxInstance} as a 0x57 Geode string), then the
+     * element byte forms — matching what a Geode client serializes for a {@code PdxInstance[]} field.
+     */
+    private static byte[] objectArray(byte[]... elements) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(elements.length & 0xff); // single-byte length form
+        out.writeBytes(componentTypeHeader("org.apache.geode.pdx.PdxInstance"));
+        for (byte[] e : elements) {
+            out.writeBytes(e);
+        }
+        return out.toByteArray();
+    }
+
+    /** DSCODE.CLASS (0x2b) + the class name as a DSCODE.STRING (0x57, unsigned-short length). */
+    private static byte[] componentTypeHeader(String className) {
+        byte[] name = className.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(0x2b);
+        out.write(0x57);
+        out.write((name.length >>> 8) & 0xff);
+        out.write(name.length & 0xff);
+        out.writeBytes(name);
+        return out.toByteArray();
+    }
+
+    @Test
+    void parsesHomogeneousPdxObjectArrayElements() {
+        byte[] e0 = pdxInstance(7, new byte[] {1, 2, 3});
+        byte[] e1 = pdxInstance(8, new byte[] {4, 5});
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(objectArray(e0, e1));
+
+        assertNotNull(elements);
+        assertEquals(2, elements.size());
+        assertArrayEquals(e0, (byte[]) elements.get(0), "first element sliced byte-for-byte");
+        assertArrayEquals(e1, (byte[]) elements.get(1), "second element sliced byte-for-byte");
+    }
+
+    @Test
+    void nullObjectArrayElementBecomesNullEntry() {
+        byte[] e0 = pdxInstance(7, new byte[] {9});
+        byte[] nullMarker = {0x29}; // DSCODE.NULL
+        byte[] e2 = pdxInstance(9, new byte[] {});
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(objectArray(e0, nullMarker, e2));
+
+        assertEquals(3, elements.size());
+        assertArrayEquals(e0, (byte[]) elements.get(0));
+        assertNull(elements.get(1), "DSCODE.NULL element resolves to a null entry");
+        assertArrayEquals(e2, (byte[]) elements.get(2));
+    }
+
+    @Test
+    void emptyObjectArrayYieldsEmptyList() {
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(objectArray());
+        assertNotNull(elements);
+        assertTrue(elements.isEmpty());
+    }
+
+    @Test
+    void nullObjectArrayMarkerYieldsEmptyList() {
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(new byte[] {(byte) 0xff});
+        assertNotNull(elements);
+        assertTrue(elements.isEmpty(), "the -1 (null array) length yields nothing to navigate");
+    }
+
+    @Test
+    void truncatedObjectArrayElementStopsSafely() {
+        // Declares 2 elements, but the second PDX frame is cut off after its header.
+        byte[] e0 = pdxInstance(7, new byte[] {1});
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(2);
+        out.writeBytes(e0);
+        out.write(0x5d);
+        out.writeBytes(intBytes(100)); // declares 100 data bytes that are not present
+        out.writeBytes(intBytes(8));
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(out.toByteArray());
+
+        assertNotNull(elements, "must not throw on truncation");
+        assertEquals(1, elements.size(), "only the intact element is returned; the truncated one is dropped");
+        assertArrayEquals(e0, (byte[]) elements.get(0));
+    }
+
+    @Test
+    void unknownObjectArrayElementDscodeStopsWalk() {
+        byte[] e0 = pdxInstance(7, new byte[] {1});
+        byte[] unknown = {0x57}; // a non-PDX, non-null DSCODE whose length we cannot compute
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(objectArray(e0, unknown));
+
+        assertEquals(1, elements.size(),
+                "collection stops at the first element type we cannot length-walk; later indices are ABSENT");
+        assertArrayEquals(e0, (byte[]) elements.get(0));
+    }
+
+    @Test
+    void parsesObjectArrayWithoutComponentHeader() {
+        // Some forms omit the component-type header and place elements directly after the length.
+        byte[] e0 = pdxInstance(7, new byte[] {1, 2});
+        byte[] e1 = pdxInstance(8, new byte[] {3});
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(2);
+        out.writeBytes(e0);
+        out.writeBytes(e1);
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(out.toByteArray());
+
+        assertEquals(2, elements.size());
+        assertArrayEquals(e0, (byte[]) elements.get(0));
+        assertArrayEquals(e1, (byte[]) elements.get(1));
+    }
+
+    @Test
+    void malformedObjectArrayLengthPrefixReturnsNull() {
+        assertNull(PdxFieldAccessor.parseObjectArrayElements(new byte[0]), "empty input");
+        assertNull(PdxFieldAccessor.parseObjectArrayElements(null), "null input");
+    }
+
+    private static byte[] intBytes(int v) {
+        return new byte[] {
+                (byte) ((v >>> 24) & 0xff), (byte) ((v >>> 16) & 0xff),
+                (byte) ((v >>> 8) & 0xff), (byte) (v & 0xff)};
     }
 }

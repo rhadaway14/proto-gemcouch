@@ -104,6 +104,18 @@ class OqlQueryTest {
     }
 
     @Test
+    void projectionAcceptsIndexedObjectArrayPath() {
+        OqlQuery q = OqlQuery.parse(
+                "SELECT e.addresses[1].zip FROM /o e WHERE e.addresses[0].zip = '78701'");
+        assertEquals(1, q.projectionFieldCount());
+
+        StoredValue v = map("addresses", List.of(Map.of("zip", "78701"), Map.of("zip", "73301")));
+        assertTrue(q.matches(v), "WHERE on an indexed object-array element field");
+        assertEquals(StoredValue.stringValue("73301"), q.projectRow(v).get(0),
+                "projection of a later object-array element's field");
+    }
+
+    @Test
     void orderByNumericAscAndDesc() {
         List<StoredValue> asc = new ArrayList<>(List.of(map("amount", 30), map("amount", 10), map("amount", 20)));
         OqlQuery.parse("SELECT * FROM /o ORDER BY amount").sort(asc);
