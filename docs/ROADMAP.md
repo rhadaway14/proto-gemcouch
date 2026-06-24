@@ -249,7 +249,12 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   covers `java.time` and hot-TLS-reload is documented. Also fixed the **k8s failover e2e** flake: its
   blind `sleep 6` (which raced B's REQUEST_PLUS away-registry refresh) is now an
   `await_away_registered` gate (mirror of the Slice 1 IT fix) — validated on the cluster, 2/2 PASS.
-- [ ] **Slice 4 — cross-version matrix** (Geode client versions) → refresh `COMPATABILITY_MATRIX.md`.
+- [x] **Slice 4 — cross-version matrix (DONE).** 1.2.0 introduces **no new client-facing wire forms**
+  (durable HA reuses the version-negotiated durable-client protocol + unchanged interest/CQ event forms;
+  sharding/hot-TLS are server-internal; nested `java.time` is server-side queryability only), so the
+  validated client range is unchanged. Re-ran the cross-version CI matrix on 1.2.0 — **real Geode
+  1.13.0 / 1.14.0 / 1.15.1 clients all PASS**. `COMPATABILITY_MATRIX.md` refreshed to "as of 1.2.0"
+  (wire-compat note + durable HA in the supported surface).
 - [ ] **Slice 5 — release.** `CHANGELOG.md` `[1.2.0]`; cut `v1.2.0-rc1` → verify gates → cut `v1.2.0`
   GA + GitHub Release. (GA tag is operator-gated — confirm before tagging.)
 
