@@ -182,6 +182,42 @@ class PdxFieldAccessorTest {
         assertArrayEquals(e0, (byte[]) elements.get(0));
     }
 
+    /** A DSCODE.STRING element: 0x57 then a writeUTF blob (2-byte length + modified UTF-8 bytes). */
+    private static byte[] stringElement(String s) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(0x57);
+            java.io.DataOutputStream dos = new java.io.DataOutputStream(out);
+            dos.writeUTF(s);
+            dos.flush();
+            return out.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void parsesScalarStringObjectArrayElements() {
+        // Object[] {"alice@x.com", "bob@x.com"} — scalar elements decode to Strings so IN can scan them.
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(
+                objectArray(stringElement("alice@x.com"), stringElement("bob@x.com")));
+
+        assertEquals(List.of("alice@x.com", "bob@x.com"), elements,
+                "string elements decode to comparable String values");
+    }
+
+    @Test
+    void parsesMixedPdxAndStringObjectArrayElements() {
+        byte[] pdx = pdxInstance(7, new byte[] {1, 2});
+        List<Object> elements = PdxFieldAccessor.parseObjectArrayElements(
+                objectArray(stringElement("x"), pdx, stringElement("y")));
+
+        assertEquals(3, elements.size());
+        assertEquals("x", elements.get(0));
+        assertArrayEquals(pdx, (byte[]) elements.get(1), "a nested-PDX element stays a raw byte slice");
+        assertEquals("y", elements.get(2));
+    }
+
     @Test
     void parsesObjectArrayWithoutComponentHeader() {
         // Some forms omit the component-type header and place elements directly after the length.

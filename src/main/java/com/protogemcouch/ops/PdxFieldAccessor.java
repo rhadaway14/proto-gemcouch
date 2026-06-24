@@ -94,10 +94,17 @@ final class PdxFieldAccessor {
                     type, new DataInputStream(new ByteArrayInputStream(fieldData)), fieldData.length);
             if (path.size() == 1) {
                 // A scalar-array leaf returns the whole list (so `<literal> IN <array>` can test it);
-                // any other leaf returns its scalar value (null for OBJECT/object-array/byte[]).
+                // an object-array leaf likewise returns its element list, so `IN` does element-equality
+                // containment (a scalar element matches a literal; a nested-PDX element, being an object,
+                // does not — use indexed access like `r.contacts[0].email` for object elements). Any
+                // other leaf returns its scalar value (null for OBJECT / byte[]).
                 List<Object> array = readScalarArray(reader, pdxField);
                 if (array != null) {
                     return array;
+                }
+                if (pdxField.getFieldType() == FieldType.OBJECT_ARRAY) {
+                    List<Object> elements = readObjectArrayElements(reader, pdxField);
+                    return elements == null ? OqlQuery.ABSENT : elements;
                 }
                 Object scalar = readScalar(reader, pdxField);
                 return scalar == null ? OqlQuery.ABSENT : scalar;
@@ -277,6 +284,15 @@ final class PdxFieldAccessor {
             } else if (dscode == 0x29) { // DSCODE.NULL: a single marker byte
                 elements.add(null);
                 pos += 1;
+            } else if (dscode == 0x57) { // DSCODE.STRING element: 0x57 then writeUTF (2-byte len + bytes)
+                if (pos + 3 > raw.length) break;
+                int len = ((raw[pos + 1] & 0xff) << 8) | (raw[pos + 2] & 0xff);
+                int end = pos + 3 + len;
+                if (end > raw.length) break;
+                String s = readUtf(raw, pos + 1, 2 + len); // the writeUTF blob (its own 2-byte length)
+                if (s == null) break;
+                elements.add(s); // a scalar element is directly comparable for IN / indexed equality
+                pos = end;
             } else {
                 break; // unknown element type: cannot compute its length to continue
             }
@@ -420,6 +436,15 @@ final class PdxFieldAccessor {
             case DATE: return reader.readDate(field);
             // OBJECT / arrays are not queryable in this build (would need full object deserialization).
             default: return null;
+        }
+    }
+
+    /** Decode a Geode {@code writeUTF} blob (its own 2-byte length prefix) into a String, or null on error. */
+    private static String readUtf(byte[] raw, int offset, int length) {
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(raw, offset, length))) {
+            return in.readUTF();
+        } catch (Exception e) {
+            return null;
         }
     }
 

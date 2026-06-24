@@ -76,6 +76,19 @@ public final class PutOnce {
                         .writeObject("address", address)
                         .create());
                 System.out.println("PutOnce: put nested pdx " + region + "/" + key + " {address.zip:" + value + "}");
+            } else if ("pdxobjarray".equalsIgnoreCase(op)) {
+                // Put a PDX object with an OBJECT-ARRAY field of nested PDX (demo.Customer { status;
+                // demo.Address[] addresses }) so a CQ predicate on an object-array element field
+                // (r.addresses[0].zip) is exercised end-to-end from a separate client. `value` is the zip.
+                org.apache.geode.pdx.PdxInstance address = cache.createPdxInstanceFactory("demo.Address")
+                        .writeString("zip", value)
+                        .create();
+                r.put(key, cache.createPdxInstanceFactory("demo.Customer")
+                        .writeString("status", "active")
+                        .writeObjectArray("addresses", new org.apache.geode.pdx.PdxInstance[] {address})
+                        .create());
+                System.out.println("PutOnce: put object-array pdx " + region + "/" + key
+                        + " {addresses[0].zip:" + value + "}");
             } else if ("mapstops".equalsIgnoreCase(op)) {
                 // Put a matching map {amount: value}, then update it to a non-matching {amount: 1}
                 // (stops-matching -> CQ DESTROY).
