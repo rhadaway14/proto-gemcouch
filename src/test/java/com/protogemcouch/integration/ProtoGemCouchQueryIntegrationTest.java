@@ -297,6 +297,38 @@ class ProtoGemCouchQueryIntegrationTest {
         assertEquals(1, hasSilver.size(), "IN containment on a PDX string array");
     }
 
+    @Test
+    void pdxObjectArrayIndexedFieldQuery() throws Exception {
+        region.put("a", pdxWithAddresses("active", "78701", "73301"));
+        region.put("b", pdxWithAddresses("active", "10001"));
+        region.put("c", pdxWithAddresses("closed", "78701"));
+
+        SelectResults<?> firstZip = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName
+                        + " r WHERE r.addresses[0].zip = '78701' AND r.status = 'active'").execute();
+        assertEquals(1, firstZip.size(),
+                "indexed access into a PDX object-array field, then a nested field on the element");
+
+        SelectResults<?> secondZip = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT r.addresses[1].zip FROM /" + regionName
+                        + " r WHERE r.addresses[0].zip = '78701' AND r.status = 'active'").execute();
+        assertEquals(Set.of("73301"), new HashSet<>(secondZip),
+                "projection of a later object-array element's nested field");
+    }
+
+    private PdxInstance pdxWithAddresses(String status, String... zips) {
+        PdxInstance[] addresses = new PdxInstance[zips.length];
+        for (int i = 0; i < zips.length; i++) {
+            addresses[i] = cache.createPdxInstanceFactory("demo.Address")
+                    .writeString("zip", zips[i])
+                    .create();
+        }
+        return cache.createPdxInstanceFactory("demo.Customer")
+                .writeString("status", status)
+                .writeObjectArray("addresses", addresses)
+                .create();
+    }
+
     private PdxInstance pdxOrderWithAddress(String status, String zip) {
         PdxInstance address = cache.createPdxInstanceFactory("demo.Address")
                 .writeString("zip", zip)

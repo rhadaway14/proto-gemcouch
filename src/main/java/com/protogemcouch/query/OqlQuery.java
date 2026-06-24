@@ -41,6 +41,10 @@ public final class OqlQuery {
     /** One dotted path segment: a field name with zero or more {@code [index]} suffixes. */
     private static final Pattern SEGMENT = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)((?:\\[[0-9]+\\])*)");
 
+    /** A projection field: a dotted path of name segments, each optionally carrying {@code [n]} indices. */
+    private static final String PROJECTION_FIELD =
+            "[A-Za-z_][A-Za-z0-9_]*(?:\\[[0-9]+\\])*(?:\\.[A-Za-z_][A-Za-z0-9_]*(?:\\[[0-9]+\\])*)*";
+
     /** A single {@code [index]} within a segment's bracket suffixes. */
     private static final Pattern INDEX = Pattern.compile("\\[([0-9]+)\\]");
 
@@ -464,7 +468,9 @@ public final class OqlQuery {
         }
         for (String raw : list.split(",")) {
             String field = raw.trim();
-            if (!field.matches("[A-Za-z_][A-Za-z0-9_.]*")) {
+            // A dotted path whose segments may each carry array indices (e.g. addresses[0].zip), matching
+            // what toPath accepts for WHERE/ORDER BY so projection stays consistent with predicate paths.
+            if (!field.matches(PROJECTION_FIELD)) {
                 throw new UnsupportedQueryException("unsupported projection field: " + field);
             }
             fields.add(toPath(field, alias));

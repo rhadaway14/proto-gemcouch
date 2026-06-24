@@ -195,6 +195,18 @@ class PdxShapeTest {
         printShape("PDX_INSTANCE_WITH_MIXED_NESTED_VALUES", value);
     }
 
+    @Test
+    void pdxInstanceWithNestedPdxObjectArrayFieldShape() throws IOException {
+        PdxInstance addr0 = pdxFactory("demo.Address").writeString("zip", "78701").create();
+        PdxInstance addr1 = pdxFactory("demo.Address").writeString("zip", "73301").create();
+        PdxInstance value = pdxFactory("demo.Customer")
+                .writeString("status", "active")
+                .writeObjectArray("addresses", new PdxInstance[] {addr0, addr1})
+                .create();
+
+        printShape("PDX_INSTANCE_WITH_NESTED_PDX_OBJECT_ARRAY_FIELD", value);
+    }
+
     private PdxInstanceFactory pdxFactory(String className) {
         return cache().createPdxInstanceFactory(className);
     }
