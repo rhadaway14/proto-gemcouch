@@ -18,6 +18,19 @@ class HandlerExecutorConfigTest {
     }
 
     @Test
+    void defaultBacklogIsBoundedSmallEnoughToShedBeforeOom() {
+        // Regression guard for the 1.2.0-M4 OOM-wedge fix: the total queued backlog
+        // (threads * maxPendingTasks) must stay small so the shedding handler fires well before heap
+        // exhaustion. The previous 10_000/thread (640k total at 64 threads) OOM-killed the shim under
+        // a backend outage. Keep the default backlog conservatively bounded.
+        HandlerExecutorConfig config = HandlerExecutorConfig.defaults();
+        assertTrue(config.queueBounded(), "default queue must be bounded");
+        long totalBacklog = (long) config.threads() * config.maxPendingTasks();
+        assertTrue(totalBacklog <= 50_000,
+                "default total backlog (threads*maxPendingTasks) must stay small to shed before OOM, was " + totalBacklog);
+    }
+
+    @Test
     void retainsCustomValues() {
         HandlerExecutorConfig config = new HandlerExecutorConfig(16, 500);
         assertEquals(16, config.threads());

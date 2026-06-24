@@ -40,6 +40,20 @@ variable "loadgen_count" {
   default     = 2
 }
 
+# ---- Shim feature flags (exercise the 1.2.0 paths under load) ----
+
+variable "keyset_shards" {
+  description = "KEYSET_SHARDS for the shim hosts (1.2.0-M2 keyset-metadata sharding). 1 = legacy single-doc; >1 splits the per-region keyset across N docs. Set >1 to soak the sharding path."
+  type        = number
+  default     = 1
+}
+
+variable "durable_persistence" {
+  description = "DURABLE_PERSISTENCE for the shim hosts (1.2.0-M1 multi-replica durable subscriptions). The GA config; harmless for KV/keyset load."
+  type        = bool
+  default     = false
+}
+
 # ---- Instance sizing (see README for the rationale) ----
 
 variable "shim_instance_type" {

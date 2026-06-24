@@ -328,7 +328,14 @@ public class RawShimServer {
             ), e);
             throw e;
         } finally {
-            gracefulShutdown("main-thread-exit");
+            // If this finally is the first to run the shutdown body, the listener closed without a
+            // SIGTERM (an abnormal close — e.g. an OutOfMemoryError tore down the acceptor — or a
+            // startup failure). Leaving the JVM to linger here is exactly what wedged the shim in the
+            // capacity soak: a live-but-dead process the orchestrator never restarts. Halt non-zero so
+            // it gets restarted. A deliberate signal shutdown already ran the body (returns false here).
+            if (gracefulShutdown("main-thread-exit")) {
+                Runtime.getRuntime().halt(1);
+            }
         }
     }
 
@@ -342,9 +349,9 @@ public class RawShimServer {
      * listener → drain in-flight request handlers and event loops with a bounded grace period →
      * close the Couchbase repository → stop the health server.
      */
-    static void gracefulShutdown(String trigger) {
+    static boolean gracefulShutdown(String trigger) {
         if (!SHUTDOWN_STARTED.compareAndSet(false, true)) {
-            return;
+            return false;
         }
         log.info(StructuredLog.event("server_stopping", "trigger", trigger));
 
@@ -394,6 +401,7 @@ public class RawShimServer {
             healthState.markStopped();
         }
         log.info(StructuredLog.event("server_stopped", "trigger", trigger));
+        return true;
     }
 
     private static void awaitQuietly(EventExecutorGroup group, long seconds) {

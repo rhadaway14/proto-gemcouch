@@ -230,7 +230,16 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   (the size of a replica's away-registry scan set — also useful operationally) and gating each test on
   the *enqueuing* replica seeing the away client (poll up to 30s) before mutating, replacing the blind
   `Thread.sleep`s. Verified: full unit suite + all 5 durable ITs green, twice back-to-back.
-- [ ] **Slice 2 — soak the new HA/scale paths** (durable HA failover + keyset sharding under load).
+- [x] **Slice 2 — soak the new HA/scale paths (DONE).** EC2 rig (4 shims/2 load-gens), self-driving
+  chaos (mixed load + latency/loss/pause/partition/hard-outage) with `KEYSET_SHARDS=8` +
+  `DURABLE_PERSISTENCE=true`, 100k keys. The soak **found a GA-blocking bug**: a backend hard-outage
+  under load drove the handler queues (64×10,000=640k) to OOM, which tore down the Netty executor and
+  left the JVM wedged-but-alive (rejecting everything, `running=true,exit=0,restarts=0` → no restart).
+  **Fixed** with backpressure (`DEFAULT_MAX_PENDING_TASKS` 10,000→256 so it sheds before OOM) +
+  fail-fast (`-XX:+ExitOnOutOfMemoryError`, `halt(1)` on abnormal listener close). Re-soak **PASS**: all
+  4 shims survived the fault scenario (`ready=200`), self-recovered, shed excess load (~5.5M/shim)
+  instead of dying. Also hardened the benchmark seed (concurrent + retry). See `docs/SOAK_RESULTS.md`.
+  (Durable-subscription *failover* itself was validated on k8s in M1 Slice 4.)
 - [ ] **Slice 3 — security re-review** (SafeDeserialization allowlist, TLS hot-reload, durable/registry
   surface, dependency review) → refresh `SECURITY.md`.
 - [ ] **Slice 4 — cross-version matrix** (Geode client versions) → refresh `COMPATABILITY_MATRIX.md`.

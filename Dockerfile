@@ -23,4 +23,9 @@ EXPOSE 8081
 # docker-compose) lets the heap balloon to gigabytes, and one with a limit under-uses it. 75% leaves
 # headroom for Netty direct buffers, metaspace, and thread stacks. Operators set the actual ceiling via
 # the container memory limit (the Helm chart's resources.limits.memory; docker-compose mem_limit).
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/protogemcouch.jar"]
+#
+# ExitOnOutOfMemoryError: if the heap is ever exhausted, halt the JVM immediately with a non-zero exit
+# instead of limping on. A surviving-but-broken JVM after OOM leaves the shim wedged (Netty executors
+# torn down, every request rejected) while the container still looks "running" — so no orchestrator
+# restarts it. Failing fast turns that permanent outage into a quick pod restart. (1.2.0-M4 hardening.)
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/protogemcouch.jar"]

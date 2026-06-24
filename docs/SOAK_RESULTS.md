@@ -202,6 +202,53 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-24 — 1.2.0 HA/scale paths under fault injection (1.2.0-M4)
+
+Soak of the new 1.2.0 paths on the EC2 rig: 4 shims behind the NLB, 2 load-gens, the **self-driving
+chaos experiment** (sustained `mixed` load @ 256 total concurrency, then the Couchbase host injects
+latency/loss/pause/partition/hard-outage, all healed), with **`KEYSET_SHARDS=8`** and
+**`DURABLE_PERSISTENCE=true`** active and 100k keys seeded. Goal: confirm the durable + sharded paths
+survive a backend fault scenario under load.
+
+### Bug found by the soak: backend-outage OOM → permanent wedge (and the fix)
+
+The first clean run **failed**, and the soak earned its keep. During the fault window the Couchbase KV
+ops time out (5 s each); at 256 concurrency the request backlog poured into the handler executor queues
+(64 threads × **10,000** = up to **640k** buffered tasks), the heap exhausted, an `OutOfMemoryError`
+tore down the Netty acceptor, the listener closed, and the main thread ran `gracefulShutdown` — **but
+the JVM never exited**. The result was a live-but-dead shim that rejected every request
+(`RejectedExecutionException: event executor terminated`) for the ~50 min after Couchbase fully
+recovered, while the container still reported `running=true, exit=0, restarts=0` — so no orchestrator
+would restart it. Root-caused from the shim log (112 × `OutOfMemoryError: Java heap space` immediately
+before `server_stopping trigger=main-thread-exit`).
+
+**Fix (backpressure + fail-fast):**
+- `HandlerExecutorConfig.DEFAULT_MAX_PENDING_TASKS` 10,000 → **256**, so the existing
+  `SheddingRejectedExecutionHandler` sheds (fails fast, closes the connection) long before heap
+  pressure. Normal CRUD-by-key never fills the queue; it only sheds under genuine saturation (slow
+  keyset ops at scale, or a slow/dead backend) — which is exactly when shedding is correct.
+- `-XX:+ExitOnOutOfMemoryError` in the image, so any OOM halts the JVM non-zero immediately → a quick
+  orchestrator restart instead of a wedge. `RawShimServer` also `halt(1)`s on an abnormal listener
+  close (no SIGTERM) so an abnormal exit restarts rather than lingering.
+
+### Result (after the fix) — PASS
+
+Re-soak with the fixed image, same topology/chaos:
+- **Survived the full fault scenario.** Right after the scenario completed, **all 4 shims `ready=200`**
+  (and again 60 s later) — no wedge (vs. `000` on every shim before). Successful ops **kept climbing**
+  through to the end (not frozen). The shim recovered on its own once the backend healed.
+- Under the adversarial keyset-heavy `mixed` profile at 100k keys + 256 concurrency, the shim **shed
+  the excess** rather than dying — `protogemcouch_requests_shed_total` ≈ 5.5M/shim — because the
+  O(region-size) keyset path (`SIZE`/`KEY_SET`/bulk) saturates the 64 handler threads at that scale.
+  Load-shedding under overload is the intended behavior; the shim stays up and serves what it can.
+- Seed hardening: the benchmark `seed()` is now concurrent (128 threads) with bounded per-key retry —
+  seeded 100k keys, 0 failures, in seconds (the serial seed previously raced fault injection and aborted
+  the run).
+
+Takeaway: the durable + sharded shim **survives and self-recovers** through a backend hard-outage under
+load; keyset-metadata-heavy workloads at large keyspaces remain a cold path (see Current limitations)
+and are correctly load-shed rather than allowed to OOM the process.
+
 ## Run: 2026-06-21 — keyset-metadata at-scale characterization (1.1.0-M4)
 
 Quantifies the keyset-metadata **cold path** at large keyspaces. The shim tracks each region's keys in a

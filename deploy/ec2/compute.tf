@@ -54,8 +54,10 @@ resource "aws_instance" "shim" {
   vpc_security_group_ids = [aws_security_group.rig.id]
 
   user_data = templatefile("${path.module}/templates/shim-user-data.sh.tftpl", merge(local.common, {
-    shim_image   = var.shim_image
-    couchbase_ip = aws_instance.couchbase.private_ip
+    shim_image          = var.shim_image
+    couchbase_ip        = aws_instance.couchbase.private_ip
+    keyset_shards       = var.keyset_shards
+    durable_persistence = var.durable_persistence
   }))
 
   tags = { Name = "${var.name_prefix}-shim-${count.index}", Role = "shim" }
