@@ -240,8 +240,15 @@ owner replica → survives any replica failing). Behind a flag (default off) for
   4 shims survived the fault scenario (`ready=200`), self-recovered, shed excess load (~5.5M/shim)
   instead of dying. Also hardened the benchmark seed (concurrent + retry). See `docs/SOAK_RESULTS.md`.
   (Durable-subscription *failover* itself was validated on k8s in M1 Slice 4.)
-- [ ] **Slice 3 — security re-review** (SafeDeserialization allowlist, TLS hot-reload, durable/registry
-  surface, dependency review) → refresh `SECURITY.md`.
+- [x] **Slice 3 — security re-review (DONE).** Re-reviewed the surface through 1.2.0 against the code
+  and refreshed `SECURITY.md`: new **durable-subscription persistence** section (what's persisted to
+  Couchbase, no new N1QL-injection/eval surface — CQ recompiled in-memory via the same parser,
+  durable-client-id is client-supplied identity → use mTLS, bounded `DURABLE_MAX_QUEUE`); documented the
+  **memory-exhaustion resilience** guards (shed-before-OOM + `-XX:+ExitOnOutOfMemoryError`) and fixed a
+  stale `HANDLER_MAX_PENDING_TASKS` default (10000→256); confirmed the deserialization allowlist already
+  covers `java.time` and hot-TLS-reload is documented. Also fixed the **k8s failover e2e** flake: its
+  blind `sleep 6` (which raced B's REQUEST_PLUS away-registry refresh) is now an
+  `await_away_registered` gate (mirror of the Slice 1 IT fix) — validated on the cluster, 2/2 PASS.
 - [ ] **Slice 4 — cross-version matrix** (Geode client versions) → refresh `COMPATABILITY_MATRIX.md`.
 - [ ] **Slice 5 — release.** `CHANGELOG.md` `[1.2.0]`; cut `v1.2.0-rc1` → verify gates → cut `v1.2.0`
   GA + GitHub Release. (GA tag is operator-gated — confirm before tagging.)

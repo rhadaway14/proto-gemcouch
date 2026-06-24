@@ -36,6 +36,26 @@ KEY="missed-after-kill"
 VALUE="replayed-from-couchbase"
 
 say() { echo; echo "=== $* ==="; }
+
+# Gate: wait until a replica's away-registry actually shows an away durable client before mutating on it.
+# The origin only enqueues for clients in its awayRegistryCache (refreshed from Couchbase on an interval
+# via a REQUEST_PLUS query); a blind sleep raced that refresh on a freshly-indexed bucket and made this
+# flaky. Mirror of the 1.2.0-M4 Slice 1 IT fix: poll protogemcouch_durable_away_registered>=1 on the
+# replica that will be the origin. Best-effort (a real miss still surfaces at the verify step).
+await_away_registered() {
+  local ip="$1"
+  kubectl run "awaitaway-$RANDOM" -n "$NS" --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
+    --command -- sh -c '
+      for i in $(seq 1 60); do
+        v=$(curl -s -m3 "http://'"$ip"':8081/metrics" | grep "^protogemcouch_durable_away_registered " | tr -s " " | cut -d" " -f2)
+        case "$v" in
+          ""|0|0.0|0.000000) sleep 2 ;;
+          *) echo "away_registered=$v"; exit 0 ;;
+        esac
+      done
+      echo "TIMEOUT waiting for away-registry"; exit 1' \
+    || echo "WARN: away-registry gate did not confirm; proceeding (verify will catch a real miss)"
+}
 cleanup() {
   [ "${KEEP:-0}" = "1" ] && { echo "KEEP=1 — leaving $NS in place"; return; }
   say "Teardown"
@@ -89,8 +109,9 @@ kubectl logs dur-subscribe -n "$NS" 2>/dev/null | grep -q DURABLE_SUBSCRIBED \
 
 say "2) KILL replica A ($A_NAME) — hard"
 kubectl delete pod "$A_NAME" -n "$NS" --grace-period=0 --force >/dev/null 2>&1 || true
-# Let replica B refresh its away-registry cache from Couchbase (DURABLE_AWAY_REFRESH_MS default 1000).
-sleep 6
+# Wait until replica B (the origin for the next mutation) actually sees the away client in its
+# registry, rather than a blind sleep that could race B's REQUEST_PLUS refresh on a fresh bucket index.
+await_away_registered "$B_IP"
 
 say "3) mutate (plain client on replica B — origin enqueues for the away client)"
 kubectl run dur-mutate -n "$NS" --image="$IMAGE_REPO:$IMAGE_TAG" --image-pull-policy=Always --restart=Never \
