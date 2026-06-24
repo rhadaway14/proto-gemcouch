@@ -6,6 +6,19 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **PDX object-array field querying (1.3.0-M1)** — OQL/CQ predicates can now navigate a PDX field that is
+  an array of nested PDX objects (a `PdxInstance[]`), the last value-type query gap from 1.1.0-M3.
+  Indexed access reads an element and a field on it — `r.addresses[0].zip` (recursively, e.g.
+  `r.addresses[0].geo.lat`) — in `WHERE` / projection / `ORDER BY` and CQ alike (the resolver is shared).
+  `<literal> IN r.<objectArray>` does element-equality containment: a scalar element matches a literal
+  (so `'a@x.com' IN r.contacts` over a string `Object[]` works), while a nested-PDX *object* element never
+  equals a scalar literal — use indexed access to query object elements. PDX is self-describing, so no
+  user classes are needed (the shim slices each element from the `writeObjectArray` byte form and recurses
+  with its own `PdxTypeRegistry`). Additive and non-breaking — server-side queryability only, no new
+  client-facing wire forms. Real-client + CQ validated; `docs/OQL.md` / `COMPATABILITY_MATRIX.md` /
+  `CURRENT_LIMITATIONS.md` updated.
+
 ## [1.2.0] - 2026-06-24
 
 The **high-availability + at-scale** release. All changes are additive and non-breaking (a

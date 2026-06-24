@@ -38,10 +38,12 @@ code, no full native wire parity.
   allows a write before it is sent, and `CacheListener`s fire on the shim's server-pushed events.
 
 **Queryable only at the top level / scalar fields.** OQL and CQ predicates resolve top-level scalar
-fields of `HashMap<String,Object>` and PDX values. **Not queryable** (preserved opaquely — they
-round-trip but their fields aren't readable): customer **Serializable POJOs**, **custom
-DataSerializable** values, **PDX object-array fields** (arrays of nested PDX — scalar arrays and nested
-object paths *are* queryable as of 1.1.0-M3), and **nested complex values requiring the user's classes**.
+fields of `HashMap<String,Object>` and PDX values. PDX field querying is now broad — scalar fields,
+nested object paths (`r.address.zip`), scalar arrays (`r.tags[0]`, `'x' IN r.tags`), and **object-arrays
+of nested PDX** (`r.addresses[0].zip`, element-equality `IN`) are all queryable (the last as of 1.3.0-M1;
+see `docs/OQL.md`). **Not queryable** (preserved opaquely — they round-trip but their fields aren't
+readable): customer **Serializable POJOs**, **custom DataSerializable** values, and **nested complex
+values requiring the user's classes**.
 The keyset-metadata operations (`REMOVE`/`PUT_ALL`/`SIZE`/`KEY_SET`) are a separate, much more expensive
 performance class: each is **O(region size)** (the per-region keyset document is read/rewritten whole),
 so treat them as cold-path, not hot-path. With the default single per-region keyset document, this also

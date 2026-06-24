@@ -270,13 +270,32 @@ documented in `docs/CURRENT_LIMITATIONS.md` — the dominant "not queryable / pr
 so more real Geode workloads run unchanged. Items target additive/non-breaking semver minors (no new
 client-facing wire forms expected). Milestone dates are targets, from a ~2026-06-25 start.
 
-### 1.3.0-M1 — PDX object-array field querying (headline) · target 2026-07-16
-Arrays of nested PDX objects (a PDX field that is a `PdxInstance[]`) are currently **not queryable** —
-scalar arrays and single nested-object paths landed in 1.1.0-M3, but object-arrays were explicitly
-deferred. Extend OQL/CQ path resolution so `r.addresses[0].zip` and `'x' IN r.contacts` navigate
-object-arrays. Tractable without the user's classes (PDX is self-describing), reusing the existing
-array-index + nested-PDX (`PdxReaderImpl`) reflection path. Completes the PDX query surface;
-real-client validated; refresh `docs/OQL.md` + the matrix.
+### 1.3.0-M1 — PDX object-array field querying (headline) · **COMPLETE** (3 slices, ahead of the 2026-07-16 target)
+Arrays of nested PDX objects (a PDX field that is a `PdxInstance[]`) were **not queryable** — scalar
+arrays and single nested-object paths landed in 1.1.0-M3, but object-arrays were explicitly deferred.
+OQL/CQ path resolution now navigates them, without the user's classes (PDX is self-describing), reusing
+the existing array-index + nested-PDX (`PdxReaderImpl`) reflection path. Completes the PDX query surface.
+- [x] **Slice 1 — indexed navigation (PR #19).** `PdxFieldAccessor` reads an `OBJECT_ARRAY` field's raw
+  bytes (`getRaw`) and walks the `DataSerializer.writeObjectArray` form — a `writeArrayLength` prefix, the
+  component-type header (`DSCODE.CLASS` + class name, e.g. `org.apache.geode.pdx.PdxInstance`), then each
+  `writeObject` element — slicing each self-framed nested-PDX element (`0x5d <len> <typeId> <data>`) to
+  recurse with the shim's own `PdxTypeRegistry`. So `r.addresses[0].zip` (and deeper) resolves in
+  `WHERE` / projection / `ORDER BY` and CQ (shared resolver). Also widened the projection-field guard to
+  accept per-segment `[index]`. Real-client validated (`pdxObjectArrayIndexedFieldQuery`).
+- [x] **Slice 2 — `IN` containment + edge-case hardening (PR #20).** An object-array leaf returns its
+  element list, so `<literal> IN r.<field>` does **element-equality** containment; scalar string elements
+  decode (`DSCODE.STRING 0x57` + `writeUTF`, the same framing as the component-type header) so
+  `'a@x.com' IN r.contacts` over a string `Object[]` matches. By element-equality a scalar literal never
+  equals a nested-PDX *object* element (use indexed access for objects — documented). Out-of-range index,
+  null / unknown-DSCODE / truncated elements, and empty / null arrays all resolve cleanly (never throw).
+  Real-client validated (`pdxObjectArrayInContainmentAndIndexEdgeCases`) + CQ parity
+  (`cqListenerFiresForPredicateMatchingPdxObjectArrayElementField`, new `PutOnce` `pdxobjarray` op).
+- [x] **Slice 3 — docs + matrix (this).** `docs/OQL.md`, `docs/COMPATABILITY_MATRIX.md`, and
+  `docs/CURRENT_LIMITATIONS.md` updated (object-array querying supported; the "arrays of nested PDX not
+  queryable" caveat removed).
+- Exit: **M1 COMPLETE** — scalar, nested-object, scalar-array, and **object-array** field querying for
+  maps + PDX, in `WHERE` / projection / `ORDER BY` and CQ; query correctness unchanged vs a real Geode
+  client. The version bump + GA tagging happen in M4 (operator-gated).
 
 ### 1.3.0-M2 — PDX registry discovery + schema-evolution depth · target 2026-08-06
 Harden PDX type/enum discovery and **multi-version schema evolution** beyond the current per-type path:

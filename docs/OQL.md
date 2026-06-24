@@ -52,16 +52,30 @@ indexes into a `List`/array, and `<literal> IN <path>` tests **containment** (`'
 `5 IN r.scores`). For PDX, scalar arrays (`String[]`, `int[]`, `long[]`, `short[]`, `double[]`, `float[]`,
 `boolean[]`, `char[]`) are read via `PdxReaderImpl`'s typed array readers; a scalar-array leaf resolves to
 the whole list (so `IN` can scan it). Real-client-validated (`pdxScalarArrayIndexAndContainmentQuery`).
-Still **not** queryable: PDX `OBJECT` arrays (arrays of nested PDX), `byte[]` (binary), and a PDX `OBJECT`
-field holding a serialized non-PDX object.
+
+**Object arrays (arrays of nested PDX objects)** are navigable as of 1.3.0-M1. A PDX `OBJECT_ARRAY` field
+(a `PdxInstance[]`) is read from its raw bytes (the `DataSerializer.writeObjectArray` form — a length, a
+component-type header, then each element via `writeObject`); each self-framed nested-PDX element
+(`5d <len> <typeId> …`) is sliced and navigated with the shim's own `PdxTypeRegistry` (PDX is
+self-describing, so no user classes are needed — the same principle as a single nested-`OBJECT` field).
+So `r.addresses[0].zip` indexes an element and reads a field on it (recursively, e.g.
+`r.addresses[0].geo.lat`), in `WHERE` / projection / `ORDER BY` **and CQ**. `<literal> IN r.<objectArray>`
+does **element-equality** containment: a scalar element matches a literal (so `'a@x.com' IN r.contacts`
+over a string `Object[]` works), but a nested-PDX element, being an object, never equals a scalar literal —
+use indexed access (`r.contacts[0].email = 'a@x.com'`) to query object elements. Real-client-validated
+(`pdxObjectArrayIndexedFieldQuery`, `pdxObjectArrayInContainmentAndIndexEdgeCases`, and a CQ in
+`ProtoGemCouchCqIntegrationTest`).
+
+Still **not** queryable: `byte[]` (binary), and a PDX `OBJECT` field holding a serialized non-PDX object.
 
 The same PDX-aware resolver (`PdxAwareFieldResolver`, shared via the handler factory) also backs
 **continuous-query predicate matching**, so a CQ like `WHERE r.status = 'active'` matches PDX objects
 exactly as a one-shot query does (see `docs/CONTINUOUS_QUERIES.md`). For a *second* client to decode a
 PDX value it did not itself write (e.g. a pushed CQ/subscription event value), the shim also serves the
 **reverse PDX lookup** — GET_PDX_TYPE_BY_ID (opcode 92) returns the kept `PdxType`, stamped with its
-assigned id, as a serialized object part. Scalar fields, **nested object paths**, and **scalar array**
-fields (index access + `IN` containment) are queryable (see above); arrays of nested objects are not.
+assigned id, as a serialized object part. Scalar fields, **nested object paths**, **scalar array** fields
+(index access + `IN` containment), and **object-array** fields (indexed element access + element-equality
+`IN`) are all queryable (see above).
 
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
