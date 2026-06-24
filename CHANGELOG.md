@@ -6,6 +6,59 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-24
+
+The **high-availability + at-scale** release. All changes are additive and non-breaking (a
+semantic-versioning minor) — no new client-facing wire forms, so existing 1.15.x clients are unaffected
+and the cross-version client range (Geode 1.13/1.14/1.15) is unchanged. Highlights since 1.1.0:
+
+- **Multi-replica durable subscriptions (M1)** — with `DURABLE_PERSISTENCE` on, a durable client's
+  subscription state (interests, CQ definitions, and queued events) is persisted to Couchbase, so events
+  missed while the client is away **replay on reconnect to any replica** — durable delivery no longer
+  depends on the replica that owned the client. Validated by a real-Kubernetes replica-failover e2e.
+- **Keyset-metadata sharding (M2)** — the per-region keyset can be split across `KEYSET_SHARDS` documents
+  (`floorMod(key.hashCode(), N)`, cross-process-deterministic), lifting the single-document ~20 MiB
+  key-count ceiling ~N× and enabling parallel shard reads.
+- **Hot TLS reload (M3)** — `TLS_RELOAD_SECONDS` makes the shim reload its keystore/truststore and swap
+  the listener `SslContext` for new connections **without a restart** (content-hash polling catches a k8s
+  Secret rotation); a bad/partial keystore is ignored so TLS never breaks.
+- **Structured nested `java.time` (M3)** — `Instant`/`LocalDate`/`LocalDateTime` nested in a
+  `HashMap<String,Object>` now decode **structurally** (queryable, exact round-trip) instead of opaquely.
+- **Horizontal-scale characterization (M3)** — a near-linear read-throughput curve (≈16.9k → 35k → 58k
+  ops/sec for 1/2/4 shims), shim-CPU-bound with large Couchbase headroom (`docs/SOAK_RESULTS.md`).
+- **Resilience hardening (M4)** — a fault-injection soak found and fixed a backend-outage failure mode:
+  the shim now **sheds excess load before OOM** and **fails fast** on heap exhaustion for a clean restart
+  instead of wedging. Plus a 1.2.0 security re-review and a re-validated cross-version matrix.
+
+### Added
+- **Durable-subscription persistence + cross-replica replay** (`DURABLE_PERSISTENCE`, default off):
+  Couchbase-backed durable registry/queue, single-writer origin enqueue (interest + CQ events) so any
+  replica can serve an away client, an away-registry refresh, a timeout sweep, the
+  `protogemcouch_durable_clients` / `protogemcouch_durable_queue_depth` /
+  `protogemcouch_durable_away_registered` gauges, and a `DurableFailoverCheck` tool + k8s failover e2e.
+- **Keyset-metadata sharding** (`KEYSET_SHARDS`, default 1 = legacy single-doc) across
+  `__protogemcouch::keyset::<region>::s<n>` documents.
+- **Hot TLS keystore/truststore reload** (`TLS_RELOAD_SECONDS`, default 0 = off) for the Geode listener,
+  with a `tls_cert_reloaded` audit event.
+- **Structured nested `java.time`** (`Instant`/`LocalDate`/`LocalDateTime`) decoding + queryability.
+
+### Changed
+- **Backpressure default** — `HANDLER_MAX_PENDING_TASKS` default lowered 10,000 → 256 so the shim sheds
+  under sustained overload/backend-slowness well before heap pressure (normal CRUD-by-key never fills
+  the queue). Tunable up with heap headroom.
+- Certificate-rotation, durable-persistence, and overload/outage behaviour documented in
+  `SECURITY.md`; `COMPATABILITY_MATRIX.md` refreshed to 1.2.0; capacity/limitations docs updated.
+
+### Fixed
+- **Backend-outage OOM wedge** — under a backend hard-outage with load, the handler backlog could exhaust
+  the heap, tear down the Netty executor, and leave the JVM **alive but rejecting every request** (never
+  restarted by orchestration). Fixed with the bounded-shed default above plus
+  `-XX:+ExitOnOutOfMemoryError` and a `halt(1)` on abnormal listener close — verified by a re-soak
+  (all replicas survived the fault scenario and self-recovered).
+- **Flaky durable-replay tests** — the CQ/multi-replica durable-replay integration tests and the k8s
+  failover e2e raced the away-registry refresh; both now gate on `protogemcouch_durable_away_registered`
+  instead of a fixed sleep.
+
 ## [1.1.0] - 2026-06-21
 
 The **performance + operability + parity-depth** release. All changes are additive and non-breaking (a
