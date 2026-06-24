@@ -232,12 +232,21 @@ To limit resource exhaustion from dead, slow, or excessive client connections:
 | `CONNECTION_IDLE_TIMEOUT_SECONDS` | 300 | Connections idle (no read/write) this long are closed and reaped. `0` disables. |
 | `MAX_CONNECTIONS` | 0 (unlimited) | New connections beyond this concurrent count are rejected and closed. |
 | `FIRST_REQUEST_TIMEOUT_SECONDS` | 10 | A connection must complete its handshake and first request within this long or it is closed. Not reset by trickled bytes, so it bounds slowloris-style connections. `0` disables. |
-| `HANDLER_MAX_PENDING_TASKS` | 10000 | Per-handler-thread queue bound; once full, requests are shed (connection closed) instead of growing the backlog unbounded. `0` = unbounded. |
+| `HANDLER_MAX_PENDING_TASKS` | 256 | Per-handler-thread queue bound; once full, requests are shed (connection closed) instead of growing the backlog unbounded. `0` = unbounded. |
 
 These guards are observable via `protogemcouch_connections_rejected_total`,
 `protogemcouch_idle_connections_closed_total`, `protogemcouch_connections_first_request_timeout_total`,
 and `protogemcouch_requests_shed_total`. Set `MAX_CONNECTIONS` to a value matched to the shim's
 resources, and keep the idle and first-request timeouts enabled on untrusted networks.
+
+**Memory-exhaustion resilience (1.2.0-M4).** A backend stall or outage under load is a memory-exhaustion
+risk: requests block on slow backend calls and the handler backlog grows. Two guards bound it. The
+**handler queue is kept deliberately small** (`HANDLER_MAX_PENDING_TASKS` default `256`) so the shim
+**sheds** (fails fast, closes the connection) long before the heap is exhausted — a prior large default
+let the backlog OOM the process during a backend hard-outage in the capacity soak. As a last resort, the
+image runs with **`-XX:+ExitOnOutOfMemoryError`**, so any `OutOfMemoryError` halts the JVM with a
+non-zero exit for a clean orchestrator restart rather than leaving a wedged, never-restarted process.
+Raise `HANDLER_MAX_PENDING_TASKS` only with heap headroom for the larger backlog.
 
 **PDX type/enum registry growth.** To decode PDX values the shim remembers every PDX type and enum a
 client registers (as Geode itself does); the registry is in-memory and not evicted, so a client that
@@ -363,6 +372,34 @@ Operators creating the secondary indexes pushdown uses should scope them per reg
 
 ---
 
+## Durable subscription persistence (1.2.0)
+
+With `DURABLE_PERSISTENCE` on (default off), a durable client's subscription state — its durable-client
+id, registered interests, **CQ definitions (the OQL text)**, and **queued (undelivered) event payloads**
+— is persisted to Couchbase under internal `__protogemcouch::durable::*` keys so it survives the owning
+replica failing and replays on reconnect to any replica. Security review of that surface:
+
+- **Stored where the values already live.** Durable records and queued events are ordinary documents in
+  the same bucket as the data, so they inherit the **same protection**: Couchbase backend TLS
+  (`docs/SECURITY.md` → backend transport), the shim's least-privilege Couchbase user, and the
+  per-value size cap. They are not exposed on any shim endpoint.
+- **No new injection/eval surface.** A persisted CQ is recompiled on the origin replica with the **same
+  OQL parser** as the live QUERY/CQ path and evaluated **in memory** (`OqlQuery.matches`, not N1QL), so
+  the no-injection / bounded-recursion guarantees above apply unchanged — there is no string-built query
+  and no code eval. Field names still must match the strict identifier pattern.
+- **Durable-client-id is the identity (client-supplied) — treat ids as semi-secret.** As in native
+  Geode, a durable client is identified solely by its `durable-client-id`; a client that connects with
+  another client's id resumes that subscription and drains its queued events. The shim does not bind a
+  durable id to a TLS identity. On untrusted networks, **authenticate connections with mutual TLS**,
+  keep durable ids unguessable, and restrict shim-port exposure (below). This is inherent to the Geode
+  durable-client model, not specific to the shim.
+- **Bounded queue.** Each durable client's persisted queue is capped (`DURABLE_MAX_QUEUE`, oldest
+  dropped past the cap), so a permanently-away durable client cannot grow its queue without limit; the
+  away-record sweep reclaims expired durable clients. The away-registry size is observable via
+  `protogemcouch_durable_away_registered`.
+
+---
+
 ## Container hardening
 
 Current hardening includes:
@@ -466,9 +503,11 @@ Before non-lab deployment:
 
 ## Current limitations
 
-The security posture has been reviewed for the 1.0.0 GA (this document, plus the deserialization /
-resource-guard / TLS hardening passes). That internal review is **not a substitute for an independent
-third-party audit**, and additional, environment-specific hardening may be warranted.
+The security posture has been reviewed for the 1.0.0 GA and **re-reviewed through 1.2.0** (this
+document, plus the deserialization / resource-guard / TLS hardening passes, and — for 1.2.0 — hot TLS
+reload, the durable-subscription persistence surface, and the memory-exhaustion resilience guards). That
+internal review is **not a substitute for an independent third-party audit**, and additional,
+environment-specific hardening may be warranted.
 
 Future security work:
 - stronger TLS story for all traffic
