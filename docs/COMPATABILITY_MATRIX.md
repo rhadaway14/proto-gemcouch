@@ -4,11 +4,20 @@ This is the shim's **compatibility contract**: the Geode client surface it suppo
 it round-trips, and its explicit non-goals. Per-feature details and byte encodings follow; the
 narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGELOG.md`.
 
-## Compatibility contract (as of 1.1.0)
+## Compatibility contract (as of 1.2.0)
 
 **Client / runtime.** Apache Geode (and GemFire-compatible) **Java clients on the 1.15.x line**,
 validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
 client/server protocol over the shim's Geode port (TLS / mutual TLS optional).
+
+**1.2.0 introduces no new client-facing wire forms.** The 1.2.0 features are server-side or reuse
+existing forms, so the validated client range and protocol ordinals below are **unchanged**: multi-replica
+**durable subscriptions** use the standard, version-negotiated Geode durable-client protocol
+(`durable-client-id` + `readyForEvents`) and replay the **same** interest/CQ event wire forms already
+emitted in 1.1.0; **keyset-metadata sharding** and **hot TLS reload** are entirely server-internal; the
+nested **`java.time`** change affects only server-side queryability, not the bytes a client sends. The
+durable event forms are validated end-to-end against a real 1.15.1 client (the durable-subscription
+integration + k8s failover suites), and the cross-version core matrix re-runs on every `v*` release tag.
 
 **Protocol version negotiation.** On connect, the shim parses the client's protocol version ordinal
 from the handshake and accepts only supported versions — the default is the wire-validated **1.15.x**
@@ -27,7 +36,7 @@ both map and PDX values) via the standalone `cross-version-client/` harness — 
 public Geode client API, so each version compiles cleanly without recompiling the shim (whose internal-API
 use is version-sensitive). A green matrix confirms the shim's 1.15.x wire forms are interoperable with
 1.13.x/1.14.x clients; the **default** policy still accepts 1.15.x only, so widening is an opt-in operators
-make after seeing this validation.
+make after seeing this validation. **Re-validated green for 1.2.0** (all three client versions, 2026-06-24).
 
 **Geode client protocol version → ordinal** (authoritative, from `KnownVersion`; the value the shim
 reads from the handshake). The protocol ordinal is per **minor** release — every patch within a minor
@@ -65,9 +74,11 @@ OQL:                   SELECT (*|field|field,…) FROM /region [alias] [WHERE �
                        paths (r.address.zip) and scalar arrays (r.tags[0], 'x' IN r.tags) for
                        maps + PDX (object-arrays not yet)
 transactions:          begin → put/get/remove → commit / rollback
-subscriptions:         register-interest + server→client events (CacheListener fires)
+subscriptions:         register-interest + server→client events (CacheListener fires); durable
+                       clients (durable-client-id + readyForEvents) with multi-replica HA —
+                       events missed while away replay from Couchbase on reconnect to ANY replica
 continuous queries:    register + events (create/update/destroy, stops-matching), PDX-field
-                       predicates, executeWithInitialResults
+                       predicates, executeWithInitialResults; durable CQs replay cross-replica
 entry TTL:             default + per-region, time-to-live and idle modes, keyset eviction
 ```
 
