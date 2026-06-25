@@ -14,6 +14,7 @@ import com.couchbase.client.java.json.JsonArray;
 import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.client.java.kv.ExistsResult;
 import com.couchbase.client.java.kv.GetResult;
+import com.couchbase.client.java.kv.IncrementOptions;
 import com.couchbase.client.java.kv.InsertOptions;
 import com.couchbase.client.java.kv.LookupInResult;
 import com.couchbase.client.java.kv.LookupInSpec;
@@ -87,6 +88,22 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_CQ_NAME = "cqName";
     private static final String FIELD_QUERY = "query";
     private static final int DEFAULT_DURABLE_MAX_QUEUE = 100_000;
+
+    // PDX registry persistence (1.3.0-M2): a Couchbase atomic counter allocates cluster-wide-unique,
+    // restart-durable PDX type/enum ids; a fingerprint→id doc makes allocation idempotent per type and an
+    // id→serialized doc backs reverse + bulk lookups. So every replica agrees on type↔id (no collisions)
+    // and ids survive a restart. Keyed under `__protogemcouch::pdx::…`.
+    private static final String PDX_TYPE_SEQ_ID = "__protogemcouch::pdx::typeseq";
+    private static final String PDX_ENUM_SEQ_ID = "__protogemcouch::pdx::enumseq";
+    private static final String PDX_TYPE_FP_PREFIX = "__protogemcouch::pdx::type::fp::";
+    private static final String PDX_TYPE_ID_PREFIX = "__protogemcouch::pdx::type::id::";
+    private static final String PDX_ENUM_FP_PREFIX = "__protogemcouch::pdx::enum::fp::";
+    private static final String PDX_ENUM_ID_PREFIX = "__protogemcouch::pdx::enum::id::";
+    private static final String TYPE_PDX_TYPE_BY_ID = "pdxTypeById";
+    private static final String TYPE_PDX_ENUM_BY_ID = "pdxEnumById";
+    private static final String FIELD_PDX_ID = "id";
+    private static final String FIELD_PDX_ENCODED = "encoded";
+    private static final String FIELD_PDX_FINGERPRINT = "fingerprint";
 
     /** Bounded retries for compare-and-swap atomic operations under concurrent contention. */
     private static final int CAS_MAX_ATTEMPTS = 32;
@@ -165,6 +182,11 @@ public class CouchbaseRepository implements Repository {
     private boolean durablePersistenceEnabled = false;
     private int durableMaxQueue = DEFAULT_DURABLE_MAX_QUEUE;
 
+    // PDX registry persistence is opt-in (PDX_PERSISTENCE, default off): when off the PDX persistence
+    // methods are no-ops/empty and the registries use their in-memory id counters (single-instance
+    // behavior unchanged). When on, ids are allocated cluster-wide and durably from Couchbase.
+    private boolean pdxPersistenceEnabled = false;
+
     // Keyset-metadata sharding (1.2.0-M2): the per-region keyset can be split across KEYSET_SHARDS docs
     // (`__protogemcouch::keyset::<region>::s<n>`) keyed by floorMod(key.hashCode(), shards) — lifting the
     // single-doc 20 MiB key-count ceiling and shrinking each add/remove/CAS to ~region/shards keys, with
@@ -212,6 +234,9 @@ public class CouchbaseRepository implements Repository {
 
         this.keysetShards = (int) parsePositiveLongOrDefault(System.getenv("KEYSET_SHARDS"), 1L);
         log.info(StructuredLog.event("repository_keyset_sharding_configured", "shards", keysetShards));
+
+        this.pdxPersistenceEnabled = Boolean.parseBoolean(System.getenv("PDX_PERSISTENCE"));
+        log.info(StructuredLog.event("repository_pdx_persistence_configured", "enabled", pdxPersistenceEnabled));
         if (keysetShards > 1) {
             // Sharding changes the keyset doc layout; existing data written under a different shard count
             // (incl. the unsharded default) is not auto-migrated — rebuild the keyset on a count change.
@@ -1579,6 +1604,31 @@ public class CouchbaseRepository implements Repository {
         this.durableMaxQueue = maxQueue;
     }
 
+    /** Enable the PDX-registry persistence primitive (1.3.0-M2). Package-private test seam. */
+    void enablePdxPersistenceForTesting() {
+        this.pdxPersistenceEnabled = true;
+    }
+
+    /** Remove a persisted PDX type's fingerprint + id docs (best-effort). Package-private test seam. */
+    void dropPdxTypeForTesting(String fingerprint, int id) {
+        dropPdxForTesting(PDX_TYPE_FP_PREFIX + fingerprint, PDX_TYPE_ID_PREFIX + id);
+    }
+
+    /** Remove a persisted PDX enum's fingerprint + id docs (best-effort). Package-private test seam. */
+    void dropPdxEnumForTesting(String fingerprint, int id) {
+        dropPdxForTesting(PDX_ENUM_FP_PREFIX + fingerprint, PDX_ENUM_ID_PREFIX + id);
+    }
+
+    private void dropPdxForTesting(String fpDocId, String idDocId) {
+        for (String docId : new String[] {fpDocId, idDocId}) {
+            try {
+                collection.remove(docId);
+            } catch (Exception ignored) {
+                // best-effort cleanup
+            }
+        }
+    }
+
     private static String durableDocId(String durableId) {
         return DURABLE_META_PREFIX + Base64.getUrlEncoder()
                 .withoutPadding()
@@ -1867,6 +1917,139 @@ public class CouchbaseRepository implements Repository {
         } catch (Exception e) {
             log.warn(StructuredLog.event("repository_durable_list_away_failed", "error", e.getMessage()));
             return java.util.List.of();
+        }
+    }
+
+    // --- PDX registry persistence (1.3.0-M2, behind PDX_PERSISTENCE) --------------------------------
+
+    @Override
+    public java.util.OptionalInt allocatePdxTypeId(String fingerprint, byte[] serializedType) {
+        return allocatePdxId(fingerprint, serializedType, PDX_TYPE_SEQ_ID, PDX_TYPE_FP_PREFIX,
+                PDX_TYPE_ID_PREFIX, TYPE_PDX_TYPE_BY_ID, "type");
+    }
+
+    @Override
+    public java.util.OptionalInt allocatePdxEnumId(String fingerprint, byte[] serializedEnum) {
+        return allocatePdxId(fingerprint, serializedEnum, PDX_ENUM_SEQ_ID, PDX_ENUM_FP_PREFIX,
+                PDX_ENUM_ID_PREFIX, TYPE_PDX_ENUM_BY_ID, "enum");
+    }
+
+    /**
+     * Allocate-or-get a cluster-wide id for {@code fingerprint}: fast-path the existing fingerprint→id
+     * doc; otherwise reserve the next id from an atomic counter, write the id→encoded doc, then
+     * insert-if-absent the fingerprint→id doc. If a concurrent allocation already created the fingerprint
+     * doc, adopt its id (our reserved counter value is a harmless gap) so a type maps to exactly one id
+     * cluster-wide.
+     */
+    private java.util.OptionalInt allocatePdxId(String fingerprint, byte[] encoded, String seqId,
+            String fpPrefix, String idPrefix, String typeTag, String kind) {
+        if (!pdxPersistenceEnabled || fingerprint == null || encoded == null || encoded.length == 0) {
+            return java.util.OptionalInt.empty();
+        }
+        String fpDocId = fpPrefix + fingerprint;
+        try {
+            JsonObject existing = collection.get(fpDocId).contentAsObject();
+            return java.util.OptionalInt.of(existing.getInt(FIELD_PDX_ID));
+        } catch (DocumentNotFoundException firstTime) {
+            // not yet allocated anywhere — reserve an id and persist it.
+        } catch (Exception e) {
+            log.error(StructuredLog.event("repository_pdx_alloc_lookup_error",
+                    "kind", kind, "fingerprint", fingerprint, "error", e.getMessage()), e);
+            throw new RepositoryException("allocatePdx" + kind + " lookup failed", e);
+        }
+        try {
+            int id = (int) collection.binary().increment(seqId,
+                    IncrementOptions.incrementOptions().initial(1).delta(1)).content();
+            String encodedB64 = Base64.getEncoder().encodeToString(encoded);
+            // id→encoded first, so whenever the fingerprint doc exists its reverse lookup already resolves.
+            collection.upsert(idPrefix + id, JsonObject.create()
+                    .put(FIELD_TYPE, typeTag)
+                    .put(FIELD_PDX_ID, id)
+                    .put(FIELD_PDX_FINGERPRINT, fingerprint)
+                    .put(FIELD_PDX_ENCODED, encodedB64));
+            try {
+                collection.insert(fpDocId, JsonObject.create()
+                        .put(FIELD_TYPE, typeTag)
+                        .put(FIELD_PDX_ID, id)
+                        .put(FIELD_PDX_FINGERPRINT, fingerprint)
+                        .put(FIELD_PDX_ENCODED, encodedB64));
+                log.info(StructuredLog.event("repository_pdx_allocated", "kind", kind, "id", id));
+                return java.util.OptionalInt.of(id);
+            } catch (DocumentExistsException raceLost) {
+                // Another replica won the fingerprint; adopt its id (our id-doc is an unreferenced gap).
+                int winnerId = collection.get(fpDocId).contentAsObject().getInt(FIELD_PDX_ID);
+                log.info(StructuredLog.event("repository_pdx_alloc_race_adopted",
+                        "kind", kind, "reservedId", id, "winnerId", winnerId));
+                return java.util.OptionalInt.of(winnerId);
+            }
+        } catch (Exception e) {
+            log.error(StructuredLog.event("repository_pdx_alloc_error",
+                    "kind", kind, "fingerprint", fingerprint, "error", e.getMessage()), e);
+            throw new RepositoryException("allocatePdx" + kind + " failed", e);
+        }
+    }
+
+    @Override
+    public byte[] loadPdxType(int typeId) {
+        return loadPdxEncoded(PDX_TYPE_ID_PREFIX + typeId, "type");
+    }
+
+    @Override
+    public byte[] loadPdxEnum(int enumId) {
+        return loadPdxEncoded(PDX_ENUM_ID_PREFIX + enumId, "enum");
+    }
+
+    private byte[] loadPdxEncoded(String idDocId, String kind) {
+        if (!pdxPersistenceEnabled) {
+            return null;
+        }
+        try {
+            String encoded = collection.get(idDocId).contentAsObject().getString(FIELD_PDX_ENCODED);
+            return encoded == null ? null : Base64.getDecoder().decode(encoded);
+        } catch (DocumentNotFoundException miss) {
+            return null;
+        } catch (Exception e) {
+            log.warn(StructuredLog.event("repository_pdx_load_failed",
+                    "kind", kind, "docId", idDocId, "error", e.getMessage()));
+            return null;
+        }
+    }
+
+    @Override
+    public java.util.Map<Integer, byte[]> loadAllPdxTypes() {
+        return loadAllPdxEncoded(TYPE_PDX_TYPE_BY_ID, "type");
+    }
+
+    @Override
+    public java.util.Map<Integer, byte[]> loadAllPdxEnums() {
+        return loadAllPdxEncoded(TYPE_PDX_ENUM_BY_ID, "enum");
+    }
+
+    /** Read every persisted id→encoded doc of a kind (N1QL, REQUEST_PLUS) into an id→bytes map. */
+    private java.util.Map<Integer, byte[]> loadAllPdxEncoded(String typeTag, String kind) {
+        if (!pdxPersistenceEnabled) {
+            return java.util.Map.of();
+        }
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT c.`" + FIELD_PDX_ID + "` AS id, c.`" + FIELD_PDX_ENCODED + "` AS encoded"
+                + " FROM " + keyspace + " c WHERE c.`type` = \"" + typeTag + "\"";
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            java.util.LinkedHashMap<Integer, byte[]> out = new java.util.LinkedHashMap<>();
+            for (JsonObject row : result.rowsAs(JsonObject.class)) {
+                Integer id = row.getInt("id");
+                String encoded = row.getString("encoded");
+                if (id != null && encoded != null) {
+                    out.put(id, Base64.getDecoder().decode(encoded));
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn(StructuredLog.event("repository_pdx_load_all_failed", "kind", kind, "error", e.getMessage()));
+            return java.util.Map.of();
         }
     }
 

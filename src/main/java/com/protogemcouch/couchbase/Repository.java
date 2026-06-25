@@ -255,4 +255,48 @@ public interface Repository {
     default List<DurableRecord> listAwayDurable() {
         return List.of();
     }
+
+    // --- PDX registry persistence primitive (1.3.0-M2, behind PDX_PERSISTENCE) -----------------------
+    // The PDX type/enum registry is otherwise in-memory per shim instance with a local id counter, so
+    // ids are lost on restart and assigned inconsistently across replicas (a PDX instance written via
+    // one replica may resolve to the wrong type — or not at all — via another). When persistence is on,
+    // ids are allocated from a Couchbase atomic counter and the serialized type/enum is persisted, so
+    // the id space is durable and consistent cluster-wide. These defaults are no-ops / empty (in-memory
+    // behavior unchanged); CouchbaseRepository overrides them with the real, flag-gated implementation.
+
+    /**
+     * Allocate (or fetch the already-allocated) cluster-wide PDX type id for a content {@code fingerprint},
+     * persisting {@code serializedType} under both a fingerprint→id doc and an id→type doc. Concurrent
+     * allocation of the same fingerprint resolves to a single id (insert-if-absent; the race loser adopts
+     * the winner's id). Returns {@link OptionalInt#empty()} when persistence is off, so the caller falls
+     * back to its in-memory counter.
+     */
+    default java.util.OptionalInt allocatePdxTypeId(String fingerprint, byte[] serializedType) {
+        return java.util.OptionalInt.empty();
+    }
+
+    /** The persisted serialized {@code PdxType} for {@code typeId}, or {@code null} when unknown / off. */
+    default byte[] loadPdxType(int typeId) {
+        return null;
+    }
+
+    /** Every persisted PDX type id → serialized {@code PdxType} (for bulk discovery). Empty when off. */
+    default Map<Integer, byte[]> loadAllPdxTypes() {
+        return Map.of();
+    }
+
+    /** PDX enum analogue of {@link #allocatePdxTypeId}. Empty when persistence is off. */
+    default java.util.OptionalInt allocatePdxEnumId(String fingerprint, byte[] serializedEnum) {
+        return java.util.OptionalInt.empty();
+    }
+
+    /** The persisted serialized {@code EnumInfo} for {@code enumId}, or {@code null} when unknown / off. */
+    default byte[] loadPdxEnum(int enumId) {
+        return null;
+    }
+
+    /** Every persisted PDX enum id → serialized {@code EnumInfo} (for bulk discovery). Empty when off. */
+    default Map<Integer, byte[]> loadAllPdxEnums() {
+        return Map.of();
+    }
 }
