@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -371,6 +372,27 @@ class ProtoGemCouchQueryIntegrationTest {
                 .writeString("status", status)
                 .writeObject("address", address)
                 .create();
+    }
+
+    @Test
+    void nestedTypedObjectArrayQueryAndRoundTrip() throws Exception {
+        // A map value holding a typed object array (Integer[]) — queryable (indexed + IN) as of 1.3.0-M3,
+        // and it round-trips as an Integer[] (not a generic Object[]).
+        region.put("a", new HashMap<>(Map.of("status", "active", "scores", new Integer[] {10, 20})));
+        region.put("b", new HashMap<>(Map.of("status", "active", "scores", new Integer[] {30})));
+
+        SelectResults<?> firstIsTen = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE r.scores[0] = 10").execute();
+        assertEquals(1, firstIsTen.size(), "indexed access into a nested typed object array");
+
+        SelectResults<?> hasTwenty = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE 20 IN r.scores").execute();
+        assertEquals(1, hasTwenty.size(), "IN containment over a nested typed object array");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> a = (Map<String, Object>) region.get("a");
+        assertTrue(a.get("scores") instanceof Integer[], "the array round-trips as Integer[], not Object[]");
+        assertArrayEquals(new Integer[] {10, 20}, (Integer[]) a.get("scores"), "exact element + type fidelity");
     }
 
     @Test

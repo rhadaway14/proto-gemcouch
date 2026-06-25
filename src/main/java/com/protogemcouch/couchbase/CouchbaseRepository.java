@@ -149,6 +149,10 @@ public class CouchbaseRepository implements Repository {
     private static final String TYPE_NESTED_OBJECT_ARRAY = "nestedObjectArray";
     private static final String TYPE_NESTED_LIST = "nestedList";
     private static final String TYPE_NESTED_MAP = "nestedMap";
+    // A typed object array nested in a map (Integer[], UUID[], Instant[], enum[], …): the component
+    // class is recorded so it reconstructs to the exact array type (1.3.0-M3), not a generic Object[].
+    private static final String TYPE_TYPED_OBJECT_ARRAY = "typedObjectArray";
+    private static final String FIELD_COMPONENT_CLASS = "componentClass";
 
     private final ServerConfig config;
 
@@ -3653,7 +3657,15 @@ public class CouchbaseRepository implements Repository {
                 jsonArray.add(encodeMapObjectValue(item));
             }
 
-            out.put(FIELD_TYPE, TYPE_NESTED_OBJECT_ARRAY);
+            // A generic Object[] reconstructs as Object[]; a typed array (Integer[], UUID[], enum[], …)
+            // records its component class so it reconstructs to the exact type (Arrays.equals holds).
+            Class<?> component = value.getClass().getComponentType();
+            if (component == Object.class) {
+                out.put(FIELD_TYPE, TYPE_NESTED_OBJECT_ARRAY);
+            } else {
+                out.put(FIELD_TYPE, TYPE_TYPED_OBJECT_ARRAY);
+                out.put(FIELD_COMPONENT_CLASS, component.getName());
+            }
             out.put(FIELD_VALUE, jsonArray);
             out.put(FIELD_LENGTH, array.length);
             return out;
@@ -4235,6 +4247,39 @@ public class CouchbaseRepository implements Repository {
             return value == null ? null : String.valueOf(value);
         }
 
+        if (TYPE_TYPED_OBJECT_ARRAY.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+            if (rawList == null) {
+                return null;
+            }
+            int n = rawList.size();
+            Class<?> component = resolveArrayComponent(typedValue.get(FIELD_COMPONENT_CLASS));
+            if (component == null) {
+                // Component class not loadable / not a supported component on this shim: degrade to a
+                // generic Object[] (elements still decode, the graph stays equals-comparable element-wise).
+                Object[] decoded = new Object[n];
+                for (int i = 0; i < n; i++) {
+                    decoded[i] = decodeMapObjectValue(rawList.get(i));
+                }
+                return decoded;
+            }
+            Object decoded = java.lang.reflect.Array.newInstance(component, n);
+            for (int i = 0; i < n; i++) {
+                Object element = decodeMapObjectValue(rawList.get(i));
+                try {
+                    java.lang.reflect.Array.set(decoded, i, element);
+                } catch (IllegalArgumentException mismatch) {
+                    // An element decoded to an unexpected type: degrade to a generic Object[].
+                    Object[] fallback = new Object[n];
+                    for (int j = 0; j < n; j++) {
+                        fallback[j] = decodeMapObjectValue(rawList.get(j));
+                    }
+                    return fallback;
+                }
+            }
+            return decoded;
+        }
+
         if (TYPE_NESTED_OBJECT_ARRAY.equalsIgnoreCase(type)) {
             List<?> rawList = rawListFromValue(value);
 
@@ -4295,6 +4340,31 @@ public class CouchbaseRepository implements Repository {
         }
 
         return value == null ? null : String.valueOf(value);
+    }
+
+    /** Scalar/utility component classes a typed object array may reconstruct to (plus any enum, below). */
+    private static final java.util.Set<String> SUPPORTED_ARRAY_COMPONENT_NAMES = java.util.Set.of(
+            "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte",
+            "java.lang.Double", "java.lang.Float", "java.lang.Boolean", "java.lang.Character",
+            "java.util.Date", "java.util.UUID", "java.math.BigInteger", "java.math.BigDecimal",
+            "java.time.Instant", "java.time.LocalDate", "java.time.LocalDateTime");
+
+    /**
+     * Resolve a typed object array's recorded component class for reconstruction, restricted to the
+     * supported scalar/utility components or an enum (the same set the structured codec promotes on the
+     * write side, and the same class-load shape the nested-enum decode already uses). Returns {@code null}
+     * — degrade to {@code Object[]} — when the name is absent, unloadable, or outside that set.
+     */
+    private static Class<?> resolveArrayComponent(Object rawClassName) {
+        if (!(rawClassName instanceof String className) || className.isBlank()) {
+            return null;
+        }
+        try {
+            Class<?> component = Class.forName(className);
+            return (SUPPORTED_ARRAY_COMPONENT_NAMES.contains(className) || component.isEnum()) ? component : null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
     }
 
     private static StoredValue decodeDateStoredValue(JsonObject content, Object rawValue) {
