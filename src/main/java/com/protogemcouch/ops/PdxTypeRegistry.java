@@ -138,12 +138,19 @@ public class PdxTypeRegistry {
 
     /**
      * Every registered type id mapped to its {@link PdxType} re-serialized in DataSerializer form, for
-     * the bulk GET_PDX_TYPES registry-discovery reply. Types that cannot be re-serialized are skipped.
+     * the bulk GET_PDX_TYPES registry-discovery reply. With persistence on, this unions the ids this
+     * instance has seen with the whole persisted registry, so a fresh replica (or one after a restart)
+     * serves the complete cluster-wide registry — not just what it happens to hold in memory. Types that
+     * cannot be re-serialized are skipped.
      */
     public java.util.Map<Integer, byte[]> allSerializedTypes() {
+        java.util.LinkedHashSet<Integer> ids = new java.util.LinkedHashSet<>(typesById.keySet());
+        if (repository != null) {
+            ids.addAll(repository.loadAllPdxTypes().keySet());
+        }
         java.util.LinkedHashMap<Integer, byte[]> out = new java.util.LinkedHashMap<>();
-        for (Integer id : typesById.keySet()) {
-            byte[] serialized = serializedPdxType(id);
+        for (Integer id : ids) {
+            byte[] serialized = serializedPdxType(id); // load-on-miss + stamp for persisted-only ids
             if (serialized != null) {
                 out.put(id, serialized);
             }

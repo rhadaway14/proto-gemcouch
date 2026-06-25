@@ -93,6 +93,19 @@ class PdxTypeRegistryTest {
     }
 
     @Test
+    void bulkDiscoveryIncludesPersistedTypesFromOtherInstances() {
+        // A fresh replica's bulk GET_PDX_TYPES must return the whole cluster-wide registry, not just the
+        // types it happens to hold in memory (here: none — it never registered anything).
+        FakePdxRepository shared = new FakePdxRepository(11);
+        int id = new PdxTypeRegistry(0, () -> { }, shared).getOrCreateTypeId(PDX_TYPE);
+
+        PdxTypeRegistry freshReplica = new PdxTypeRegistry(0, () -> { }, shared);
+        Map<Integer, byte[]> all = freshReplica.allSerializedTypes();
+        assertTrue(all.containsKey(id), "bulk discovery on a fresh replica includes the persisted type");
+        assertTrue(all.get(id).length > 0, "the persisted type re-serializes for the bulk reply");
+    }
+
+    @Test
     void fallsBackToLocalCounterWhenPersistenceIsOff() {
         // A repository with persistence off returns empty from allocate / null from load (the default
         // no-op behavior), so the registry uses its local counter — single-instance behavior unchanged.
@@ -123,6 +136,13 @@ class PdxTypeRegistryTest {
         public synchronized byte[] loadPdxType(int typeId) {
             byte[] b = bytesById.get(typeId);
             return b == null ? null : b.clone();
+        }
+
+        @Override
+        public synchronized Map<Integer, byte[]> loadAllPdxTypes() {
+            Map<Integer, byte[]> out = new LinkedHashMap<>();
+            bytesById.forEach((id, b) -> out.put(id, b.clone()));
+            return out;
         }
     }
 }

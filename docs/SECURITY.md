@@ -400,6 +400,28 @@ replica failing and replays on reconnect to any replica. Security review of that
 
 ---
 
+## PDX registry persistence (1.3.0)
+
+With `PDX_PERSISTENCE` on (default off), PDX type/enum ids are allocated from a cluster-wide durable
+Couchbase registry (under internal `__protogemcouch::pdx::*` keys) instead of an in-memory per-instance
+counter, so ids are consistent across replicas and survive a restart. Security review of that surface:
+
+- **Stored where the values already live.** The persisted artifacts are the **serialized `PdxType` /
+  `EnumInfo`** the client itself registers (the schema/layout — not instance data) and a small
+  fingerprint→id index, kept as ordinary documents in the same bucket, inheriting the same backend TLS,
+  least-privilege user, and size cap. They are not exposed on any shim endpoint.
+- **No new deserialization/eval surface.** The bytes are the same `DataSerializer`-encoded `PdxType`
+  blobs already parsed on the in-memory path; on a load-on-miss they are deserialized with the **same**
+  guarded reader and the assigned id stamped — there is no client-controlled class loading or query eval.
+  Bulk discovery (`GET_PDX_TYPES`/`GET_PDX_ENUMS`) returns the persisted registry, bounded by the same
+  optional `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` registration caps.
+- **Id allocation is race-safe.** Ids come from a Couchbase atomic counter with an insert-if-absent
+  fingerprint doc, so concurrent registration of the same type across replicas converges on one id (the
+  loser adopts the winner's id; a skipped counter value is a harmless gap) — no duplicate ids, no
+  cross-replica mis-resolution.
+
+---
+
 ## Container hardening
 
 Current hardening includes:

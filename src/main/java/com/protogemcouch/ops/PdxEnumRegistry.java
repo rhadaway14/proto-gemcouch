@@ -94,11 +94,20 @@ public class PdxEnumRegistry {
         return loaded.clone();
     }
 
-    /** Every registered enum id mapped to its serialized {@code EnumInfo}, for the GET_PDX_ENUMS reply. */
+    /**
+     * Every registered enum id mapped to its serialized {@code EnumInfo}, for the GET_PDX_ENUMS reply.
+     * With persistence on, unions this instance's enums with the whole persisted registry so a fresh
+     * replica serves the complete cluster-wide set (loading any it has not seen).
+     */
     public java.util.Map<Integer, byte[]> allSerializedEnums() {
         java.util.LinkedHashMap<Integer, byte[]> out = new java.util.LinkedHashMap<>();
         for (java.util.Map.Entry<Integer, byte[]> e : encodedById.entrySet()) {
             out.put(e.getKey(), e.getValue().clone());
+        }
+        if (repository != null) {
+            for (Integer id : repository.loadAllPdxEnums().keySet()) {
+                out.computeIfAbsent(id, this::serializedEnum);
+            }
         }
         return out;
     }

@@ -7,6 +7,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **PDX registry persistence — durable + cluster-wide-consistent type/enum ids (1.3.0-M2)** — opt-in via
+  **`PDX_PERSISTENCE`** (default off → in-memory per-instance behavior byte-identical). When on, PDX
+  type/enum ids are allocated from a Couchbase atomic counter (idempotent per type fingerprint; concurrent
+  cross-replica registration converges on one id), and the serialized type/enum is persisted. So ids are
+  **consistent across replicas and survive a restart**: `GET_PDX_TYPE_BY_ID`, field querying, and bulk
+  discovery (`GET_PDX_TYPES`/`GET_PDX_ENUMS`) resolve any id on any replica (loaded from Couchbase on a
+  local miss), and multi-version schema evolution persists. Fixes the cross-replica/restart gap where a
+  PDX value written via one replica could mis-resolve (or fail) via another. Validated by a real-Couchbase
+  primitive IT and a real-client multi-replica IT (write via replica A → decode + query on replica B);
+  `docs/COMPATABILITY_MATRIX.md` / `CURRENT_LIMITATIONS.md` / `SECURITY.md` updated.
 - **PDX object-array field querying (1.3.0-M1)** — OQL/CQ predicates can now navigate a PDX field that is
   an array of nested PDX objects (a `PdxInstance[]`), the last value-type query gap from 1.1.0-M3.
   Indexed access reads an element and a field on it — `r.addresses[0].zip` (recursively, e.g.

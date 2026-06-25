@@ -58,9 +58,17 @@ cross-process-safe and behavior is byte-identical at `N=1`. Set it at deploy tim
 over existing data requires a keyset rebuild. `KEY_SET`/`SIZE` remain O(region) (they must return all
 keys) but read shards in parallel.
 
-**Scope-expansion items still open** (tracked in `ROADMAP.md` §3): full PDX registry discovery + schema
-evolution beyond the per-type path; `DataSerializable` *field* access (needs the classes); arbitrary
-object graphs / complete DataSerializer marker coverage; full opcode golden-wire coverage.
+**PDX registry durability / multi-replica (1.3.0-M2).** By default the PDX type/enum registry is in-memory
+per shim instance, so type ids are lost on restart and assigned independently per replica — a PDX value
+written via one replica may not resolve (or mis-resolves) on another. Set **`PDX_PERSISTENCE=true`** to
+allocate ids from a cluster-wide durable Couchbase registry: ids are then consistent across replicas and
+survive a restart, `GET_PDX_TYPE_BY_ID` / bulk discovery resolve any id on any replica (load-on-miss), and
+multi-version schema evolution persists. Off by default (single-instance behavior unchanged); enable it
+for multi-replica / HA deployments.
+
+**Scope-expansion items still open** (tracked in `ROADMAP.md` §3): `DataSerializable` *field* access
+(needs the classes); arbitrary object graphs / complete DataSerializer marker coverage; full opcode
+golden-wire coverage.
 
 **Capacity qualification** is characterized on a dedicated rig (`docs/SOAK_RESULTS.md`: per-shim read
 ceiling ~16.9k ops/sec, and a near-linear scaling curve **16.9k → 35k → 58k for 1/2/4 shims**,
