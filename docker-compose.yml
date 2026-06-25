@@ -63,6 +63,10 @@ services:
       # so a durable client can reconnect to the other replica and replay. Validated by
       # ProtoGemCouchDurablePersistenceMultiReplicaIntegrationTest (this shim + protogemcouch-replica).
       DURABLE_PERSISTENCE: "true"
+      # PDX registry persistence (1.3.0-M2): allocate PDX type/enum ids from a cluster-wide durable
+      # registry so ids are consistent across replicas and survive a restart. Validated by
+      # ProtoGemCouchPdxRegistryPersistenceMultiReplicaIntegrationTest (this shim + protogemcouch-replica).
+      PDX_PERSISTENCE: "true"
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8081/ready >/dev/null || exit 1"]
       interval: 15s
@@ -91,6 +95,7 @@ services:
     environment:
       HEALTH_PORT: "8085"
       DURABLE_PERSISTENCE: "true"
+      PDX_PERSISTENCE: "true"
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8085/ready >/dev/null || exit 1"]
       interval: 15s
