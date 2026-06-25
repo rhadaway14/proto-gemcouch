@@ -297,11 +297,33 @@ the existing array-index + nested-PDX (`PdxReaderImpl`) reflection path. Complet
   maps + PDX, in `WHERE` / projection / `ORDER BY` and CQ; query correctness unchanged vs a real Geode
   client. The version bump + GA tagging happen in M4 (operator-gated).
 
-### 1.3.0-M2 — PDX registry discovery + schema-evolution depth · target 2026-08-06
-Harden PDX type/enum discovery and **multi-version schema evolution** beyond the current per-type path:
-fields added/removed across PDX versions must query and round-trip correctly, and id→type discovery
-(`GET_PDX_TYPE_BY_ID`) must be robust under a registry serving many evolving types. Lifts the "full PDX
-registry discovery + schema evolution beyond the per-type path" limitation.
+### 1.3.0-M2 — PDX registry discovery + schema-evolution depth · **COMPLETE** (3 slices, ahead of the 2026-08-06 target)
+The PDX type/enum registry was in-memory per shim instance with a local id counter, so ids were lost on
+restart and assigned inconsistently across replicas — a PDX value written via one replica could mis-resolve
+(or fail to resolve) via another. M2 makes the registry **durable + cluster-wide-consistent** behind
+**`PDX_PERSISTENCE`** (default off → in-memory behavior byte-identical), mirroring the 1.2.0-M1
+durable-subscription pattern.
+- [x] **Slice 1 — persistence primitive (PR #22).** `Repository` no-op defaults + `CouchbaseRepository`
+  impl + `TracingRepository` delegation: `allocatePdxTypeId`/`allocatePdxEnumId` (atomic cluster-wide id
+  via a Couchbase counter; idempotent per fingerprint via insert-if-absent, race-loser adopts the
+  winner's id), `loadPdxType`/`loadPdxEnum` (reverse), `loadAllPdxTypes`/`loadAllPdxEnums` (bulk, N1QL).
+  Real-Couchbase IT (7): idempotent/distinct, reverse load, restart-durability, the concurrent-allocation
+  race, bulk, enum parity, off-by-default no-op.
+- [x] **Slice 2 — registry wiring + multi-replica (PR #23).** `PdxTypeRegistry`/`PdxEnumRegistry` allocate
+  via the repository when the flag is on (else the local counter — byte-identical); `getPdxType` /
+  `serializedPdxType` (`GET_PDX_TYPE_BY_ID`) / `serializedEnum` load-on-miss from Couchbase and stamp the
+  id, so any replica resolves any id. `docker-compose` runs the `protogemcouch` + `-replica` pair with
+  `PDX_PERSISTENCE=true`. Real-client multi-replica IT: a PDX value written via replica A is decoded +
+  queried on replica B (which never registered the type). No regression across the PDX IT suite with the
+  flag on.
+- [x] **Slice 3 — discovery hardening + schema-evolution-at-scale + docs (this).** Bulk
+  `GET_PDX_TYPES`/`GET_PDX_ENUMS` unions the persisted cluster-wide registry, so a fresh replica serves it
+  all; a multi-replica IT registers many evolving versions on A and resolves + per-version-queries them on
+  B; `COMPATABILITY_MATRIX.md` / `CURRENT_LIMITATIONS.md` / `SECURITY.md` updated (the durability
+  limitation lifted; `PDX_PERSISTENCE` documented).
+- Exit: **M2 COMPLETE** — PDX type↔id is durable and consistent cluster-wide (opt-in); discovery, reverse
+  lookup, and multi-version schema evolution resolve on any replica + after a restart. Version bump + GA
+  tagging in M4 (operator-gated).
 
 ### 1.3.0-M3 — DataSerializer marker coverage + golden-wire completeness · target 2026-08-27
 Decode a broader set of built-in/JDK `DataSerializer` markers **structurally** (more values queryable

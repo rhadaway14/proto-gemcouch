@@ -92,8 +92,6 @@ single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIE
 field-level querying of custom DataSerializable values (the objects round-trip opaquely via the
   0x2d payload — the client gets its class back; the fields are not queryable, since DataSerializable
   carries no schema, unlike PDX)
-full PDX registry discovery — bulk type/enum registry sync (PDX round-trip, field querying, and
-  schema evolution across versions ARE supported)
 some nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not queryable):
   Serializable POJOs, PDX, typed object arrays, non-ArrayList Lists (generic Object[]/ArrayList/nested
   Map/UUID/BigInteger/BigDecimal/enum AND java.time Instant/LocalDate/LocalDateTime nested in a map ARE
@@ -174,9 +172,10 @@ mvn verify                       # full Docker-backed integration suite (real Ge
 | register-interest / subscriptions | Supported | Server→client event feed; a `CacheListener` fires for create/update/destroy/invalidate. |
 | continuous queries | Supported | Register + events (create/update/destroy, stops-matching), PDX-field predicates, `executeWithInitialResults`. |
 | server-side functions | Rejected cleanly | The shim cannot run user `Function` code; `EXECUTE_FUNCTION` / `GET_FUNCTION_ATTRIBUTES` return a clean `ServerOperationException`. |
-| PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. |
-| PDX registry discovery | Supported | Bulk type/enum sync (`GET_PDX_TYPES`, `GET_PDX_ENUMS`) returns the whole registry as a `Map<Integer,…>`; `GET_PDX_ENUM_BY_ID` is the reverse enum lookup. |
-| PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version. |
+| PDX type lookup | Supported | Forward (`GET_PDX_ID_FOR_TYPE`) and reverse (`GET_PDX_TYPE_BY_ID`) — a second client can decode PDX it did not write. With `PDX_PERSISTENCE` on, the reverse lookup resolves any id on any replica (loaded from Couchbase). |
+| PDX registry discovery | Supported | Bulk type/enum sync (`GET_PDX_TYPES`, `GET_PDX_ENUMS`) returns the whole registry as a `Map<Integer,…>`; `GET_PDX_ENUM_BY_ID` is the reverse enum lookup. With `PDX_PERSISTENCE` on, the bulk reply includes the whole **persisted cluster-wide** registry, so a fresh replica serves it all. |
+| PDX schema evolution | Supported | Multiple versions of one class name (fields added/removed) coexist as distinct types; each instance round-trips with its own fields and OQL resolves fields per version — across replicas with `PDX_PERSISTENCE` on. |
+| PDX registry durability / multi-replica | Optional (`PDX_PERSISTENCE`) | Off by default (in-memory per instance). On: type/enum ids are allocated from a cluster-wide durable Couchbase registry, so ids are consistent across replicas and survive a restart (no cross-replica mis-decode). |
 | client-side cache callbacks | Supported | A client's `CacheLoader` (fills a get-miss), `CacheWriter` (veto/allow before the op is sent), and `CacheListener` (fires on server-pushed events) run in the client JVM and compose with the shim. |
 | server-side cache callbacks | Non-goal | Server-registered `CacheLoader`/`CacheWriter`/`CacheListener` and server-side expiration/eviction *events* run user code / event synthesis the stateless shim does not host (TTL is applied via Couchbase expiry). |
 | unknown opcode logging | Supported | Logs unknown frame details without crashing the process. |
@@ -422,7 +421,6 @@ field-level querying of custom DataSerializable values (they round-trip opaquely
 server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
 server-side region creation with custom attributes (destroyRegion IS supported)
 single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIENT_PARTITION_ATTRIBUTES is a documented graceful no-op, the client falls back to direct routing)
-full PDX registry discovery + schema evolution (PDX round-trip + object-field querying ARE supported)
 OQL joins
 ```
 

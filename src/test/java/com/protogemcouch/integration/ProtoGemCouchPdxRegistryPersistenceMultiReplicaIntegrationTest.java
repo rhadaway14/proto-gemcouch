@@ -94,6 +94,46 @@ class ProtoGemCouchPdxRegistryPersistenceMultiReplicaIntegrationTest {
         }
     }
 
+    @Test
+    void manyEvolvingVersionsRegisteredOnOneReplicaAllResolveAndQueryOnAnother() throws Exception {
+        // Several versions of one class (distinct field layouts => distinct cluster-wide type ids) are
+        // registered on replica A; replica B must resolve every one of them by id and query per-version.
+        String region = "pxe" + UUID.randomUUID().toString().replace("-", "");
+        String cls = "demo.EvolvingMultiReplica";
+
+        ClientCache a = cacheFor(A_PORT, false);
+        try {
+            Region<String, Object> ra = a.<String, Object>createClientRegionFactory(ClientRegionShortcut.PROXY)
+                    .create(region);
+            ra.put("v1", a.createPdxInstanceFactory(cls)
+                    .writeString("id", "v1").writeString("name", "Alice").create());
+            ra.put("v2", a.createPdxInstanceFactory(cls)
+                    .writeString("id", "v2").writeString("name", "Bob").writeString("tier", "gold").create());
+            ra.put("v3", a.createPdxInstanceFactory(cls)
+                    .writeString("id", "v3").create()); // name removed
+        } finally {
+            a.close();
+        }
+
+        ClientCache b = cacheFor(B_PORT, true);
+        try {
+            // B never registered any of these versions; each resolves by id from the durable registry.
+            assertEquals(3, query(b, "SELECT * FROM /" + region).size(), "all versions resolve on replica B");
+            assertEquals(2, query(b, "SELECT * FROM /" + region + " r WHERE r.name != 'none'").size(),
+                    "the field common to v1+v2 matches across them; v3 (no name) is absent, not an error");
+            assertEquals(1, query(b, "SELECT * FROM /" + region + " r WHERE r.tier = 'gold'").size(),
+                    "the evolved field matches only the version that declares it");
+            assertEquals("gold", query(b, "SELECT r.tier FROM /" + region + " r WHERE r.tier = 'gold'")
+                    .iterator().next(), "B projects the evolved field of the cross-replica type");
+        } finally {
+            b.close();
+        }
+    }
+
+    private static SelectResults<?> query(ClientCache cache, String oql) throws Exception {
+        return (SelectResults<?>) cache.getQueryService().newQuery(oql).execute();
+    }
+
     private static ClientCache cacheFor(int port, boolean pdxReadSerialized) {
         return new ClientCacheFactory()
                 .set("log-level", "warn")
