@@ -77,6 +77,18 @@ public final class RequestWireCapture {
         // Let the handshake + region setup traffic settle; each op records its own pre-op offset.
         Thread.sleep(500);
 
+        // PDX registry registration ops (1.3.0-M3): writing a PDX value sends GET_PDX_ID_FOR_TYPE before
+        // the PUT; a PDX value with an enum field also sends GET_PDX_ID_FOR_ENUM. Captured here (with
+        // fresh types, before the client caches them). The bulk/reverse PDX ops — GET_PDX_TYPES/ENUMS,
+        // GET_PDX_TYPE_BY_ID, GET_PDX_ENUM_BY_ID — are driven by internal registry sync (not a plain
+        // client write), so they stay covered by tools.GetPdxRegistryCapture + the PDX integration suites.
+        capture("get-pdx-id-for-type", MessageTypes.GET_PDX_ID_FOR_TYPE, sink,
+                () -> region.put("pdxk", cache.createPdxInstanceFactory("demo.CaptureType")
+                        .writeString("status", "active").writeInt("amount", 7).create()));
+        capture("get-pdx-id-for-enum", MessageTypes.GET_PDX_ID_FOR_ENUM, sink,
+                () -> region.put("pdxe", cache.createPdxInstanceFactory("demo.CaptureEnum")
+                        .writeObject("day", java.time.DayOfWeek.MONDAY).create()));
+
         capture("put", MessageTypes.PUT, sink, () -> region.put("k1", "v1"));
         capture("get", MessageTypes.GET, sink, () -> region.get("k1"));
         capture("contains-key", MessageTypes.CONTAINS_KEY, sink, () -> region.containsKeyOnServer("k1"));

@@ -64,6 +64,10 @@ class GoldenWireRequestTest {
         f.put("commit.hex", MessageTypes.COMMIT);
         f.put("rollback.hex", MessageTypes.ROLLBACK);
         f.put("get-function-attributes.hex", MessageTypes.GET_FUNCTION_ATTRIBUTES);
+        // PDX registration requests a plain client write triggers (1.3.0-M3): writing a PDX value sends
+        // GET_PDX_ID_FOR_TYPE; a PDX value with an enum field also sends GET_PDX_ID_FOR_ENUM.
+        f.put("get-pdx-id-for-type.hex", MessageTypes.GET_PDX_ID_FOR_TYPE);
+        f.put("get-pdx-id-for-enum.hex", MessageTypes.GET_PDX_ID_FOR_ENUM);
         return f;
     }
 
@@ -93,9 +97,10 @@ class GoldenWireRequestTest {
                 MessageTypes.PERIODIC_ACK,                          // timing-driven subscription ack
                 MessageTypes.CLIENT_READY,                          // durable readyForEvents flow
                 MessageTypes.UNREGISTER_INTEREST_LIST,              // same family as UNREGISTER_INTEREST
-                // PDX registry requests are exercised by the dedicated PDX capture tools + integration.
-                MessageTypes.GET_PDX_ID_FOR_TYPE,
-                MessageTypes.GET_PDX_ID_FOR_ENUM,
+                // GET_PDX_ID_FOR_TYPE / GET_PDX_ID_FOR_ENUM are now locked (a plain client write triggers
+                // them — see requestFixtures). The remaining PDX registry ops are driven by internal
+                // registry sync (bulk discovery / reverse lookup), not a plain client write, so they stay
+                // covered by tools.GetPdxRegistryCapture + the PDX integration suites.
                 MessageTypes.GET_PDX_TYPE_BY_ID,
                 MessageTypes.GET_PDX_TYPES,
                 MessageTypes.GET_PDX_ENUMS,

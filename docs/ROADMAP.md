@@ -325,13 +325,28 @@ durable-subscription pattern.
   lookup, and multi-version schema evolution resolve on any replica + after a restart. Version bump + GA
   tagging in M4 (operator-gated).
 
-### 1.3.0-M3 — DataSerializer marker coverage + golden-wire completeness · target 2026-08-27
-Decode a broader set of built-in/JDK `DataSerializer` markers **structurally** (more values queryable
-round-trip instead of opaque) and close documented golden-wire opcode-coverage gaps with captured
-fixtures. **Boundary (stays a non-goal):** customer `Serializable` POJO / custom `DataSerializable`
-*field* access needs the user's classes and conflicts with the deserialization allowlist
-(`SafeDeserialization`) — these remain preserved-opaque (round-trip only) unless an explicit opt-in
-class-allowlist is introduced.
+### 1.3.0-M3 — DataSerializer marker coverage + golden-wire completeness · **COMPLETE** (3 slices, ahead of the 2026-08-27 target)
+Decoded a broader set of built-in/JDK `DataSerializer` markers **structurally** (more nested map values
+queryable instead of opaque) and tightened the golden-wire request coverage.
+- [x] **Slice 1 — typed object arrays nested (PR #26).** `Integer[]`, `Long[]`, `UUID[]`, `BigInteger[]`,
+  `Instant[]`, `Date[]`, `enum[]`, … nested in a `HashMap<String,Object>` are now structured + queryable
+  with **exact component-type fidelity** (the codec records the component class; `Arrays.equals` holds),
+  instead of forcing the whole map opaque. `copyValue` preserves the component type. Queryable with no
+  resolver change (`navigateMember`/`IN` already handle `Object[]`).
+- [x] **Slice 2 — nested JDK Sets + non-`ArrayList` Lists (PR #27).** Any `List` (`LinkedList`, …) and
+  any `Set` (`HashSet`/`TreeSet`/`LinkedHashSet`) nested in a map are now structured + queryable
+  (equals-level — reconstruct as `ArrayList` / `LinkedHashSet`); Sets are queryable via `IN`. Closed a
+  latent `copyValue` immutability leak for Sets.
+- [x] **Slice 3 — golden-wire request fixtures + docs (this).** Captured + locked the two
+  client-triggerable PDX registry request opcodes (`GET_PDX_ID_FOR_TYPE`, `GET_PDX_ID_FOR_ENUM`) as real
+  golden-wire request fixtures (`tools.RequestWireCapture` extended), removing them from the exemption
+  list (the bulk/reverse PDX ops remain exempt — internal-sync-driven, covered by the dedicated capture
+  tools). Refreshed `COMPATABILITY_MATRIX.md` / `CURRENT_LIMITATIONS.md` (the nested opaque set is now
+  just customer POJOs + nested PDX) + `CHANGELOG.md`.
+- **Boundary (stays a non-goal):** customer `Serializable` POJO / custom `DataSerializable` *field* access
+  and nested PDX-as-a-map-value need the user's classes (and the deserialization allowlist) — preserved
+  opaque (round-trip only). Validated by the property + real-client round-trip suites (now emitting typed
+  arrays, Sets, and `LinkedList`s) + new query ITs. Version bump + GA tagging in M4 (operator-gated).
 
 ### 1.3.0-M4 — Hardening + RC → 1.3.0 GA · freeze target 2026-09-06 · GA target 2026-09-10
 The established pattern: soak the new decode paths; a security re-review of the **expanded

@@ -92,10 +92,10 @@ single-hop / partitioned-region bucket routing (N/A — single backend; GET_CLIE
 field-level querying of custom DataSerializable values (the objects round-trip opaquely via the
   0x2d payload — the client gets its class back; the fields are not queryable, since DataSerializable
   carries no schema, unlike PDX)
-some nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not queryable):
-  Serializable POJOs, PDX, typed object arrays, non-ArrayList Lists (generic Object[]/ArrayList/nested
-  Map/UUID/BigInteger/BigDecimal/enum AND java.time Instant/LocalDate/LocalDateTime nested in a map ARE
-  now structured; top-level works; see below)
+a couple of nested complex types inside HashMap<String,Object> stay opaque (still round-trip, not
+  queryable): Serializable POJOs and nested PDX values (both need the user's classes). Generic Object[],
+  TYPED object arrays, any List, any Set, nested String-keyed Maps, UUID/BigInteger/BigDecimal/enum, and
+  java.time nested in a map ARE structured + queryable; top-level works; see below)
 OQL joins
 the Geode application-level security handshake (use transport TLS / mutual TLS instead)
 ```
@@ -375,31 +375,33 @@ Currently supported nested values in structured `HashMap<String,Object>` envelop
 null
 String, Boolean, Character, Byte, Short, Integer, Long, Float, Double
 java.util.Date
+java.time.Instant, java.time.LocalDate, java.time.LocalDateTime
 byte[], boolean[], char[], short[], int[], long[], float[], double[], String[]
 java.util.UUID, java.math.BigInteger, java.math.BigDecimal
 enum constants  (any enum whose class is on the shim classpath)
 Object[]                       (a generic Object[]; recursively, with supported elements)
-ArrayList                      (recursively, with supported elements — not just ArrayList<String>)
+typed object arrays            (Integer[], Long[], UUID[], BigInteger[], Instant[], Date[], enum[], …
+                                — reconstructed type-exact, so Arrays.equals holds) [1.3.0-M3]
+List                           (ArrayList, LinkedList, Vector, … — recursively; reconstructs as ArrayList) [1.3.0-M3]
+Set                            (HashSet, LinkedHashSet, TreeSet, … — recursively; reconstructs as LinkedHashSet) [1.3.0-M3]
 HashMap / LinkedHashMap<String,Object>   (nested maps, recursively)
 ```
 
-Not supported inside structured map envelopes (a map containing any of these stays opaque — it
+Not supported inside structured map envelopes (a map containing one of these stays opaque — it
 round-trips exactly, but is not queryable):
 
 ```text
 Serializable POJO (customer domain classes — the shim has no class to deserialize/query)
-PDX / PdxInstance
-typed object arrays: Integer[], Long[], UUID[], BigDecimal[], Instant[], ...
-  (kept type-exact on the opaque path; only a generic Object[] is promoted to the structured form)
-java.time values (Instant, LocalDate, LocalDateTime, ...) and other standalone utility values
-non-ArrayList List implementations (LinkedList, Arrays.asList, ...)
+PDX / PdxInstance nested as a map value (query a PDX value at the top level instead, where its fields ARE queryable)
+a Map with non-String keys (a structured JSON object's keys are strings)
 ```
 
-**Round-trip fidelity is equals-level** (matching the existing top-level behavior, where a client
-`HashMap` already comes back as a `LinkedHashMap`): a nested `Object[]` / `ArrayList` / `Map`
-reconstructs as `Object[]` / `ArrayList` / `LinkedHashMap` with every element value and scalar runtime
-type preserved, so `Arrays.equals` / `List.equals` / `Map.equals` hold; the concrete container class
-is normalized.
+**Round-trip fidelity is equals-level** for collections (matching the existing top-level behavior, where
+a client `HashMap` already comes back as a `LinkedHashMap`): a nested generic `Object[]` / `List` / `Set`
+/ `Map` reconstructs as `Object[]` / `ArrayList` / `LinkedHashSet` / `LinkedHashMap` with every element
+value and scalar runtime type preserved, so `Arrays.equals` / `List.equals` / `Set.equals` / `Map.equals`
+hold; the concrete container class is normalized. **Typed object arrays** are stronger — they reconstruct
+to their exact component type (`Integer[]` stays `Integer[]`).
 
 Top-level `Object[]`, top-level wrapper/utility arrays, top-level `ArrayList<Object>`, top-level
 Serializable POJOs, top-level PDX values, and top-level standalone utility values are supported (each
@@ -413,10 +415,11 @@ now supported and have moved up to the contract.
 
 ```text
 Nested complex types inside structured Map<String,Object> that stay opaque (round-trip exactly but
-  are not queryable): Serializable POJOs, PDX/PdxInstance, typed object arrays (Integer[], UUID[],
-  ...), java.time / standalone utility values, non-ArrayList Lists. (Generic Object[], ArrayList,
-  nested Map, UUID, BigInteger, BigDecimal, and enum constants nested inside a map ARE now decoded
-  structurally; top-level forms of everything ARE supported.)
+  are not queryable): Serializable POJOs and nested PDX/PdxInstance values (both need the user's
+  classes). (Scalars + wrappers, Date, UUID/BigInteger/BigDecimal, java.time, enums, primitive +
+  String arrays, generic Object[], TYPED object arrays, any List, any Set, and nested String-keyed
+  Maps nested inside a map ARE decoded structurally + queryable; top-level forms of everything ARE
+  supported.)
 field-level querying of custom DataSerializable values (they round-trip opaquely; not queryable)
 server-side function EXECUTION (calls are rejected cleanly; the shim cannot run user Function code)
 server-side region creation with custom attributes (destroyRegion IS supported)
