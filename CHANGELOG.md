@@ -7,6 +7,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Broader nested value-type queryability (1.3.0-M3)** — more values inside a `HashMap<String,Object>`
+  region value are now decoded **structurally (queryable)** instead of opaque: **typed object arrays**
+  (`Integer[]`, `UUID[]`, `Instant[]`, `enum[]`, … — reconstructed to their exact component type, so
+  `Arrays.equals` holds), any **`List`** (`LinkedList`/`Vector`/… → `ArrayList`, equals-level), and any
+  **`Set`** (`HashSet`/`TreeSet`/`LinkedHashSet` → `LinkedHashSet`, equals-level; queryable via `IN`).
+  Previously a map containing any of these fell to the opaque round-trip-only path. The remaining nested
+  opaque cases are customer `Serializable` POJOs and nested PDX values (both need the user's classes).
+  Also locked the two client-triggerable PDX registry request opcodes (`GET_PDX_ID_FOR_TYPE`,
+  `GET_PDX_ID_FOR_ENUM`) as golden-wire request fixtures. Validated by the property + real-client
+  round-trip suites and new query ITs; `docs/COMPATABILITY_MATRIX.md` / `CURRENT_LIMITATIONS.md` updated.
 - **PDX registry persistence — durable + cluster-wide-consistent type/enum ids (1.3.0-M2)** — opt-in via
   **`PDX_PERSISTENCE`** (default off → in-memory per-instance behavior byte-identical). When on, PDX
   type/enum ids are allocated from a Couchbase atomic counter (idempotent per type fingerprint; concurrent
