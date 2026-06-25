@@ -148,6 +148,7 @@ public class CouchbaseRepository implements Repository {
     private static final String FIELD_ENUM_CLASS = "enumClass";
     private static final String TYPE_NESTED_OBJECT_ARRAY = "nestedObjectArray";
     private static final String TYPE_NESTED_LIST = "nestedList";
+    private static final String TYPE_NESTED_SET = "nestedSet";
     private static final String TYPE_NESTED_MAP = "nestedMap";
     // A typed object array nested in a map (Integer[], UUID[], Instant[], enum[], …): the component
     // class is recorded so it reconstructs to the exact array type (1.3.0-M3), not a generic Object[].
@@ -3684,6 +3685,22 @@ public class CouchbaseRepository implements Repository {
             return out;
         }
 
+        // Any Set (HashSet/LinkedHashSet/TreeSet/…) is encoded in iteration order and reconstructs as a
+        // LinkedHashSet (equals-level — Set.equals is implementation-agnostic). The scalar leaves stay
+        // queryable (e.g. `'x' IN r.tags`).
+        if (value instanceof java.util.Set<?> set) {
+            JsonArray jsonArray = JsonArray.create();
+
+            for (Object item : set) {
+                jsonArray.add(encodeMapObjectValue(item));
+            }
+
+            out.put(FIELD_TYPE, TYPE_NESTED_SET);
+            out.put(FIELD_VALUE, jsonArray);
+            out.put(FIELD_LENGTH, set.size());
+            return out;
+        }
+
         if (value instanceof Map<?, ?> map) {
             JsonObject jsonMap = JsonObject.create();
 
@@ -4304,6 +4321,22 @@ public class CouchbaseRepository implements Repository {
             }
 
             ArrayList<Object> decoded = new ArrayList<>(rawList.size());
+
+            for (Object item : rawList) {
+                decoded.add(decodeMapObjectValue(item));
+            }
+
+            return decoded;
+        }
+
+        if (TYPE_NESTED_SET.equalsIgnoreCase(type)) {
+            List<?> rawList = rawListFromValue(value);
+
+            if (rawList == null) {
+                return null;
+            }
+
+            java.util.LinkedHashSet<Object> decoded = new java.util.LinkedHashSet<>(Math.max(16, rawList.size() * 2));
 
             for (Object item : rawList) {
                 decoded.add(decodeMapObjectValue(item));

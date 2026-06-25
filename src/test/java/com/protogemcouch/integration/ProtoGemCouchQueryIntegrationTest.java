@@ -375,6 +375,36 @@ class ProtoGemCouchQueryIntegrationTest {
     }
 
     @Test
+    void nestedSetAndNonArrayListCollectionQueryAndRoundTrip() throws Exception {
+        // A map value holding a JDK Set (queryable via IN as of 1.3.0-M3) and a LinkedList (the
+        // non-ArrayList path) — both structured/queryable, round-tripping equals-level.
+        region.put("a", new HashMap<>(Map.of(
+                "status", "active", "tags", new HashSet<>(List.of("gold", "silver")))));
+        region.put("b", new HashMap<>(Map.of(
+                "status", "active", "tags", new HashSet<>(List.of("bronze")))));
+
+        SelectResults<?> hasGold = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE 'gold' IN r.tags").execute();
+        assertEquals(1, hasGold.size(), "IN containment over a nested Set");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> a = (Map<String, Object>) region.get("a");
+        assertTrue(a.get("tags") instanceof Set, "the Set round-trips as a Set");
+        assertEquals(Set.of("gold", "silver"), a.get("tags"), "Set round-trips equals-level");
+
+        java.util.LinkedList<Object> history = new java.util.LinkedList<>(List.of(1, 2, 3));
+        region.put("c", new HashMap<>(Map.of("status", "active", "history", history)));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> c = (Map<String, Object>) region.get("c");
+        assertTrue(c.get("history") instanceof List, "the LinkedList round-trips as a List");
+        assertEquals(List.of(1, 2, 3), c.get("history"), "non-ArrayList list round-trips equals-level");
+
+        SelectResults<?> secondIsTwo = (SelectResults<?>) cache.getQueryService()
+                .newQuery("SELECT * FROM /" + regionName + " r WHERE r.history[1] = 2").execute();
+        assertEquals(1, secondIsTwo.size(), "indexed access into a nested non-ArrayList list");
+    }
+
+    @Test
     void nestedTypedObjectArrayQueryAndRoundTrip() throws Exception {
         // A map value holding a typed object array (Integer[]) — queryable (indexed + IN) as of 1.3.0-M3,
         // and it round-trips as an Integer[] (not a generic Object[]).
