@@ -81,15 +81,26 @@ public final class NestedValueSupport {
                 || value instanceof double[]
                 || value instanceof String[]
                 || isSupportedObjectArray(value)
+                || isSupportedTypedObjectArray(value)
                 || isSupportedList(value)
                 || isSupportedNestedMap(value);
     }
 
+    /**
+     * Component types of a <em>typed</em> object array ({@code Integer[]}, {@code UUID[]}, …) that the
+     * structured codec reconstructs with exact fidelity (1.3.0-M3). {@code String[]} and the primitive
+     * arrays are handled by their own faithful branches; a generic {@code Object[]} by
+     * {@link #isSupportedObjectArray}. Enum component types are accepted dynamically (see below).
+     */
+    private static final java.util.Set<Class<?>> SUPPORTED_ARRAY_COMPONENTS = java.util.Set.of(
+            Integer.class, Long.class, Short.class, Byte.class, Double.class, Float.class,
+            Boolean.class, Character.class, Date.class, UUID.class, BigInteger.class, BigDecimal.class,
+            java.time.Instant.class, java.time.LocalDate.class, java.time.LocalDateTime.class);
+
     private static boolean isSupportedObjectArray(Object value) {
-        // Only a *generic* Object[] is promoted to the structured path; it reconstructs as Object[].
-        // A typed object array (Integer[], UUID[], String[], ...) keeps its exact component type only
-        // on the opaque path, so leave those out here rather than silently normalize them to Object[].
-        // (String[] and the primitive arrays are handled type-faithfully by isSupportedValue above.)
+        // Only a *generic* Object[] is promoted here; it reconstructs as Object[]. Typed object arrays
+        // (Integer[], UUID[], …) go through isSupportedTypedObjectArray, which records the component type
+        // so they reconstruct exactly rather than being normalized to Object[].
         if (value == null || value.getClass() != Object[].class) {
             return false;
         }
@@ -100,6 +111,31 @@ public final class NestedValueSupport {
             }
         }
 
+        return true;
+    }
+
+    /** True for a typed object array whose component type is reconstructible and whose elements are all supported. */
+    static boolean isSupportedTypedObjectArray(Object value) {
+        if (value == null) {
+            return false;
+        }
+        Class<?> cls = value.getClass();
+        if (!cls.isArray()) {
+            return false;
+        }
+        Class<?> component = cls.getComponentType();
+        // Primitive arrays, String[], and the generic Object[] are handled by their own branches.
+        if (component == null || component.isPrimitive() || component == Object.class || component == String.class) {
+            return false;
+        }
+        if (!SUPPORTED_ARRAY_COMPONENTS.contains(component) && !component.isEnum()) {
+            return false;
+        }
+        for (Object item : (Object[]) value) {
+            if (item != null && !isSupportedValue(item)) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -159,7 +195,10 @@ public final class NestedValueSupport {
             return strings.clone();
         }
         if (value instanceof Object[] array) {
-            Object[] copy = new Object[array.length];
+            // Preserve the exact component type (Integer[] stays Integer[], generic Object[] stays Object[]),
+            // copying elements defensively so a stored value stays immutable.
+            Object[] copy = (Object[]) java.lang.reflect.Array.newInstance(
+                    value.getClass().getComponentType(), array.length);
             for (int i = 0; i < array.length; i++) {
                 copy[i] = copyValue(array[i]);
             }

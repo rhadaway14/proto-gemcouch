@@ -28,8 +28,9 @@ import java.util.concurrent.TimeUnit;
  * <ul>
  *   <li><b>JDK enums only</b> ({@link DayOfWeek}/{@link TimeUnit}) — a real shim must be able to load
  *       the enum class to decode it; a test-only enum would force the opaque path on a remote shim.</li>
- *   <li><b>No typed object arrays</b> (e.g. {@code Integer[]}) — only a generic {@code Object[]} is
- *       promoted to the structured path; typed arrays stay opaque by design.</li>
+ *   <li><b>Typed object arrays</b> (e.g. {@code Integer[]}, {@code UUID[]}, {@code Instant[]},
+ *       {@code DayOfWeek[]}) — promoted to the structured path with exact component-type fidelity as of
+ *       1.3.0-M3 (component types stay within the supported set), alongside the generic {@code Object[]}.</li>
  *   <li><b>Exactly-representable floats/doubles</b> (whole numbers + simple binary fractions) — this
  *       test targets structural/nesting combinatorics, not IEEE-754 / JSON float-precision edges.</li>
  *   <li><b>JSON-safe chars/strings</b> — no lone surrogates or control characters.</li>
@@ -76,7 +77,7 @@ public final class RandomValueGraphs {
 
     /** A random supported value; nested containers only while {@code depth > 0}. */
     public static Object randomValue(Random r, int depth) {
-        int leaves = 27;
+        int leaves = 28;
         int choices = depth > 0 ? leaves + 3 : leaves;
 
         switch (r.nextInt(choices)) {
@@ -108,10 +109,39 @@ public final class RandomValueGraphs {
             case 25: return LocalDate.ofEpochDay(r.nextInt(40_000)); // ~1970..2079
             case 26: return LocalDateTime.ofEpochSecond(
                     Math.floorMod(r.nextLong(), 4_000_000_000L), 0, ZoneOffset.UTC);
-            case 27: return randomObjectArray(r, depth);
-            case 28: return randomArrayList(r, depth);
+            case 27: return randomTypedObjectArray(r);
+            case 28: return randomObjectArray(r, depth);
+            case 29: return randomArrayList(r, depth);
             default: return randomMap(r, depth);
         }
+    }
+
+    /**
+     * A typed object array (1.3.0-M3) of one supported component type, occasionally with null elements —
+     * reconstructed to its exact type (e.g. {@code Integer[]} stays {@code Integer[]}, so
+     * {@code Arrays.equals} holds), unlike a generic {@code Object[]}.
+     */
+    private static Object randomTypedObjectArray(Random r) {
+        int n = r.nextInt(4); // 0..3
+        switch (r.nextInt(12)) {
+            case 0: { Integer[] a = new Integer[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : r.nextInt(); return a; }
+            case 1: { Long[] a = new Long[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : r.nextLong(); return a; }
+            case 2: { Short[] a = new Short[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : (short) r.nextInt(); return a; }
+            case 3: { Boolean[] a = new Boolean[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : r.nextBoolean(); return a; }
+            case 4: { Double[] a = new Double[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : (double) DOUBLE_FRACTIONS[r.nextInt(DOUBLE_FRACTIONS.length)]; return a; }
+            case 5: { Character[] a = new Character[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : SAFE_CHARS[r.nextInt(SAFE_CHARS.length)]; return a; }
+            case 6: { UUID[] a = new UUID[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : new UUID(r.nextLong(), r.nextLong()); return a; }
+            case 7: { BigInteger[] a = new BigInteger[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : BigInteger.valueOf(r.nextLong()); return a; }
+            case 8: { BigDecimal[] a = new BigDecimal[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : new BigDecimal(BigInteger.valueOf(r.nextLong()), r.nextInt(7)); return a; }
+            case 9: { Instant[] a = new Instant[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : Instant.ofEpochMilli(Math.floorMod(r.nextLong(), 4_000_000_000_000L)); return a; }
+            case 10: { Date[] a = new Date[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : new Date(Math.floorMod(r.nextLong(), 4_000_000_000_000L)); return a; }
+            default: { DayOfWeek[] a = new DayOfWeek[n]; for (int i = 0; i < n; i++) a[i] = nul(r) ? null : DayOfWeek.of(1 + r.nextInt(7)); return a; }
+        }
+    }
+
+    /** Occasionally (~1 in 5) emit a null element, to exercise nulls inside typed arrays. */
+    private static boolean nul(Random r) {
+        return r.nextInt(5) == 0;
     }
 
     private static Object[] randomObjectArray(Random r, int depth) {
