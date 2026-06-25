@@ -13,6 +13,7 @@ multi-replica durable-subscription HA, keyset-metadata sharding, hot TLS reload,
 
 - `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals.
 - `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*.
+- `docs/CONFIGURATION.md` — consolidated environment-variable reference (every operator-facing setting + default).
 - `CHANGELOG.md` — released history.
 - `docs/ROADMAP.md` — the post-GA backlog (current focus: 1.3.0).
 

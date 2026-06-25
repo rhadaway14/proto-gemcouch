@@ -344,11 +344,15 @@ JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually e
 validate against today).
 
 ### Housekeeping (not gated to a milestone)
-- [ ] Enable **Dependency Graph** in the GitHub repo settings so the CI `dependency-submission` step
-  stops failing (CodeQL — the actual static gate — already passes). Do before M1 so CI is fully green.
-- [ ] Add a consolidated **`docs/CONFIGURATION.md`** env-var reference — configuration is currently
-  spread across `RUNBOOK.md` / `SECURITY.md` / `DEPLOYMENT.md` (`CB_*`, `TLS_*`, `DURABLE_*`,
-  `KEYSET_SHARDS`, `HANDLER_MAX_PENDING_TASKS`, `MAX_CONNECTIONS`, `OQL_PUSHDOWN`, `CB_TTL_*`, …).
+- [x] **Dependency Graph — DONE.** The repo is public, so the dependency graph is on by default; the CI
+  `dependency-submission` step now passes green on every run (CodeQL — the actual static gate — already
+  passed). No repo-settings change was required.
+- [x] **`docs/CONFIGURATION.md` env-var reference — DONE.** A single consolidated reference for every
+  operator-facing environment variable (core/connection, Couchbase behavior + TLS, inbound TLS/mTLS,
+  connection + frame guards, handler pool/backpressure, OQL, keyset sharding, durable HA, PDX
+  persistence, eventing backplane, protocol/compat, OTel), each with its default and a pointer to the
+  deeper doc. The category docs (`RUNBOOK.md` / `SECURITY.md` / `DEPLOYMENT.md`) keep the operational
+  "why"; `CONFIGURATION.md` is the at-a-glance table.
 
 ---
 
