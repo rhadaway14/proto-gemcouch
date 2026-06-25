@@ -83,6 +83,7 @@ public final class NestedValueSupport {
                 || isSupportedObjectArray(value)
                 || isSupportedTypedObjectArray(value)
                 || isSupportedList(value)
+                || isSupportedSet(value)
                 || isSupportedNestedMap(value);
     }
 
@@ -140,13 +141,31 @@ public final class NestedValueSupport {
     }
 
     private static boolean isSupportedList(Object value) {
-        // Restricted to ArrayList, which reconstructs as ArrayList; other List implementations keep
-        // their concrete type only on the opaque path.
-        if (!(value instanceof ArrayList<?> list)) {
+        // Any List (ArrayList, LinkedList, Vector, …) with supported elements is promoted; it reconstructs
+        // as an ArrayList (equals-level — List.equals is implementation-agnostic). The exact concrete List
+        // type is preserved only on the opaque top-level path.
+        if (!(value instanceof List<?> list)) {
             return false;
         }
 
         for (Object item : list) {
+            if (!isSupportedValue(item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean isSupportedSet(Object value) {
+        // Any Set (HashSet, LinkedHashSet, TreeSet, …) with supported elements is promoted; it reconstructs
+        // as a LinkedHashSet (equals-level — Set.equals is implementation-agnostic). The exact concrete Set
+        // type is preserved only on the opaque top-level path.
+        if (!(value instanceof java.util.Set<?> set)) {
+            return false;
+        }
+
+        for (Object item : set) {
             if (!isSupportedValue(item)) {
                 return false;
             }
@@ -207,6 +226,13 @@ public final class NestedValueSupport {
         if (value instanceof List<?> list) {
             ArrayList<Object> copy = new ArrayList<>(list.size());
             for (Object item : list) {
+                copy.add(copyValue(item));
+            }
+            return copy;
+        }
+        if (value instanceof java.util.Set<?> set) {
+            java.util.LinkedHashSet<Object> copy = new java.util.LinkedHashSet<>(Math.max(16, set.size() * 2));
+            for (Object item : set) {
                 copy.add(copyValue(item));
             }
             return copy;

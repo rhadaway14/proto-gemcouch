@@ -77,8 +77,8 @@ public final class RandomValueGraphs {
 
     /** A random supported value; nested containers only while {@code depth > 0}. */
     public static Object randomValue(Random r, int depth) {
-        int leaves = 28;
-        int choices = depth > 0 ? leaves + 3 : leaves;
+        int leaves = 29;
+        int choices = depth > 0 ? leaves + 4 : leaves;
 
         switch (r.nextInt(choices)) {
             case 0: return null;
@@ -110,10 +110,60 @@ public final class RandomValueGraphs {
             case 26: return LocalDateTime.ofEpochSecond(
                     Math.floorMod(r.nextLong(), 4_000_000_000L), 0, ZoneOffset.UTC);
             case 27: return randomTypedObjectArray(r);
-            case 28: return randomObjectArray(r, depth);
-            case 29: return randomArrayList(r, depth);
+            case 28: return randomScalarSet(r);
+            case 29: return randomObjectArray(r, depth);
+            case 30: return randomArrayList(r, depth);
+            case 31: return randomLinkedList(r, depth);
             default: return randomMap(r, depth);
         }
+    }
+
+    /**
+     * A JDK Set (1.3.0-M3) of distinct scalars — HashSet / LinkedHashSet (mixed scalars) or a homogeneous
+     * TreeSet — reconstructed as a LinkedHashSet (equals-level — Set.equals is implementation-agnostic).
+     * Elements are scalars only: arrays/collections have no value-equals, so they are ill-defined inside a
+     * Set regardless of storage path.
+     */
+    private static Object randomScalarSet(Random r) {
+        int n = r.nextInt(4); // 0..3
+        switch (r.nextInt(3)) {
+            case 0: {
+                java.util.Set<Object> set = new java.util.HashSet<>();
+                for (int i = 0; i < n; i++) set.add(randomSetScalar(r));
+                return set;
+            }
+            case 1: {
+                java.util.Set<Object> set = new java.util.LinkedHashSet<>();
+                for (int i = 0; i < n; i++) set.add(randomSetScalar(r));
+                return set;
+            }
+            default: { // TreeSet needs homogeneous, mutually-comparable elements
+                java.util.TreeSet<Integer> set = new java.util.TreeSet<>();
+                for (int i = 0; i < n; i++) set.add(r.nextInt(1000));
+                return set;
+            }
+        }
+    }
+
+    /** A distinct, value-equal, JSON/type-stable scalar for a Set element. */
+    private static Object randomSetScalar(Random r) {
+        switch (r.nextInt(5)) {
+            case 0: return r.nextInt();
+            case 1: return randomString(r);
+            case 2: return r.nextLong();
+            case 3: return new UUID(r.nextLong(), r.nextLong());
+            default: return ENUMS[r.nextInt(ENUMS.length)];
+        }
+    }
+
+    /** A LinkedList (1.3.0-M3) — exercises the non-ArrayList path; reconstructs as an ArrayList (equals-level). */
+    private static Object randomLinkedList(Random r, int depth) {
+        int n = r.nextInt(5);
+        java.util.LinkedList<Object> list = new java.util.LinkedList<>();
+        for (int i = 0; i < n; i++) {
+            list.add(randomValue(r, depth - 1));
+        }
+        return list;
     }
 
     /**
