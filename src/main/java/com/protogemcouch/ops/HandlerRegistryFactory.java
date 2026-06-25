@@ -32,10 +32,13 @@ public final class HandlerRegistryFactory {
 
         int maxPdxTypes = intEnv("MAX_PDX_TYPES", 0);
         int maxPdxEnums = intEnv("MAX_PDX_ENUMS", 0);
+        // The registries delegate id allocation + load-on-miss to the repository (1.3.0-M2): when
+        // PDX_PERSISTENCE is on, ids are cluster-wide + durable; when off, allocate/load no-op and the
+        // local counter is used — single-instance behavior unchanged.
         PdxTypeRegistry pdxTypeRegistry = new PdxTypeRegistry(maxPdxTypes,
-                () -> onPdxRegistryReject(metrics, "type", maxPdxTypes));
+                () -> onPdxRegistryReject(metrics, "type", maxPdxTypes), repository);
         PdxEnumRegistry pdxEnumRegistry = new PdxEnumRegistry(maxPdxEnums,
-                () -> onPdxRegistryReject(metrics, "enum", maxPdxEnums));
+                () -> onPdxRegistryReject(metrics, "enum", maxPdxEnums), repository);
         TransactionRegistry transactions = new TransactionRegistry();
 
         registry.register(MessageTypes.GET, new GetHandler(repository, transactions));

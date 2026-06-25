@@ -1,5 +1,6 @@
 package com.protogemcouch.ops;
 
+import com.protogemcouch.couchbase.Repository;
 import org.apache.geode.DataSerializer;
 import org.apache.geode.pdx.internal.PdxType;
 
@@ -10,6 +11,7 @@ import java.io.DataOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,14 +31,26 @@ public class PdxTypeRegistry {
     private final int maxTypes;
     /** Invoked once when a new-type registration is rejected for hitting the cap (metric + audit). */
     private final Runnable onCapExceeded;
+    /**
+     * Optional persistence backend (1.3.0-M2). When non-null and {@code PDX_PERSISTENCE} is on, ids are
+     * allocated from a cluster-wide durable counter and types load on a local miss, so ids are consistent
+     * across replicas and survive a restart. When null (or the flag is off) the local {@link #nextTypeId}
+     * counter is used — single-instance behavior is byte-identical.
+     */
+    private final Repository repository;
 
     public PdxTypeRegistry() {
-        this(0, () -> { });
+        this(0, () -> { }, null);
     }
 
     public PdxTypeRegistry(int maxTypes, Runnable onCapExceeded) {
+        this(maxTypes, onCapExceeded, null);
+    }
+
+    public PdxTypeRegistry(int maxTypes, Runnable onCapExceeded, Repository repository) {
         this.maxTypes = Math.max(0, maxTypes);
         this.onCapExceeded = onCapExceeded == null ? () -> { } : onCapExceeded;
+        this.repository = repository;
     }
 
     public int getOrCreateTypeId(byte[] encodedPdxType) {
@@ -54,8 +68,21 @@ public class PdxTypeRegistry {
             throw new PdxRegistryCapExceededException(
                     "PDX type registry cap reached (" + maxTypes + "); set MAX_PDX_TYPES to raise it");
         }
-        int typeId = typeIdsByFingerprint.computeIfAbsent(
-                fingerprint, ignored -> nextTypeId.getAndIncrement());
+
+        // With persistence on, allocate the id from the cluster-wide durable registry so it is consistent
+        // across replicas and survives a restart; the same fingerprint always resolves to the same id.
+        // When persistence is off (or no backend), allocatePdxTypeId returns empty and we fall back to the
+        // local counter — single-instance behavior unchanged. The id-doc stored here is the client's raw
+        // encoded type; the assigned id is stamped onto the PdxType at read time (see localOrLoaded).
+        int typeId;
+        OptionalInt persisted =
+                repository == null ? OptionalInt.empty() : repository.allocatePdxTypeId(fingerprint, encodedPdxType);
+        if (persisted.isPresent()) {
+            typeId = persisted.getAsInt();
+            typeIdsByFingerprint.put(fingerprint, typeId);
+        } else {
+            typeId = typeIdsByFingerprint.computeIfAbsent(fingerprint, ignored -> nextTypeId.getAndIncrement());
+        }
 
         // Keep the parsed type so query field access can read instance fields by name (best-effort:
         // if the PdxType cannot be deserialized, field access for that type simply degrades). Stamp it
@@ -68,9 +95,27 @@ public class PdxTypeRegistry {
         return typeId;
     }
 
-    /** The PdxType registered for an id, or {@code null} if unknown / not parseable. */
+    /**
+     * The PdxType registered for an id, or {@code null} if unknown / not parseable. When persistence is on
+     * and the id is not in this instance's memory (a restart, or a type another replica registered), the
+     * raw type is loaded from Couchbase, stamped with the id, and cached — so any replica resolves any id.
+     */
     public PdxType getPdxType(int typeId) {
-        return typesById.get(typeId);
+        PdxType local = typesById.get(typeId);
+        if (local != null || repository == null) {
+            return local;
+        }
+        byte[] raw = repository.loadPdxType(typeId);
+        if (raw == null) {
+            return null;
+        }
+        PdxType parsed = deserialize(raw);
+        if (parsed == null) {
+            return null;
+        }
+        parsed.setTypeId(typeId);
+        PdxType existing = typesById.putIfAbsent(typeId, parsed);
+        return existing != null ? existing : parsed;
     }
 
     /**
@@ -78,7 +123,7 @@ public class PdxTypeRegistry {
      * GET_PDX_TYPE_BY_ID reply), or {@code null} when the id is unknown / cannot be serialized.
      */
     public byte[] serializedPdxType(int typeId) {
-        PdxType type = typesById.get(typeId);
+        PdxType type = getPdxType(typeId); // load-on-miss when persistence is on (cross-replica / post-restart)
         if (type == null) {
             return null;
         }
