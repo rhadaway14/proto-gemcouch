@@ -194,4 +194,38 @@ public class TracingRepository implements Repository {
     public List<DurableRecord> listAwayDurable() {
         return traced("listAwayDurable", null, null, delegate::listAwayDurable);
     }
+
+    @Override
+    public java.util.OptionalInt allocatePdxTypeId(String fingerprint, byte[] serializedType) {
+        return traced("allocatePdxTypeId", "pdx.fingerprint", fingerprint,
+                () -> delegate.allocatePdxTypeId(fingerprint, serializedType));
+    }
+
+    @Override
+    public byte[] loadPdxType(int typeId) {
+        return traced("loadPdxType", "pdx.typeId", String.valueOf(typeId),
+                () -> delegate.loadPdxType(typeId));
+    }
+
+    @Override
+    public java.util.Map<Integer, byte[]> loadAllPdxTypes() {
+        return traced("loadAllPdxTypes", null, null, delegate::loadAllPdxTypes);
+    }
+
+    @Override
+    public java.util.OptionalInt allocatePdxEnumId(String fingerprint, byte[] serializedEnum) {
+        return traced("allocatePdxEnumId", "pdx.fingerprint", fingerprint,
+                () -> delegate.allocatePdxEnumId(fingerprint, serializedEnum));
+    }
+
+    @Override
+    public byte[] loadPdxEnum(int enumId) {
+        return traced("loadPdxEnum", "pdx.enumId", String.valueOf(enumId),
+                () -> delegate.loadPdxEnum(enumId));
+    }
+
+    @Override
+    public java.util.Map<Integer, byte[]> loadAllPdxEnums() {
+        return traced("loadAllPdxEnums", null, null, delegate::loadAllPdxEnums);
+    }
 }
