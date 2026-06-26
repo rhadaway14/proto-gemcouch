@@ -335,6 +335,36 @@ Operators on untrusted networks who do not need Java-serialized client values qu
 further by setting `-Djdk.serialFilter=!*` (reject all Java deserialization) — values still round-trip
 opaquely. PDX and the shim's native value encodings are unaffected (they do not use Java serialization).
 
+### 1.3.0 re-review — broader nested value-type decode
+
+1.3.0 widened the *structured/queryable* nested-value set (typed object arrays, JDK `Set`s, non-`ArrayList`
+`List`s, alongside the existing `java.time` / wrappers / `UUID` / `BigInteger`). The deserialization
+surface was re-reviewed:
+
+- **No new inbound deserialization surface.** The newly-structured types are **already inside the existing
+  allowlist** — `Integer[]` / `UUID[]` / `Instant[]` are arrays of allowed `java.lang` / `java.util` /
+  `java.time` types, and `HashSet` / `LinkedList` are `java.util`. A value carrying a customer POJO or a
+  non-JDK enum is still rejected by the `ObjectInputFilter` and preserved opaquely. The allowlist + the
+  process-wide gadget filter are unchanged.
+- **New read-path is a class *load*, not a deserialize.** A stored typed-object-array document records its
+  component class name so it reconstructs type-exact (`Integer[]` stays `Integer[]`). On read,
+  `resolveArrayComponent` resolves it with `Class.forName`, restricted to a hardcoded JDK
+  scalar/utility allowlist (`SUPPORTED_ARRAY_COMPONENT_NAMES`) **or** an enum — the same dynamic
+  enum-class-load the nested-enum decode already performs (reviewed in 1.0/M6). This loads a class **by
+  name from a shim-written document**; it does **not** feed attacker bytes to `readObject`, so it is not a
+  CWE-502 gadget vector. The bounded residual — an attacker with **Couchbase write access** (already a
+  deeper compromise) could name an on-classpath class to trigger its static initializer — is mitigated by
+  Couchbase access control + backend TLS + mTLS, and an unresolvable/disallowed component simply degrades
+  to a generic `Object[]`. Legitimate component classes are always JDK types, since the inbound allowlist
+  blocks everything else from reaching the structured path in the first place.
+- **PDX paths unchanged.** PDX object-array field querying (M1) reads raw bytes via `PdxReaderImpl` + the
+  shim's own `PdxTypeRegistry` (no class load); PDX registry persistence (M2) stores/loads the same
+  `DataSerializer`-encoded `PdxType` blobs through the same guarded reader (see below). No new eval/inject
+  surface.
+
+The full-surface soak of these decode paths (`PDX_PERSISTENCE` on, rich nested-type values) ran with **0
+errors / no leak** (`docs/SOAK_RESULTS.md`, 1.3.0-M4).
+
 ---
 
 ## OQL query / pushdown / index path (1.1.0)
@@ -525,11 +555,13 @@ Before non-lab deployment:
 
 ## Current limitations
 
-The security posture has been reviewed for the 1.0.0 GA and **re-reviewed through 1.2.0** (this
-document, plus the deserialization / resource-guard / TLS hardening passes, and — for 1.2.0 — hot TLS
-reload, the durable-subscription persistence surface, and the memory-exhaustion resilience guards). That
-internal review is **not a substitute for an independent third-party audit**, and additional,
-environment-specific hardening may be warranted.
+The security posture has been reviewed for the 1.0.0 GA and **re-reviewed through 1.3.0** (this
+document, plus the deserialization / resource-guard / TLS hardening passes; for 1.2.0 — hot TLS reload,
+the durable-subscription persistence surface, and the memory-exhaustion resilience guards; and for 1.3.0 —
+the **broader nested value-type decode** surface and the **PDX registry persistence** surface, both of
+which add no new untrusted-deserialization vector, see the sections above). That internal review is **not
+a substitute for an independent third-party audit**, and additional, environment-specific hardening may
+be warranted.
 
 Future security work:
 - stronger TLS story for all traffic
