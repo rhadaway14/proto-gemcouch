@@ -6,6 +6,27 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-26
+
+The **parity-completeness** release — closes the remaining value-type fidelity / queryability gaps so more
+real Geode workloads run unchanged. All changes are additive and non-breaking (a semantic-versioning
+minor): **no new client-facing wire forms** (server-side queryability + one opt-in flag), so existing
+1.15.x clients are unaffected and the cross-version client range (Geode 1.13/1.14/1.15) is unchanged
+(re-validated). Highlights since 1.2.0:
+
+- **PDX object-array field querying (M1)** — OQL/CQ now navigate arrays of nested PDX objects
+  (`r.addresses[0].zip`, element-equality `IN`), completing the PDX query surface (scalar, nested-object,
+  scalar-array, and now object-array fields).
+- **PDX registry persistence (M2)** — opt-in `PDX_PERSISTENCE` allocates PDX type/enum ids from a
+  cluster-wide durable Couchbase registry, so ids are consistent across replicas and survive a restart
+  (no cross-replica mis-decode); off by default keeps in-memory single-instance behavior.
+- **Broader nested value-type queryability (M3)** — typed object arrays (`Integer[]`, `UUID[]`, …, exact
+  component type), any `List`, and any `Set` nested in a `HashMap<String,Object>` are now decoded
+  structurally (queryable) instead of opaque. Remaining nested-opaque: customer POJOs + nested PDX.
+- **Hardening (M4)** — full-surface soak of the new decode + PDX-persistence paths (0 errors / no leak),
+  a security re-review of the expanded decode surface (no new untrusted-deserialization vector), and a
+  re-validated cross-version matrix.
+
 ### Added
 - **Broader nested value-type queryability (1.3.0-M3)** — more values inside a `HashMap<String,Object>`
   region value are now decoded **structurally (queryable)** instead of opaque: **typed object arrays**
@@ -472,7 +493,8 @@ cosign-signed image at `docker.io/rhadaway14/protogemcouch:0.2.0` (and `latest`)
 - **Certificate rotation:** the Helm chart mounts the inbound-TLS keystore/truststore from a Secret and
   rolls pods on change; zero-downtime rolling-restart rotation + mTLS CA-rotation ordering documented.
 
-[Unreleased]: https://github.com/rhadaway14/proto-gemcouch/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.2.0...v1.3.0
 [0.3.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.2.0
 
