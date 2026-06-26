@@ -29,9 +29,13 @@ import java.util.Map;
  * op — isolates the request message of the expected opcode from the client→server delta and writes its
  * hex to {@code <OUT_DIR>/<opcode>.hex} (default {@code src/test/resources/golden-wire-requests}).
  *
+ * <p>By default it writes <em>only fixtures that do not already exist</em>, so adding one newly handled
+ * opcode does not churn every committed fixture (each run produces fresh transaction ids). Set
+ * {@code OVERWRITE=true} to deliberately refresh all of them.
+ *
  * <p>Usage (shim stack up on 40405):
  * <pre>java -cp target/protogemcouch.jar com.protogemcouch.tools.RequestWireCapture</pre>
- * Env: SHIM_HOST (127.0.0.1), SHIM_PORT (40405), PROXY_PORT (40499), OUT_DIR.
+ * Env: SHIM_HOST (127.0.0.1), SHIM_PORT (40405), PROXY_PORT (40499), OUT_DIR, OVERWRITE (false).
  */
 public final class RequestWireCapture {
 
@@ -129,10 +133,12 @@ public final class RequestWireCapture {
         capture("commit", MessageTypes.COMMIT, sink, () -> tx.commit());
         capture("destroy-region", MessageTypes.DESTROY_REGION, sink, () -> region.destroyRegion());
 
-        writeFixtures(outDir);
+        int[] result = writeFixtures(outDir);
         cache.close();
         proxy.close();
-        System.out.println("\n=== wrote " + fixtures.size() + " request fixtures to " + outDir + " ===");
+        System.out.println("\n=== captured " + fixtures.size() + " fixtures; wrote " + result[0]
+                + " new, skipped " + result[1] + " existing (set OVERWRITE=true to refresh all) -> "
+                + outDir + " ===");
         System.exit(0);
     }
 
@@ -210,12 +216,29 @@ public final class RequestWireCapture {
         return ops.toString();
     }
 
-    private void writeFixtures(Path outDir) throws IOException {
+    /**
+     * Write captured fixtures, writing only files that do not already exist by default. Each capture run
+     * produces fresh transaction ids, so unconditionally overwriting would churn every committed fixture
+     * (forcing a manual revert to keep just the newly added one). The common case — locking one newly
+     * handled opcode — therefore writes only the new file. Set {@code OVERWRITE=true} to deliberately
+     * refresh every fixture. Returns {@code [written, skipped]}.
+     */
+    private int[] writeFixtures(Path outDir) throws IOException {
         Files.createDirectories(outDir);
+        boolean overwrite = Boolean.parseBoolean(env("OVERWRITE", "false"));
+        int written = 0;
+        int skipped = 0;
         for (Map.Entry<String, byte[]> e : fixtures.entrySet()) {
             String fileName = e.getKey().substring(0, e.getKey().indexOf("  (")).trim() + ".hex";
-            Files.writeString(outDir.resolve(fileName), hex(e.getValue()) + System.lineSeparator());
+            Path target = outDir.resolve(fileName);
+            if (!overwrite && Files.exists(target)) {
+                skipped++;
+                continue;
+            }
+            Files.writeString(target, hex(e.getValue()) + System.lineSeparator());
+            written++;
         }
+        return new int[] {written, skipped};
     }
 
     // --- op helpers ---

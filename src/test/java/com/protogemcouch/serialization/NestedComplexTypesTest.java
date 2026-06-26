@@ -153,6 +153,42 @@ class NestedComplexTypesTest {
     }
 
     @Test
+    void copyValuePreservesTypedArrayComponentType() {
+        // Regression guard (1.3.0-M3): copyValue once normalized ANY Object[] to a generic Object[],
+        // which — once typed object arrays were promoted to the structured path — would have silently
+        // downgraded e.g. an Integer[] to Object[] and broken its exact-type round-trip. It must keep
+        // the component type.
+        Integer[] ints = {1, 2, 3};
+        Object copiedInts = NestedValueSupport.copyValue(ints);
+        assertInstanceOf(Integer[].class, copiedInts, "Integer[] stays Integer[]");
+        assertNotSame(ints, copiedInts);
+        assertArrayEquals(ints, (Integer[]) copiedInts);
+
+        assertInstanceOf(UUID[].class, NestedValueSupport.copyValue(new UUID[] {UUID.randomUUID()}),
+                "UUID[] stays UUID[]");
+        // A generic Object[] still stays a generic Object[].
+        assertEquals(Object[].class, NestedValueSupport.copyValue(new Object[] {"a", 1}).getClass());
+
+        // And inside a map, the typed array survives the deep copy with its component type intact.
+        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+        map.put("scores", new Integer[] {10, 20});
+        @SuppressWarnings("unchecked")
+        Map<String, Object> copy = (Map<String, Object>) NestedValueSupport.copyValue(map);
+        assertInstanceOf(Integer[].class, copy.get("scores"), "nested Integer[] stays Integer[] after deep copy");
+        assertArrayEquals(new Integer[] {10, 20}, (Integer[]) copy.get("scores"));
+    }
+
+    @Test
+    void supportedSetAcceptsTypedArraysListsAndSets() {
+        assertTrue(NestedValueSupport.isSupportedValue(new Integer[] {1, 2}), "typed object array (Integer[])");
+        assertTrue(NestedValueSupport.isSupportedValue(new UUID[] {UUID.randomUUID()}), "typed object array (UUID[])");
+        assertTrue(NestedValueSupport.isSupportedValue(new java.util.LinkedList<>(List.of("a"))), "any List");
+        assertTrue(NestedValueSupport.isSupportedValue(new java.util.TreeSet<>(List.of("x", "y"))), "any Set");
+        // A typed array of an unsupported component (a customer class) stays out → opaque path.
+        assertFalse(NestedValueSupport.isSupportedValue(new Widget[] {new Widget("w")}));
+    }
+
+    @Test
     void storedValueDeepEqualsAndHashCodeForNestedGraphs() {
         StoredValue a = StoredValue.stringObjectHashMapValue(sampleNestedMap());
         StoredValue b = StoredValue.stringObjectHashMapValue(sampleNestedMap());
