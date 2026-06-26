@@ -2,8 +2,9 @@
 
 A living backlog. **ProtoGemCouch reached 1.0.0 GA on 2026-06-20** — the road-to-1.0 work (Level 4
 production-readiness and the supportable GemFire/Geode SDK parity surface) is recorded as DONE in the
-sections below. **1.1.0 GA shipped 2026-06-21 and 1.2.0 GA shipped 2026-06-24** (both recorded below);
-the **current focus is the 1.3.0 backlog**. The contract for what is supported today is
+sections below. **1.1.0 GA shipped 2026-06-21, 1.2.0 GA shipped 2026-06-24, and 1.3.0 GA shipped
+2026-06-26** (all recorded below). **No milestone is currently in flight — the next theme is open
+(operator to scope a 1.4.0 backlog).** The contract for what is supported today is
 `docs/COMPATABILITY_MATRIX.md`.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
@@ -263,12 +264,14 @@ owner replica → survives any replica failing). Behind a flag (default off) for
 
 ---
 
-## Current focus — 1.3.0 backlog (theme: parity completeness — full value-type fidelity & queryability)
+## 1.3.0 — SHIPPED 2026-06-26 (theme: parity completeness — full value-type fidelity & queryability)
 
-With HA + scale delivered (1.2.0), 1.3.0 closes the remaining **value-type fidelity / queryability** gaps
+With HA + scale delivered (1.2.0), 1.3.0 closed the remaining **value-type fidelity / queryability** gaps
 documented in `docs/CURRENT_LIMITATIONS.md` — the dominant "not queryable / preserved opaquely" caveats —
-so more real Geode workloads run unchanged. Items target additive/non-breaking semver minors (no new
-client-facing wire forms expected). Milestone dates are targets, from a ~2026-06-25 start.
+so more real Geode workloads run unchanged. All items were additive/non-breaking (semver minors, no new
+client-facing wire forms). **All M1–M4 below are DONE and the `v1.3.0` GA shipped** (signed image
+`docker.io/rhadaway14/protogemcouch:1.3.0`, GitHub Release published), ~2.5 months ahead of the original
+2026-09-10 GA target.
 
 ### 1.3.0-M1 — PDX object-array field querying (headline) · **COMPLETE** (3 slices, ahead of the 2026-07-16 target)
 Arrays of nested PDX objects (a PDX field that is a `PdxInstance[]`) were **not queryable** — scalar
@@ -348,11 +351,27 @@ queryable instead of opaque) and tightened the golden-wire request coverage.
   opaque (round-trip only). Validated by the property + real-client round-trip suites (now emitting typed
   arrays, Sets, and `LinkedList`s) + new query ITs. Version bump + GA tagging in M4 (operator-gated).
 
-### 1.3.0-M4 — Hardening + RC → 1.3.0 GA · freeze target 2026-09-06 · GA target 2026-09-10
-The established pattern: soak the new decode paths; a security re-review of the **expanded
-deserialization/decoding surface** (highest-risk part — re-confirm the allowlist + process-wide gadget
-filter still hold); cross-version matrix re-validation; `CHANGELOG.md` `[1.3.0]`; cut `v1.3.0-rc1` →
-verify gates → cut `v1.3.0` GA + GitHub Release (GA tag operator-gated — confirm before tagging).
+### 1.3.0-M4 — Hardening + RC → 1.3.0 GA · **COMPLETE — 1.3.0 GA shipped 2026-06-26** (ahead of the 2026-09-10 target)
+- [x] **Soak the new decode + PDX-persistence paths (PR #30).** A new benchmark **`BENCH_RICH_VALUES`** mode
+  seeds/PUTs maps holding the M3 nested types (`Integer[]`/`UUID[]` typed object arrays, a `HashSet`, a
+  `LinkedList`, an `Instant`), so the full-surface soak drives the new encode (PUT/seed) + decode (GET /
+  full-region `QUERY` scan) paths. Ran 180s with `PDX_PERSISTENCE=true` + `DURABLE_PERSISTENCE=true` →
+  **`SOAK_VERDICT PASS`** (errors=0, shed=0, conn_growth=0). See `docs/SOAK_RESULTS.md`.
+- [x] **Security re-review of the expanded decode surface (PR #31).** 1.3.0 adds **no new
+  untrusted-deserialization (CWE-502) surface** — the newly-structured types are already inside the
+  `SafeDeserialization` allowlist (`java.lang`/`util`/`math`/`time` + arrays); the only new code
+  (`resolveArrayComponent`'s `Class.forName` for a typed array's component class) is a class *load*, not a
+  deserialize, allowlisted to JDK scalars or an enum (the same shape as the existing nested-enum decode).
+  `SECURITY.md` re-reviewed-through-1.3.0.
+- [x] **Cross-version matrix re-validation (PR #32).** Re-ran real Geode 1.13.0 / 1.14.0 / 1.15.1 clients
+  against the 1.3.0 shim — green (1.3.0 adds no new client-facing wire forms). `COMPATABILITY_MATRIX.md`
+  refreshed to "as of 1.3.0".
+- [x] **Release (PR #33 → tags).** Version bumps 1.2.0→1.3.0 (pom, Helm chart version/appVersion, image
+  tag) + `CHANGELOG.md` `[1.3.0]`. Cut **`v1.3.0-rc1`** → all four gates green (release-candidate `mvn
+  verify`, perf-gate, cross-version matrix, Trivy+SBOM+cosign image); then **`v1.3.0` GA** on the same
+  commit (`a4a67ee`) with operator approval — gates green again, signed image `1.3.0` published, GitHub
+  Release published (https://github.com/rhadaway14/proto-gemcouch/releases/tag/v1.3.0).
+- **1.3.0-M4 COMPLETE — 1.3.0 GA shipped 2026-06-26.**
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to

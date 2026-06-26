@@ -7,20 +7,21 @@ data in Couchbase.
 
 ## Current status
 
-**ProtoGemCouch 1.2.0 — latest GA (2026-06-24)** (1.0.0 GA 2026-06-20; 1.1.0 2026-06-21). 1.2.0 adds
-multi-replica durable-subscription HA, keyset-metadata sharding, hot TLS reload, structured nested
-`java.time`, and resilience hardening. The authoritative, maintained references are:
+**ProtoGemCouch 1.3.0 — latest GA (2026-06-26)** (1.0.0 GA 2026-06-20; 1.1.0 2026-06-21; 1.2.0 2026-06-24).
+1.3.0 (parity completeness) adds PDX object-array field querying, durable cross-replica PDX registry
+persistence (opt-in `PDX_PERSISTENCE`), and broader nested value-type queryability (typed object arrays,
+`Set`s, non-`ArrayList` `List`s). The authoritative, maintained references are:
 
 - `docs/COMPATABILITY_MATRIX.md` — the supported-surface contract (what works today) + deliberate non-goals.
 - `docs/CURRENT_LIMITATIONS.md` — plain-English summary of what the shim is *not*.
 - `docs/CONFIGURATION.md` — consolidated environment-variable reference (every operator-facing setting + default).
 - `CHANGELOG.md` — released history.
-- `docs/ROADMAP.md` — the post-GA backlog (current focus: 1.3.0).
+- `docs/ROADMAP.md` — the post-GA backlog + shipped record (1.3.0 shipped; no milestone currently in flight).
 
 This file is a feature/encoding overview; where it disagrees with the matrix, the matrix wins.
 
-Verification: `mvn -o test` (574 unit tests + coverage gate) and `mvn -o verify` (Docker-backed,
-real-Geode-1.15-client integration suite, 257 tests). The signed `v*` release pipeline runs the full
+Verification: `mvn -o test` (unit tests + coverage gate) and `mvn -o verify` (Docker-backed,
+real-Geode-1.15-client integration suite). The signed `v*` release pipeline runs the full
 `mvn verify`, the perf-regression gate, and a Trivy/SBOM/cosign image publish.
 
 ## Supported operations
@@ -368,6 +369,7 @@ Out of scope by design (documented non-goals — see `docs/CURRENT_LIMITATIONS.m
 ## Next
 
 Post-GA work is tracked in `docs/ROADMAP.md`. Shipped since 1.0: 1.1.0 (OQL pushdown, nested/array field
-querying, registry observability) and 1.2.0 (multi-replica durable-subscription HA, keyset sharding, hot
-TLS reload). Current focus is the **1.3.0** backlog (theme: parity completeness — full value-type
-fidelity & queryability).
+querying, registry observability), 1.2.0 (multi-replica durable-subscription HA, keyset sharding, hot
+TLS reload), and **1.3.0** (parity completeness — PDX object-array field querying, durable cross-replica
+PDX registry persistence, and broader nested value-type queryability). **No milestone is currently in
+flight — the next theme is open (a 1.4.0 backlog, operator to scope).**
