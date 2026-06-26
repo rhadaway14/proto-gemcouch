@@ -3,9 +3,8 @@
 A living backlog. **ProtoGemCouch reached 1.0.0 GA on 2026-06-20** — the road-to-1.0 work (Level 4
 production-readiness and the supportable GemFire/Geode SDK parity surface) is recorded as DONE in the
 sections below. **1.1.0 GA shipped 2026-06-21, 1.2.0 GA shipped 2026-06-24, and 1.3.0 GA shipped
-2026-06-26** (all recorded below). **No milestone is currently in flight — the next theme is open
-(operator to scope a 1.4.0 backlog).** The contract for what is supported today is
-`docs/COMPATABILITY_MATRIX.md`.
+2026-06-26** (all recorded below); the **current focus is the 1.4.0 backlog** (theme: OQL query
+completeness). The contract for what is supported today is `docs/COMPATABILITY_MATRIX.md`.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
@@ -372,6 +371,49 @@ queryable instead of opaque) and tightened the golden-wire request coverage.
   commit (`a4a67ee`) with operator approval — gates green again, signed image `1.3.0` published, GitHub
   Release published (https://github.com/rhadaway14/proto-gemcouch/releases/tag/v1.3.0).
 - **1.3.0-M4 COMPLETE — 1.3.0 GA shipped 2026-06-26.**
+
+---
+
+## Current focus — 1.4.0 backlog (theme: OQL query completeness — aggregates, grouping, distinct)
+
+The query **surface** is now broad — 1.1.0 made it fast (N1QL pushdown) and 1.3.0 completed the field-type
+breadth (scalar / nested-object / scalar-array / object-array, over map + PDX). 1.4.0 makes OQL
+**expressive**: the aggregate / grouping / distinct features real Geode workloads use, which today raise a
+clean "unsupported" error. All items are additive/non-breaking (semver minors). The client *request* stays
+standard OQL — the new *reply* shapes are reverse-engineered from a real Geode server and golden-wire-locked
+(the same pattern that produced the original chunked query response). **Cross-region joins stay a documented
+non-goal** (a Couchbase-backed shim would load both whole regions and cross-product them — poor ROI).
+Milestone dates are nominal targets from a ~2026-06-26 start (the project has shipped each minor well ahead
+of calendar).
+
+### 1.4.0-M1 — Aggregate functions (headline) · target 2026-07-17
+`SELECT COUNT(*)`, `COUNT(field)`, `SUM(field)`, `MIN(field)`, `MAX(field)`, `AVG(field)` over the
+WHERE-filtered set. Computed in-shim (numeric coercion for `SUM`/`AVG`; `Comparable` `MIN`/`MAX`;
+`COUNT(field)` skips nulls). The aggregate reply is a **different wire shape** than the row-list
+`SelectResults` — reverse-engineer it from a real Geode 1.15 server (extend `tools.GeodeQueryCapture`),
+reproduce it byte-exact, and golden-wire-lock it. Optionally push `COUNT`/`SUM` to **N1QL** when the WHERE
+is fully pushdown-eligible (re-checked in-shim). One-shot `QUERY` scope (CQ aggregates are out of scope).
+Refresh `docs/OQL.md` + the matrix. Risk: medium (new reply shape) — the capstone is the wire-shape capture.
+
+### 1.4.0-M2 — GROUP BY (+ HAVING) · target 2026-08-07
+`SELECT field, COUNT(*) FROM /r [WHERE …] GROUP BY field [HAVING …]`. Group the matched rows by one or more
+grouping keys, compute per-group aggregates, and frame the grouped struct rows (group-key columns +
+aggregate columns); `HAVING` filters groups post-aggregation. Reverse-engineer the grouped response shape
+from a real server. Real-client validated.
+
+### 1.4.0-M3 — DISTINCT + parenthesized WHERE + OR pushdown · target 2026-08-28
+- **`SELECT DISTINCT`** — dedupe projected rows; the reply's distinct/ordered `CollectionType` flag already
+  differs (`Ordered` vs `CumulativeNonDistinctResults`, see `docs/OQL.md`), so wire-lock the distinct path.
+- **Parenthesized WHERE** — nested `AND`/`OR` with precedence (parentheses currently raise an error).
+- **`OR` pushdown to N1QL** — the last predicate-pushdown gap left from 1.1.0-M2 (`OR` currently scans).
+Real-client validated; matrix + `docs/OQL.md` updated.
+
+### 1.4.0-M4 — Hardening + RC → 1.4.0 GA · freeze target 2026-09-06 · GA target 2026-09-10
+The established pattern: soak the new query paths (a query-heavy / aggregate benchmark profile); a security
+re-review of the **expanded query-string parsing + N1QL-pushdown-of-aggregates** surface (re-confirm the
+bind-parameter + strict field-name validation holds for the new aggregate / group-by / distinct grammar —
+no N1QL injection); cross-version matrix re-validation; `CHANGELOG.md` `[1.4.0]`; cut `v1.4.0-rc1` → verify
+gates → cut `v1.4.0` GA + GitHub Release (GA tag operator-gated — confirm before tagging).
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
