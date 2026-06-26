@@ -193,7 +193,9 @@ public class ConcurrentBenchmarkRunner {
         // A map with a unique top-level `k` (queryable mode), so `WHERE k = N` selects ~one row (a real,
         // pushdown-eligible query) instead of a whole-value scan; otherwise a plain string value.
         Object value;
-        if (config.isQueryableValues()) {
+        if (config.isRichValues()) {
+            value = richValue(new Random(i), i); // deterministic per seed key; exercises the new decode paths
+        } else if (config.isQueryableValues()) {
             Map<String, Object> doc = new LinkedHashMap<>();
             doc.put("k", i);
             doc.put("v", "seed-value-" + i);
@@ -222,8 +224,14 @@ public class ConcurrentBenchmarkRunner {
         return false;
     }
 
-    /** A put value matching the seed shape: a queryable map in queryable mode, else a random string. */
+    /**
+     * A put value matching the seed shape: a rich nested-type map in rich mode (1.3.0 decode-path soak),
+     * a queryable map in queryable mode, else a random string.
+     */
     private static Object benchPutValue(BenchmarkConfig config, Random random) {
+        if (config.isRichValues()) {
+            return richValue(random, random.nextInt(config.getKeySpaceSize()));
+        }
         if (config.isQueryableValues()) {
             Map<String, Object> doc = new LinkedHashMap<>();
             doc.put("k", random.nextInt(config.getKeySpaceSize()));
@@ -231,6 +239,25 @@ public class ConcurrentBenchmarkRunner {
             return doc;
         }
         return randomValue();
+    }
+
+    /**
+     * A map exercising the 1.3.0 structured nested value types (1.3.0-M4 soak): a typed object array
+     * ({@code Integer[]} / {@code UUID[]}), a {@link java.util.Set}, a non-ArrayList {@link java.util.List},
+     * and a {@code java.time} scalar — so the new encode (on PUT/seed) and decode (on GET / QUERY scan)
+     * paths are driven under sustained, concurrent load. A top-level {@code k} keeps it query-friendly.
+     */
+    private static Map<String, Object> richValue(Random random, int k) {
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put("k", k);
+        doc.put("scores", new Integer[] {random.nextInt(1000), random.nextInt(1000)});
+        doc.put("ids", new UUID[] {UUID.randomUUID()});
+        doc.put("tags", new java.util.HashSet<>(
+                java.util.List.of("t" + random.nextInt(8), "t" + random.nextInt(8))));
+        doc.put("history", new java.util.LinkedList<>(
+                java.util.List.of(random.nextInt(), random.nextLong())));
+        doc.put("when", java.time.Instant.ofEpochMilli(Math.floorMod(random.nextLong(), 4_000_000_000_000L)));
+        return doc;
     }
 
     private static void executeOperation(ClientCache cache,
@@ -369,6 +396,8 @@ public class ConcurrentBenchmarkRunner {
         System.out.println("Seed count: " + config.getSeedCount());
         System.out.println("Progress interval: " + config.getProgressInterval());
         System.out.println("Subscriptions: " + envOrDefault("BENCH_SUBSCRIPTIONS", "false"));
+        System.out.println("Queryable values: " + config.isQueryableValues());
+        System.out.println("Rich values (1.3.0 nested types): " + config.isRichValues());
         System.out.println();
     }
 
