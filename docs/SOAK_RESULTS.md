@@ -202,6 +202,29 @@ The most important conclusion is:
 
 ## Soak run results
 
+## Run: 2026-06-25 — 1.3.0 new decode paths + PDX persistence (1.3.0-M4)
+
+Soak of the new 1.3.0 paths: the **broader nested value-type decode** (M3 — typed object arrays, Sets,
+non-`ArrayList` Lists, `java.time`) and the **durable PDX registry** (M2). Driven locally
+(`BENCH_RICH_VALUES=true scripts/full-surface-soak.sh`, `full-surface` profile, subscriptions on) against
+a single shim with **`PDX_PERSISTENCE=true`** and **`DURABLE_PERSISTENCE=true`**.
+
+A new benchmark **rich-values mode** (`BENCH_RICH_VALUES`) seeds and PUTs maps holding the M3 nested types
+(`Integer[]` / `UUID[]` typed object arrays, a `HashSet`, a `LinkedList`, an `Instant`), so every PUT
+exercises the new **encode** path and every GET — and every full-region `QUERY` scan — exercises the new
+**decode** path under sustained, concurrent load. The PDX type registry is allocated from Couchbase
+throughout.
+
+### Result (180s, concurrency 12, rich values + subscriptions, PDX_PERSISTENCE on)
+
+- `errors=0`, `shed=0`, `conn_growth=0` — no shim request errors, nothing shed, no connection leak.
+- `SOAK_VERDICT PASS` — `RESULT: PASS — stable over 180s`.
+
+The new structured decode paths and the durable PDX registry hold under sustained mixed load with zero
+errors. (Throughput/memory ratios are `n/a` here — this is a correctness/leak soak on a single local
+container, not the dedicated-rig capacity characterization; that ceiling is unchanged from 1.2.0, since
+1.3.0 is server-side queryability + an opt-in flag, not a new hot path.)
+
 ## Run: 2026-06-24 — 1.2.0 HA/scale paths under fault injection (1.2.0-M4)
 
 Soak of the new 1.2.0 paths on the EC2 rig: 4 shims behind the NLB, 2 load-gens, the **self-driving

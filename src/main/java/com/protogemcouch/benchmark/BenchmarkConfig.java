@@ -18,6 +18,7 @@ public class BenchmarkConfig {
     private final Duration progressInterval;
     private final String profileName;
     private final boolean queryableValues;
+    private final boolean richValues;
     private final Map<OperationType, Integer> weights;
 
     public BenchmarkConfig(String host,
@@ -32,6 +33,7 @@ public class BenchmarkConfig {
                            Duration progressInterval,
                            String profileName,
                            boolean queryableValues,
+                           boolean richValues,
                            Map<OperationType, Integer> weights) {
         this.host = host;
         this.port = port;
@@ -45,6 +47,7 @@ public class BenchmarkConfig {
         this.progressInterval = progressInterval;
         this.profileName = profileName;
         this.queryableValues = queryableValues;
+        this.richValues = richValues;
         this.weights = new EnumMap<>(weights);
     }
 
@@ -64,6 +67,7 @@ public class BenchmarkConfig {
                 Duration.ofSeconds(intEnv("BENCH_PROGRESS_SECONDS", 15)),
                 profile,
                 boolEnv("BENCH_QUERYABLE_VALUES", false),
+                boolEnv("BENCH_RICH_VALUES", false),
                 BenchmarkProfiles.forName(profile)
         );
     }
@@ -119,6 +123,15 @@ public class BenchmarkConfig {
      */
     public boolean isQueryableValues() {
         return queryableValues;
+    }
+
+    /**
+     * When true, PUT / seed values are rich maps exercising the 1.3.0 structured nested value types
+     * (typed object arrays, Sets, non-ArrayList Lists, java.time) so a soak drives the new encode/decode
+     * paths under sustained load.
+     */
+    public boolean isRichValues() {
+        return richValues;
     }
 
     public Map<OperationType, Integer> getWeights() {
