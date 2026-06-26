@@ -4,20 +4,22 @@ This is the shim's **compatibility contract**: the Geode client surface it suppo
 it round-trips, and its explicit non-goals. Per-feature details and byte encodings follow; the
 narrative roadmap lives in `docs/ROADMAP.md` and the release history in `CHANGELOG.md`.
 
-## Compatibility contract (as of 1.2.0)
+## Compatibility contract (as of 1.3.0)
 
 **Client / runtime.** Apache Geode (and GemFire-compatible) **Java clients on the 1.15.x line**,
 validated against **1.15.1**. The shim runs on **JDK 17**. Clients connect with the standard Geode
 client/server protocol over the shim's Geode port (TLS / mutual TLS optional).
 
-**1.2.0 introduces no new client-facing wire forms.** The 1.2.0 features are server-side or reuse
-existing forms, so the validated client range and protocol ordinals below are **unchanged**: multi-replica
-**durable subscriptions** use the standard, version-negotiated Geode durable-client protocol
-(`durable-client-id` + `readyForEvents`) and replay the **same** interest/CQ event wire forms already
-emitted in 1.1.0; **keyset-metadata sharding** and **hot TLS reload** are entirely server-internal; the
-nested **`java.time`** change affects only server-side queryability, not the bytes a client sends. The
-durable event forms are validated end-to-end against a real 1.15.1 client (the durable-subscription
-integration + k8s failover suites), and the cross-version core matrix re-runs on every `v*` release tag.
+**1.3.0 introduces no new client-facing wire forms.** The 1.3.0 features are server-side queryability or
+opt-in, server-internal flags, so the validated client range and protocol ordinals below are
+**unchanged**: **PDX object-array field querying** (`r.addresses[0].zip`, element-equality `IN`) and the
+**broader nested value-type decode** (typed object arrays, `Set`s, non-`ArrayList` `List`s) affect only
+how the shim *reads/queries* values a client already sends in the standard forms — not the bytes on the
+wire; **PDX registry persistence** (`PDX_PERSISTENCE`) is a server-side durable id allocation behind an
+off-by-default flag, reusing the unchanged `GET_PDX_ID_FOR_TYPE` / `GET_PDX_TYPE_BY_ID` protocol. (This
+also held for the 1.2.0 features — durable-subscription HA reuses the version-negotiated durable-client
+protocol, keyset sharding / hot TLS reload are server-internal.) The cross-version core matrix re-runs on
+every `v*` release tag.
 
 **Protocol version negotiation.** On connect, the shim parses the client's protocol version ordinal
 from the handshake and accepts only supported versions — the default is the wire-validated **1.15.x**
@@ -36,7 +38,7 @@ both map and PDX values) via the standalone `cross-version-client/` harness — 
 public Geode client API, so each version compiles cleanly without recompiling the shim (whose internal-API
 use is version-sensitive). A green matrix confirms the shim's 1.15.x wire forms are interoperable with
 1.13.x/1.14.x clients; the **default** policy still accepts 1.15.x only, so widening is an opt-in operators
-make after seeing this validation. **Re-validated green for 1.2.0** (all three client versions, 2026-06-24).
+make after seeing this validation. **Re-validated green for 1.3.0** (all three client versions, 2026-06-26).
 
 **Geode client protocol version → ordinal** (authoritative, from `KnownVersion`; the value the shim
 reads from the handshake). The protocol ordinal is per **minor** release — every patch within a minor
