@@ -371,5 +371,5 @@ Out of scope by design (documented non-goals — see `docs/CURRENT_LIMITATIONS.m
 Post-GA work is tracked in `docs/ROADMAP.md`. Shipped since 1.0: 1.1.0 (OQL pushdown, nested/array field
 querying, registry observability), 1.2.0 (multi-replica durable-subscription HA, keyset sharding, hot
 TLS reload), and **1.3.0** (parity completeness — PDX object-array field querying, durable cross-replica
-PDX registry persistence, and broader nested value-type queryability). **No milestone is currently in
-flight — the next theme is open (a 1.4.0 backlog, operator to scope).**
+PDX registry persistence, and broader nested value-type queryability). **Current focus is the 1.4.0
+backlog (theme: OQL query completeness — aggregates, GROUP BY, DISTINCT).**
