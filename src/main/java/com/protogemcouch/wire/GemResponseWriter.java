@@ -1,5 +1,6 @@
 package com.protogemcouch.wire;
 
+import com.protogemcouch.query.OqlQuery.GroupByColumn;
 import com.protogemcouch.serialization.NestedValueSupport;
 import com.protogemcouch.serialization.StoredValue;
 import com.protogemcouch.util.ByteUtils;
@@ -965,6 +966,28 @@ public final class GemResponseWriter {
     //   CLASS_DESCRIPTOR("java.lang.Object") = 2b 57 00 10 "java.lang.Object"
     //   <serialized scalar>
     // Null result (AVG/MIN/MAX over empty set): 0x29 = GEODE_NULL_CODE.
+    // --- GROUP BY (chunked) response ---------------------------------------------------------
+    // Captured from a real Geode 1.15 server (GeodeQueryCapture GROUP_BY_CAPTURE=1). The response
+    // has two parts: Part 1 = a StructBag CollectionType with a StructTypeImpl carrying the actual
+    // field names and ObjectType per field; Part 2 = an outer Object[N] (one element per group),
+    // each element an Object[M] of field values (group keys + aggregate values).
+    //
+    // Constant prefix: DS_FIXED_ID_BYTE(0x01) + StructBag_DSFID(0xc5) + CLASS(0x2b) + STRING(0x57)
+    //   + len(0x002f=47) + "org.apache.geode.cache.query.internal.StructBag"
+    //   + DS_FIXED_ID_BYTE(0x01) + StructTypeImpl_DSFID(0xc4) + CLASS(0x2b) + STRING(0x57)
+    //   + len(0x0023=35) + "org.apache.geode.cache.query.Struct"
+    // Then: field_count(1 byte), N field name strings, field_type_count(1 byte),
+    //   ObjectType class marker (once), N ObjectType instances (Object/Integer/Number per column).
+    private static final byte[] GROUP_BY_STRUCT_BAG_PREFIX = ByteUtils.hex(
+            "01c52b57002f6f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e53747275637442616"
+                    + "701c42b5700236f72672e6170616368652e67656f64652e63616368652e71756572792e53747275637" + "4");
+    // ObjectType(java.lang.Integer) — element type for COUNT columns.
+    private static final byte[] GROUP_BY_OBJECT_TYPE_INTEGER = ByteUtils.hex(
+            "01c32b5700116a6176612e6c616e672e496e7465676572");
+    // ObjectType(java.lang.Number) — element type for SUM/AVG/MIN/MAX columns.
+    private static final byte[] GROUP_BY_OBJECT_TYPE_NUMBER = ByteUtils.hex(
+            "01c32b5700106a6176612e6c616e672e4e756d626572");
+
     private static final byte[] AGG_COUNT_COLLECTION_TYPE = ByteUtils.hex(
             "01c52b5700146a6176612e7574696c2e436f6c6c656374696f6e"
                     + "01c32b5700116a6176612e6c616e672e496e7465676572");
@@ -1023,6 +1046,99 @@ public final class GemResponseWriter {
         } catch (RuntimeException e) {
             buf.release();
             throw e;
+        }
+    }
+
+    /**
+     * Build the chunked response for a GROUP BY query. One chunk, two parts: Part 1 = a StructBag
+     * CollectionType with field names and ObjectType per column; Part 2 = Object[N groups] of
+     * Object[M cols] struct rows. Wire shape matched byte-for-byte to Geode 1.15 (captured via
+     * {@code GeodeQueryCapture GROUP_BY_CAPTURE=1}).
+     *
+     * @param txId    transaction id from the request
+     * @param columns the GROUP BY SELECT column list in order (group keys first, then aggregate)
+     * @param rows    the grouped result rows; each inner list has one Object per column
+     */
+    public static byte[] buildGroupByQueryResponse(int txId, List<GroupByColumn> columns,
+                                                   List<List<Object>> rows) {
+        byte[] collectionType = buildGroupByCollectionType(columns);
+        byte[] resultPart = buildGroupByResultPart(columns.size(), rows);
+        return buildMultiChunkResponse(txId, 2,
+                List.of(List.of(new Part(collectionType, (byte) 1), new Part(resultPart, (byte) 1))));
+    }
+
+    /** Build the StructBag CollectionType part for a GROUP BY response. */
+    private static byte[] buildGroupByCollectionType(List<GroupByColumn> columns) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeBytes(GROUP_BY_STRUCT_BAG_PREFIX);
+            writeGeodeArrayLength(buf, columns.size());
+            for (GroupByColumn col : columns) {
+                buf.writeBytes(ValueEncoding.encodeGeodeStringValue(col.columnName()));
+            }
+            writeGeodeArrayLength(buf, columns.size());
+            buf.writeBytes(QUERY_OBJECT_TYPE_CLASS); // ObjectType class marker (written once)
+            for (GroupByColumn col : columns) {
+                if (col.isGroupKey()) {
+                    buf.writeBytes(QUERY_OBJECT_TYPE_ELEMENT);   // ObjectType(java.lang.Object)
+                } else if (col.isCount()) {
+                    buf.writeBytes(GROUP_BY_OBJECT_TYPE_INTEGER); // ObjectType(java.lang.Integer)
+                } else {
+                    buf.writeBytes(GROUP_BY_OBJECT_TYPE_NUMBER);  // ObjectType(java.lang.Number)
+                }
+            }
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    /** Build the result part: Object[N] outer, each element Object[M] (one struct row). */
+    private static byte[] buildGroupByResultPart(int colCount, List<List<Object>> rows) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeByte(OBJECT_ARRAY_CODE);
+            writeGeodeArrayLength(buf, rows.size());
+            buf.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+            for (List<Object> row : rows) {
+                buf.writeByte(OBJECT_ARRAY_CODE);
+                writeGeodeArrayLength(buf, colCount);
+                buf.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+                for (Object value : row) {
+                    writeGroupByValue(buf, value);
+                }
+            }
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    /** Serialize a single GROUP BY column value using the appropriate Geode DSCODE. */
+    private static void writeGroupByValue(ByteBuf buf, Object value) {
+        if (value == null) {
+            buf.writeByte(GEODE_NULL_CODE);
+        } else if (value instanceof Integer) {
+            buf.writeByte(GEODE_INTEGER_CODE);
+            buf.writeInt((Integer) value);
+        } else if (value instanceof Long) {
+            buf.writeByte(GEODE_LONG_CODE);
+            buf.writeLong((Long) value);
+        } else if (value instanceof Double) {
+            buf.writeByte(GEODE_DOUBLE_CODE);
+            buf.writeLong(Double.doubleToLongBits((Double) value));
+        } else if (value instanceof Float) {
+            buf.writeByte(GEODE_FLOAT_CODE);
+            buf.writeInt(Float.floatToIntBits((Float) value));
+        } else if (value instanceof String) {
+            buf.writeBytes(ValueEncoding.encodeGeodeStringValue((String) value));
+        } else if (value instanceof Number) {
+            buf.writeByte(GEODE_DOUBLE_CODE);
+            buf.writeLong(Double.doubleToLongBits(((Number) value).doubleValue()));
+        } else {
+            buf.writeByte(GEODE_NULL_CODE);
         }
     }
 
