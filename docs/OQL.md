@@ -1,8 +1,9 @@
 # OQL query support — design notes
 
-Status: **SELECT * / single-field projection / WHERE (AND+OR) done**, all end-to-end against a real
-Geode client (`ProtoGemCouchQueryIntegrationTest`). Supported:
-`SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>] [ORDER BY ...] [LIMIT n]` where
+Status: **SELECT * / single-field projection / WHERE (AND+OR) / aggregate functions done**, all
+end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`,
+`ProtoGemCouchAggregateQueryIntegrationTest`). Supported:
+`SELECT (* | <field> | <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [ORDER BY ...] [LIMIT n]` where
 conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals)
 combined with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level
 fields of map-typed values; the response is filtered (and projected) accordingly, with `LIMIT` capping
@@ -76,6 +77,24 @@ PDX value it did not itself write (e.g. a pushed CQ/subscription event value), t
 assigned id, as a serialized object part. Scalar fields, **nested object paths**, **scalar array** fields
 (index access + `IN` containment), and **object-array** fields (indexed element access + element-equality
 `IN`) are all queryable (see above).
+
+**Aggregate functions** (`COUNT(*) / COUNT(field) / SUM(field) / MIN(field) / MAX(field) / AVG(field)`,
+as of 1.4.0-M1): computed in-shim over the WHERE-filtered candidate set. The scalar result is returned
+as a one-element `SelectResults`.
+
+- `COUNT(*)` — count of all matched rows; always an `Integer`; 0 for empty set.
+- `COUNT(field)` — count of matched rows where `field` is non-null and non-absent; always an `Integer`.
+- `SUM(field)` — sum of numeric field values (non-numeric values skipped); `Double`; 0.0 for empty set.
+- `AVG(field)` — mean of numeric field values; `Double`; `null` for empty set.
+- `MIN(field)` / `MAX(field)` — minimum/maximum of Comparable field values; `null` for empty set.
+  Works on both numeric and string fields (lexicographic for strings).
+- **WHERE** narrows the rows before aggregation.
+- `ORDER BY` with an aggregate is **not supported** (raises an error at parse time).
+- Works on map and PDX values (PDX fields resolved via `PdxFieldAccessor`).
+- Wire shape: Part 1 = `CollectionType(java.util.Collection, java.lang.Integer)` for COUNT,
+  `CollectionType(java.util.Collection, java.lang.Number)` for SUM/AVG/MIN/MAX. Part 2 =
+  `Object[1]{java.lang.Object, <serialized scalar>}` (DSCODE `0x34`). Captured from a real Geode 1.15
+  server and golden-wire-locked in `GoldenWireResponseTest`.
 
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
