@@ -85,6 +85,13 @@ public final class GeodeQueryCapture {
         if (!existing.isEmpty()) {
             r.removeAll(existing);
         }
+        if ("1".equals(env("AGGREGATE_CAPTURE", "0"))) {
+            runAggregateCapture(cache, r, serverToClient);
+            cache.close();
+            if (proxy != null) proxy.close();
+            System.exit(0);
+        }
+
         if ("1".equals(env("SEED_TX", "0"))) {
             org.apache.geode.cache.CacheTransactionManager txMgr = cache.getCacheTransactionManager();
             int txOps = Integer.parseInt(env("SEED_COUNT", "2"));
@@ -272,6 +279,80 @@ public final class GeodeQueryCapture {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    /**
+     * Capture the wire bytes for each aggregate function against the real Geode server. Seeds the
+     * region with 4 map entries carrying a numeric {@code amount} field, then runs each aggregate
+     * query individually, printing the server→client bytes for each as hex.
+     *
+     * <p>Usage: {@code AGGREGATE_CAPTURE=1 java -cp target/protogemcouch.jar com.protogemcouch.tools.GeodeQueryCapture}
+     */
+    @SuppressWarnings("unchecked")
+    private static void runAggregateCapture(
+            org.apache.geode.cache.client.ClientCache cache,
+            Region<String, Object> r,
+            List<ByteArrayOutputStream> serverToClient) throws Exception {
+
+        // Clear and re-seed with known numeric values: amounts 10, 20, 30, 40; two "active", two "closed".
+        java.util.Set<String> existing = new java.util.HashSet<>(r.keySetOnServer());
+        if (!existing.isEmpty()) {
+            r.removeAll(existing);
+        }
+        int[] amounts = {10, 20, 30, 40};
+        String[] statuses = {"active", "closed", "active", "closed"};
+        for (int i = 0; i < 4; i++) {
+            java.util.HashMap<String, Object> m = new java.util.HashMap<>();
+            m.put("amount", amounts[i]);
+            m.put("status", statuses[i]);
+            r.put("agg" + (i + 1), m);
+        }
+        Thread.sleep(300);
+        System.out.println("=== seeded 4 entries: amounts=" + java.util.Arrays.toString(amounts) + " ===");
+
+        String region = r.getName();
+        String[] queries = {
+            "SELECT COUNT(*) FROM /" + region,
+            "SELECT COUNT(amount) FROM /" + region,
+            "SELECT SUM(amount) FROM /" + region,
+            "SELECT MIN(amount) FROM /" + region,
+            "SELECT MAX(amount) FROM /" + region,
+            "SELECT AVG(amount) FROM /" + region,
+            // With a WHERE clause to confirm the WHERE still filters before the aggregate.
+            "SELECT COUNT(*) FROM /" + region + " WHERE status = 'active'",
+        };
+
+        for (String q : queries) {
+            // Snapshot current byte offsets per connection before each query.
+            Map<ByteArrayOutputStream, Integer> before = new IdentityHashMap<>();
+            synchronized (serverToClient) {
+                for (ByteArrayOutputStream s : serverToClient) {
+                    before.put(s, s.size());
+                }
+            }
+
+            System.out.println("\n=== executing: " + q + " ===");
+            org.apache.geode.cache.query.SelectResults<?> results =
+                    (org.apache.geode.cache.query.SelectResults<?>) cache.getQueryService().newQuery(q).execute();
+            System.out.println("=== result: " + new ArrayList<>(results) + " ===");
+            Thread.sleep(500);
+
+            synchronized (serverToClient) {
+                int i = 0;
+                for (ByteArrayOutputStream s : serverToClient) {
+                    byte[] all = s.toByteArray();
+                    int from = before.getOrDefault(s, 0);
+                    if (all.length > from) {
+                        byte[] delta = new byte[all.length - from];
+                        System.arraycopy(all, from, delta, 0, delta.length);
+                        System.out.println("=== CONN " + i + " AGGREGATE-RESPONSE " + delta.length + " bytes ===");
+                        System.out.println(hex(delta));
+                        analyzeChunks(delta);
+                    }
+                    i++;
+                }
+            }
+        }
     }
 
     private static String env(String key, String fallback) {
