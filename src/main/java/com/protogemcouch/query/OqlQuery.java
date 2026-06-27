@@ -14,15 +14,28 @@ import java.util.regex.Pattern;
  * A parsed OQL query.
  *
  * <p>Supported subset:
- * {@code SELECT (* | <field>) FROM /region [alias] [WHERE <conditions>]}, where conditions are
- * {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are quoted strings,
- * numbers, booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds tighter; no
- * parentheses). Field access resolves a top-level key of map-typed values (a Geode {@code HashMap}
- * value). A single projected field returns that field's value per row; {@code SELECT *} returns the
- * whole value. Anything else (multi-field/struct projections, parentheses, {@code ORDER BY}, joins,
- * methods) is reported as unsupported so the shim returns a clean query error.
+ * {@code SELECT (* | <field> | <aggregate>(<field>|*)) FROM /region [alias] [WHERE <conditions>]},
+ * where conditions are {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are
+ * quoted strings, numbers, booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds
+ * tighter; no parentheses). Field access resolves a top-level key of map-typed values (a Geode
+ * {@code HashMap} value). A single projected field returns that field's value per row; {@code SELECT *}
+ * returns the whole value. Aggregate queries ({@link #isAggregate()}) compute a single scalar result
+ * over the WHERE-filtered set instead of returning rows. Anything else (multi-field/struct projections,
+ * parentheses, {@code ORDER BY}, joins, methods, {@code GROUP BY}) is reported as unsupported.
  */
 public final class OqlQuery {
+
+    /**
+     * Aggregate functions supported in {@code SELECT <fn>(<arg>) FROM ...}.
+     * {@link #COUNT_STAR} uses {@code *} as the argument; all others name a field.
+     */
+    public enum AggregateFunction {
+        COUNT_STAR, COUNT_FIELD, SUM, MIN, MAX, AVG
+    }
+
+    /** Matches {@code COUNT(*)} / {@code COUNT(field)} / {@code SUM(f)} etc. at the SELECT position. */
+    private static final Pattern AGGREGATE = Pattern.compile(
+            "(?i)^\\s*(COUNT|SUM|MIN|MAX|AVG)\\s*\\(\\s*(\\*|[A-Za-z_][A-Za-z0-9_.]*)\\s*\\)\\s*$");
 
     private static final Pattern QUERY = Pattern.compile(
             "(?is)^\\s*SELECT\\s+(.+?)\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
@@ -57,14 +70,19 @@ public final class OqlQuery {
     private final List<List<Condition>> orGroups;      // OR of AND-groups; empty = match all
     private final List<OrderKey> orderBy;              // empty = no ordering
     private final int limit;                           // -1 = no LIMIT; >= 0 = explicit row cap
+    private final AggregateFunction aggregateFunction; // null = not an aggregate query
+    private final List<String> aggregateField;         // field path for COUNT(f)/SUM/MIN/MAX/AVG; null for COUNT(*)
 
     private OqlQuery(String regionPath, List<List<String>> projectionFields,
-                    List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit) {
+                    List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit,
+                    AggregateFunction aggregateFunction, List<String> aggregateField) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
         this.orGroups = orGroups;
         this.orderBy = orderBy;
         this.limit = limit;
+        this.aggregateFunction = aggregateFunction;
+        this.aggregateField = aggregateField;
     }
 
     /** Whether the query has a {@code LIMIT} clause. */
@@ -126,6 +144,141 @@ public final class OqlQuery {
     /** Whether the query has a WHERE clause (an empty WHERE matches every value). */
     public boolean hasWhere() {
         return !orGroups.isEmpty();
+    }
+
+    /** True when the SELECT list is an aggregate function (COUNT/SUM/MIN/MAX/AVG). */
+    public boolean isAggregate() {
+        return aggregateFunction != null;
+    }
+
+    /** The aggregate function (defined when {@link #isAggregate()}). */
+    public AggregateFunction aggregateFunction() {
+        return aggregateFunction;
+    }
+
+    /**
+     * Compute the aggregate over an already-WHERE-filtered list of values.
+     *
+     * <ul>
+     *   <li>{@code COUNT(*)} — count of matched rows (always returns a non-null {@code Integer}).</li>
+     *   <li>{@code COUNT(field)} — count of non-null resolved field values ({@code Integer}).</li>
+     *   <li>{@code SUM(field)} — sum of numeric field values ({@code Double}; {@code 0.0} for empty).</li>
+     *   <li>{@code AVG(field)} — mean of numeric field values ({@code Double}; {@code null} for empty).</li>
+     *   <li>{@code MIN(field)} / {@code MAX(field)} — min/max over {@code Comparable} field values;
+     *       {@code null} for an empty or all-absent set.</li>
+     * </ul>
+     *
+     * @return the aggregate result, or {@code null} when undefined (empty set for AVG/MIN/MAX)
+     */
+    public Number computeAggregate(List<StoredValue> matched, FieldResolver resolver) {
+        if (aggregateFunction == null) {
+            throw new IllegalStateException("not an aggregate query");
+        }
+        switch (aggregateFunction) {
+            case COUNT_STAR:
+                return matched.size();
+            case COUNT_FIELD: {
+                int count = 0;
+                for (StoredValue v : matched) {
+                    Object field = resolver.resolve(v, aggregateField);
+                    if (field != ABSENT && field != null) {
+                        count++;
+                    }
+                }
+                return count;
+            }
+            case SUM: {
+                double sum = 0.0;
+                for (StoredValue v : matched) {
+                    Double n = resolveNumeric(v, aggregateField, resolver);
+                    if (n != null) {
+                        sum += n;
+                    }
+                }
+                return sum;
+            }
+            case AVG: {
+                double sum = 0.0;
+                int count = 0;
+                for (StoredValue v : matched) {
+                    Double n = resolveNumeric(v, aggregateField, resolver);
+                    if (n != null) {
+                        sum += n;
+                        count++;
+                    }
+                }
+                return count == 0 ? null : sum / count;
+            }
+            case MIN: {
+                Comparable<?> min = null;
+                for (StoredValue v : matched) {
+                    Object field = resolver.resolve(v, aggregateField);
+                    if (field != ABSENT && field != null && field instanceof Comparable) {
+                        @SuppressWarnings("unchecked")
+                        Comparable<Object> c = (Comparable<Object>) field;
+                        if (min == null || c.compareTo(min) < 0) {
+                            min = c;
+                        }
+                    }
+                }
+                return min instanceof Number ? (Number) min : (min != null ? 0 : null);
+            }
+            case MAX: {
+                Comparable<?> max = null;
+                for (StoredValue v : matched) {
+                    Object field = resolver.resolve(v, aggregateField);
+                    if (field != ABSENT && field != null && field instanceof Comparable) {
+                        @SuppressWarnings("unchecked")
+                        Comparable<Object> c = (Comparable<Object>) field;
+                        if (max == null || c.compareTo(max) > 0) {
+                            max = c;
+                        }
+                    }
+                }
+                return max instanceof Number ? (Number) max : (max != null ? 0 : null);
+            }
+            default:
+                throw new IllegalStateException("unknown aggregate: " + aggregateFunction);
+        }
+    }
+
+    /**
+     * Returns the raw resolved field value for MIN/MAX (may be any {@link Comparable}, not just
+     * {@link Number}), or {@code null} when the field is absent or not comparable.
+     */
+    public Object computeAggregateRaw(List<StoredValue> matched, FieldResolver resolver) {
+        if (aggregateFunction != AggregateFunction.MIN && aggregateFunction != AggregateFunction.MAX) {
+            return computeAggregate(matched, resolver);
+        }
+        Comparable<?> result = null;
+        boolean isMin = aggregateFunction == AggregateFunction.MIN;
+        for (StoredValue v : matched) {
+            Object field = resolver.resolve(v, aggregateField);
+            if (field != ABSENT && field != null && field instanceof Comparable) {
+                @SuppressWarnings("unchecked")
+                Comparable<Object> c = (Comparable<Object>) field;
+                if (result == null || (isMin ? c.compareTo(result) < 0 : c.compareTo(result) > 0)) {
+                    result = c;
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Resolve a field to a double for numeric aggregates; null if absent or non-numeric. */
+    private static Double resolveNumeric(StoredValue v, List<String> path, FieldResolver resolver) {
+        Object field = resolver.resolve(v, path);
+        if (field == ABSENT || field == null) {
+            return null;
+        }
+        if (field instanceof Number) {
+            return ((Number) field).doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(field));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -336,8 +489,37 @@ public final class OqlQuery {
                             + "is supported: " + oql);
         }
         String alias = matcher.group(3); // the FROM alias (e.g. `r`), or null
-        return new OqlQuery(matcher.group(2), parseProjection(matcher.group(1), alias),
-                parseWhere(matcher.group(4), alias), parseOrderBy(matcher.group(5), alias), limit);
+        String selectList = matcher.group(1);
+        String whereClause = matcher.group(4);
+        String orderByClause = matcher.group(5);
+
+        // Check for an aggregate before trying the projection path.
+        Matcher aggMatcher = AGGREGATE.matcher(selectList);
+        if (aggMatcher.matches()) {
+            if (orderByClause != null && !orderByClause.isBlank()) {
+                throw new UnsupportedQueryException("ORDER BY is not supported with aggregate functions: " + oql);
+            }
+            AggregateFunction fn = parseAggregateFunction(aggMatcher.group(1), aggMatcher.group(2));
+            List<String> aggField = (fn == AggregateFunction.COUNT_STAR)
+                    ? null : toPath(aggMatcher.group(2), alias);
+            return new OqlQuery(matcher.group(2), List.of(),
+                    parseWhere(whereClause, alias), List.of(), limit, fn, aggField);
+        }
+
+        return new OqlQuery(matcher.group(2), parseProjection(selectList, alias),
+                parseWhere(whereClause, alias), parseOrderBy(orderByClause, alias), limit,
+                null, null);
+    }
+
+    private static AggregateFunction parseAggregateFunction(String fn, String arg) {
+        switch (fn.toUpperCase()) {
+            case "COUNT": return "*".equals(arg) ? AggregateFunction.COUNT_STAR : AggregateFunction.COUNT_FIELD;
+            case "SUM":   return AggregateFunction.SUM;
+            case "MIN":   return AggregateFunction.MIN;
+            case "MAX":   return AggregateFunction.MAX;
+            case "AVG":   return AggregateFunction.AVG;
+            default: throw new UnsupportedQueryException("unknown aggregate function: " + fn);
+        }
     }
 
     /**

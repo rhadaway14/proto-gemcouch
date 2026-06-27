@@ -77,6 +77,12 @@ class GoldenWireResponseTest {
         f.put("commit-response.hex", GemResponseWriter.buildCommitResponse(TX_ID));
         f.put("rollback-response.hex", GemResponseWriter.buildRollbackResponse(TX_ID));
         f.put("exception-response.hex", GemResponseWriter.buildExceptionResponse(TX_ID, "golden exception"));
+        // --- aggregate queries (OQL) ---
+        f.put("aggregate-count-response.hex", GemResponseWriter.buildAggregateQueryResponse(TX_ID, 4, true));
+        f.put("aggregate-count-zero-response.hex", GemResponseWriter.buildAggregateQueryResponse(TX_ID, 0, true));
+        f.put("aggregate-sum-response.hex", GemResponseWriter.buildAggregateQueryResponse(TX_ID, 100.0, false));
+        f.put("aggregate-avg-response.hex", GemResponseWriter.buildAggregateQueryResponse(TX_ID, 25.0, false));
+        f.put("aggregate-null-response.hex", GemResponseWriter.buildAggregateQueryResponse(TX_ID, null, false));
         // --- queries (OQL) ---
         f.put("query-response.hex", GemResponseWriter.buildQueryResponse(TX_ID, twoRows));
         f.put("query-empty-response.hex", GemResponseWriter.buildQueryResponse(TX_ID, List.of()));
