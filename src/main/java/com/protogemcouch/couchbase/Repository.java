@@ -171,6 +171,17 @@ public interface Repository {
     }
 
     /**
+     * Like {@link #queryPushdownByPredicates} but for an OR-of-AND WHERE: each inner list is one
+     * AND-group's eligible predicates. The generated N1QL ORs the groups together, so the returned
+     * candidates are a superset of the true matches and the caller's matcher remains authoritative.
+     * Returns {@link Optional#empty()} when OR pushdown is unavailable. The default is "no pushdown".
+     */
+    default Optional<List<StoredValue>> queryPushdownByOrGroups(
+            String region, List<List<OqlQuery.FieldPredicate>> orGroups, int limit) {
+        return Optional.empty();
+    }
+
+    /**
      * Install an extractor that, given a stored PDX instance's wire bytes, returns its scalar fields
      * (name→value). When set, the backend writes those fields as a queryable sidecar next to the opaque
      * PDX bytes so {@link #queryPushdownByPredicates} can filter PDX documents by field (instead of

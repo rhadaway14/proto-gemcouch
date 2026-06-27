@@ -1217,11 +1217,64 @@ public class CouchbaseRepository implements Repository {
         return executePushdown(statement, params, region, noPredicates ? 0 : predicates.size());
     }
 
+    @Override
+    public Optional<List<StoredValue>> queryPushdownByOrGroups(
+            String region, List<List<OqlQuery.FieldPredicate>> orGroups, int limit) {
+        if (orGroups == null || orGroups.isEmpty()) return Optional.empty();
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        String where = buildOrGroupsWhere(orGroups, params);
+        if (where == null) return Optional.empty();
+
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+        if (limit > 0) statement += " LIMIT " + limit;
+
+        int predicateCount = orGroups.stream().mapToInt(List::size).sum();
+        return executePushdown(statement, params, region, predicateCount);
+    }
+
     /** Build the PDX-aware WHERE for a non-empty predicate list, binding params; null on a bad field. */
     private String buildPredicateWhere(List<OqlQuery.FieldPredicate> predicates, JsonObject params) {
-        // Two parallel predicate sets sharing the same bound params: one over the map paths
-        // (object-map `value.f.value` + string-map `value.f`), one over the PDX scalar sidecar
-        // (`pdxFields.f`). A map doc matches the first; a PDX doc matches the second (or has no sidecar);
+        // Delegate to the shared per-group clause builder (group index 0 → param names v0/n0).
+        String groupClause = buildGroupAndClause(predicates, params, 0);
+        if (groupClause == null) return null;
+        return "META(c).id LIKE $prefix AND (" + groupClause
+                + " OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
+                + TYPE_STRING_HASH_MAP + "\", \"" + TYPE_PDX_INSTANCE + "\"] )";
+    }
+
+    /**
+     * Build the PDX-aware WHERE for an OR-of-AND predicate list; null on a bad field name. Each
+     * group's conditions are ANDed together; groups are ORed in the outer clause. Param names are
+     * prefixed with {@code g<groupIndex>} to avoid collisions across groups.
+     */
+    private String buildOrGroupsWhere(List<List<OqlQuery.FieldPredicate>> groups, JsonObject params) {
+        StringBuilder outer = new StringBuilder("META(c).id LIKE $prefix AND (");
+        for (int g = 0; g < groups.size(); g++) {
+            String clause = buildGroupAndClause(groups.get(g), params, g);
+            if (clause == null) return null;
+            if (g > 0) outer.append(" OR ");
+            outer.append('(').append(clause).append(')');
+        }
+        return outer.append(" OR c.`type` NOT IN [\"").append(TYPE_STRING_OBJECT_HASH_MAP)
+                .append("\", \"").append(TYPE_STRING_HASH_MAP).append("\", \"")
+                .append(TYPE_PDX_INSTANCE).append("\"] )").toString();
+    }
+
+    /**
+     * Build a single AND-group clause:
+     * {@code (mapPreds) OR (c.type=pdx AND (pdxPreds OR pdxFields IS MISSING))}.
+     * Param names use {@code v<g>_<i>} / {@code n<g>_<i>} where {@code g} is the group index.
+     * Returns null if any field name fails validation.
+     */
+    private String buildGroupAndClause(
+            List<OqlQuery.FieldPredicate> predicates, JsonObject params, int groupIndex) {
+        // Two parallel predicate sets: one over the map paths, one over the PDX scalar sidecar.
+        // A map doc matches the first; a PDX doc matches the second (or has no sidecar);
         // every other opaque doc is swept in unconditionally and re-filtered by the shim.
         StringBuilder mapPreds = new StringBuilder();
         StringBuilder pdxPreds = new StringBuilder();
@@ -1239,31 +1292,27 @@ public class CouchbaseRepository implements Repository {
                 pdxPreds.append(" AND ");
             }
             if (predicate.numeric()) {
-                String nParam = "n" + i;
+                String nParam = "n" + groupIndex + "_" + i;
                 params.put(nParam, predicate.number());
                 String op = predicate.op().symbol();
                 mapPreds.append(numericFragment(op, nParam, envelopePath, barePath));
                 pdxPreds.append(numericFragment(op, nParam, pdxPath));
             } else {
-                String vParam = "v" + i;
+                String vParam = "v" + groupIndex + "_" + i;
                 params.put(vParam, predicate.text());
                 Double numeric = parseNumericOrNull(predicate.text());
                 String nParam = null;
                 if (numeric != null) {
-                    nParam = "n" + i;
+                    nParam = "n" + groupIndex + "_" + i;
                     params.put(nParam, numeric);
                 }
                 mapPreds.append(stringFragment(vParam, nParam, envelopePath, barePath));
                 pdxPreds.append(stringFragment(vParam, nParam, pdxPath));
             }
         }
-
-        return "META(c).id LIKE $prefix AND ("
-                + " (" + mapPreds + ")"
+        return "(" + mapPreds + ")"
                 + " OR (c.`type` = \"" + TYPE_PDX_INSTANCE + "\" AND ((" + pdxPreds
-                + ") OR c.`pdxFields` IS MISSING))"
-                + " OR c.`type` NOT IN [\"" + TYPE_STRING_OBJECT_HASH_MAP + "\", \""
-                + TYPE_STRING_HASH_MAP + "\", \"" + TYPE_PDX_INSTANCE + "\"] )";
+                + ") OR c.`pdxFields` IS MISSING))";
     }
 
     /** Run a pushdown statement (REQUEST_PLUS), decode rows to candidate values; empty on any failure. */
