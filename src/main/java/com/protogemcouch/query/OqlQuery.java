@@ -4,6 +4,7 @@ import com.protogemcouch.serialization.StoredValue;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,14 +15,14 @@ import java.util.regex.Pattern;
  * A parsed OQL query.
  *
  * <p>Supported subset:
- * {@code SELECT (* | <field> | <aggregate>(<field>|*)) FROM /region [alias] [WHERE <conditions>]},
- * where conditions are {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are
- * quoted strings, numbers, booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds
- * tighter; no parentheses). Field access resolves a top-level key of map-typed values (a Geode
- * {@code HashMap} value). A single projected field returns that field's value per row; {@code SELECT *}
- * returns the whole value. Aggregate queries ({@link #isAggregate()}) compute a single scalar result
- * over the WHERE-filtered set instead of returning rows. Anything else (multi-field/struct projections,
- * parentheses, {@code ORDER BY}, joins, methods, {@code GROUP BY}) is reported as unsupported.
+ * {@code SELECT (* | <field> | <aggregate>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias]
+ * [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY <keys>] [LIMIT n]}, where conditions are
+ * {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are quoted strings, numbers,
+ * booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds tighter; no parentheses).
+ * Aggregate queries ({@link #isAggregate()}) compute a scalar over the WHERE-filtered set.
+ * GROUP BY queries ({@link #isGroupBy()}) group the WHERE-filtered set by key columns and compute
+ * per-group aggregates; {@code ORDER BY} and {@code HAVING} are not supported with GROUP BY.
+ * Anything else is reported as unsupported.
  */
 public final class OqlQuery {
 
@@ -36,6 +37,10 @@ public final class OqlQuery {
     /** Matches {@code COUNT(*)} / {@code COUNT(field)} / {@code SUM(f)} etc. at the SELECT position. */
     private static final Pattern AGGREGATE = Pattern.compile(
             "(?i)^\\s*(COUNT|SUM|MIN|MAX|AVG)\\s*\\(\\s*(\\*|[A-Za-z_][A-Za-z0-9_.]*)\\s*\\)\\s*$");
+
+    /** Splits {@code GROUP BY <keys>} from the end of the OQL string (after LIMIT is stripped). */
+    private static final Pattern GROUP_BY_SPLIT = Pattern.compile(
+            "(?is)^(.*?)\\s+GROUP\\s+BY\\s+(.+?)\\s*(;?)\\s*$");
 
     private static final Pattern QUERY = Pattern.compile(
             "(?is)^\\s*SELECT\\s+(.+?)\\s+FROM\\s+(/[A-Za-z0-9_./-]+|[A-Za-z0-9_./-]+)"
@@ -65,6 +70,24 @@ public final class OqlQuery {
     // can only be a literal count, so it can't be confused with a string literal ending in a quote).
     private static final Pattern LIMIT_TAIL = Pattern.compile("(?is)^(.*?)\\s+LIMIT\\s+(\\d+)\\s*(;?)\\s*$");
 
+    /**
+     * One column in a GROUP BY SELECT list: either a group key (fn=null) or an aggregate column.
+     * For COUNT(*)/COUNT(field), {@code columnName} is the positional ordinal string {@code "0"} (Geode
+     * convention). For SUM/AVG/MIN/MAX, {@code columnName} is the simple field name.
+     */
+    public record GroupByColumn(
+            String columnName,
+            AggregateFunction fn,
+            List<String> fieldPath) {
+        public boolean isGroupKey() {
+            return fn == null;
+        }
+
+        public boolean isCount() {
+            return fn == AggregateFunction.COUNT_STAR || fn == AggregateFunction.COUNT_FIELD;
+        }
+    }
+
     private final String regionPath;
     private final List<List<String>> projectionFields; // empty = SELECT *; each entry is a field path
     private final List<List<Condition>> orGroups;      // OR of AND-groups; empty = match all
@@ -72,10 +95,12 @@ public final class OqlQuery {
     private final int limit;                           // -1 = no LIMIT; >= 0 = explicit row cap
     private final AggregateFunction aggregateFunction; // null = not an aggregate query
     private final List<String> aggregateField;         // field path for COUNT(f)/SUM/MIN/MAX/AVG; null for COUNT(*)
+    private final List<GroupByColumn> groupByColumns;  // null = not a GROUP BY query
 
     private OqlQuery(String regionPath, List<List<String>> projectionFields,
                     List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit,
-                    AggregateFunction aggregateFunction, List<String> aggregateField) {
+                    AggregateFunction aggregateFunction, List<String> aggregateField,
+                    List<GroupByColumn> groupByColumns) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
         this.orGroups = orGroups;
@@ -83,6 +108,7 @@ public final class OqlQuery {
         this.limit = limit;
         this.aggregateFunction = aggregateFunction;
         this.aggregateField = aggregateField;
+        this.groupByColumns = groupByColumns;
     }
 
     /** Whether the query has a {@code LIMIT} clause. */
@@ -154,6 +180,16 @@ public final class OqlQuery {
     /** The aggregate function (defined when {@link #isAggregate()}). */
     public AggregateFunction aggregateFunction() {
         return aggregateFunction;
+    }
+
+    /** True when the query has a GROUP BY clause. */
+    public boolean isGroupBy() {
+        return groupByColumns != null;
+    }
+
+    /** The GROUP BY SELECT columns in order (group keys first, then aggregate column); defined when {@link #isGroupBy()}. */
+    public List<GroupByColumn> groupByColumns() {
+        return groupByColumns;
     }
 
     /**
@@ -263,6 +299,126 @@ public final class OqlQuery {
             }
         }
         return result;
+    }
+
+    /**
+     * Group the WHERE-filtered rows and compute per-group aggregates.
+     *
+     * <p>Returns a list of result rows (one per group), each row containing the group key values
+     * followed by the aggregate value(s), in SELECT list order. Preserves insertion order (first
+     * occurrence of each group key). Groups with all-integer source values return integer aggregates
+     * (SUM → Integer/Long, AVG → Integer/Long truncated); mixed or floating-point inputs return Double.
+     */
+    public List<List<Object>> computeGroupBy(List<StoredValue> matched, FieldResolver resolver) {
+        if (!isGroupBy()) {
+            throw new IllegalStateException("not a GROUP BY query");
+        }
+        LinkedHashMap<List<Object>, List<StoredValue>> groups = new LinkedHashMap<>();
+        for (StoredValue v : matched) {
+            List<Object> key = new ArrayList<>();
+            for (GroupByColumn col : groupByColumns) {
+                if (col.isGroupKey()) {
+                    Object val = resolver.resolve(v, col.fieldPath());
+                    key.add(val == ABSENT ? null : val);
+                }
+            }
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(v);
+        }
+        List<List<Object>> result = new ArrayList<>();
+        int keyIndex = 0;
+        for (Map.Entry<List<Object>, List<StoredValue>> entry : groups.entrySet()) {
+            List<Object> row = new ArrayList<>();
+            int ki = 0;
+            for (GroupByColumn col : groupByColumns) {
+                if (col.isGroupKey()) {
+                    row.add(entry.getKey().get(ki++));
+                } else {
+                    row.add(computeGroupByAgg(entry.getValue(), col, resolver));
+                }
+            }
+            result.add(row);
+            keyIndex++;
+        }
+        return result;
+    }
+
+    private static Object computeGroupByAgg(List<StoredValue> rows, GroupByColumn col, FieldResolver resolver) {
+        switch (col.fn()) {
+            case COUNT_STAR:
+                return rows.size();
+            case COUNT_FIELD: {
+                int count = 0;
+                for (StoredValue v : rows) {
+                    Object f = resolver.resolve(v, col.fieldPath());
+                    if (f != ABSENT && f != null) count++;
+                }
+                return count;
+            }
+            case SUM: {
+                boolean allIntegral = true;
+                long lsum = 0;
+                double dsum = 0.0;
+                int count = 0;
+                for (StoredValue v : rows) {
+                    Object f = resolver.resolve(v, col.fieldPath());
+                    if (f == ABSENT || f == null || !(f instanceof Number)) continue;
+                    Number n = (Number) f;
+                    if (!(f instanceof Integer) && !(f instanceof Long)
+                            && !(f instanceof Short) && !(f instanceof Byte)) {
+                        allIntegral = false;
+                    }
+                    lsum += n.longValue();
+                    dsum += n.doubleValue();
+                    count++;
+                }
+                if (count == 0) return 0;
+                if (allIntegral) {
+                    return (lsum <= Integer.MAX_VALUE && lsum >= Integer.MIN_VALUE) ? (int) lsum : lsum;
+                }
+                return dsum;
+            }
+            case AVG: {
+                boolean allIntegral = true;
+                long lsum = 0;
+                double dsum = 0.0;
+                int count = 0;
+                for (StoredValue v : rows) {
+                    Object f = resolver.resolve(v, col.fieldPath());
+                    if (f == ABSENT || f == null || !(f instanceof Number)) continue;
+                    Number n = (Number) f;
+                    if (!(f instanceof Integer) && !(f instanceof Long)
+                            && !(f instanceof Short) && !(f instanceof Byte)) {
+                        allIntegral = false;
+                    }
+                    lsum += n.longValue();
+                    dsum += n.doubleValue();
+                    count++;
+                }
+                if (count == 0) return null;
+                if (allIntegral) {
+                    long avg = lsum / count;
+                    return (avg <= Integer.MAX_VALUE && avg >= Integer.MIN_VALUE) ? (int) avg : avg;
+                }
+                return dsum / count;
+            }
+            case MIN:
+            case MAX: {
+                Comparable<?> result = null;
+                boolean isMin = col.fn() == AggregateFunction.MIN;
+                for (StoredValue v : rows) {
+                    Object f = resolver.resolve(v, col.fieldPath());
+                    if (f == ABSENT || f == null || !(f instanceof Comparable)) continue;
+                    @SuppressWarnings("unchecked")
+                    Comparable<Object> c = (Comparable<Object>) f;
+                    if (result == null || (isMin ? c.compareTo(result) < 0 : c.compareTo(result) > 0)) {
+                        result = c;
+                    }
+                }
+                return result;
+            }
+            default:
+                throw new IllegalStateException("unknown aggregate: " + col.fn());
+        }
     }
 
     /** Resolve a field to a double for numeric aggregates; null if absent or non-numeric. */
@@ -482,6 +638,14 @@ public final class OqlQuery {
             text = limitMatcher.group(1).trim() + limitMatcher.group(3); // keep a trailing ';' if present
         }
 
+        // Split off GROUP BY (must come after LIMIT so LIMIT n doesn't end up in the keys group).
+        String groupByClause = null;
+        Matcher groupByMatcher = GROUP_BY_SPLIT.matcher(text);
+        if (groupByMatcher.matches()) {
+            groupByClause = groupByMatcher.group(2).trim();
+            text = groupByMatcher.group(1).trim() + groupByMatcher.group(3);
+        }
+
         Matcher matcher = QUERY.matcher(text);
         if (!matcher.matches()) {
             throw new UnsupportedQueryException(
@@ -493,7 +657,17 @@ public final class OqlQuery {
         String whereClause = matcher.group(4);
         String orderByClause = matcher.group(5);
 
-        // Check for an aggregate before trying the projection path.
+        // GROUP BY path: parse the mixed SELECT list (group keys + aggregate column).
+        if (groupByClause != null) {
+            if (orderByClause != null && !orderByClause.isBlank()) {
+                throw new UnsupportedQueryException("ORDER BY is not supported with GROUP BY: " + oql);
+            }
+            List<GroupByColumn> columns = parseGroupBySelectList(selectList, alias);
+            return new OqlQuery(matcher.group(2), List.of(),
+                    parseWhere(whereClause, alias), List.of(), limit, null, null, columns);
+        }
+
+        // Check for a scalar aggregate before trying the projection path.
         Matcher aggMatcher = AGGREGATE.matcher(selectList);
         if (aggMatcher.matches()) {
             if (orderByClause != null && !orderByClause.isBlank()) {
@@ -503,12 +677,53 @@ public final class OqlQuery {
             List<String> aggField = (fn == AggregateFunction.COUNT_STAR)
                     ? null : toPath(aggMatcher.group(2), alias);
             return new OqlQuery(matcher.group(2), List.of(),
-                    parseWhere(whereClause, alias), List.of(), limit, fn, aggField);
+                    parseWhere(whereClause, alias), List.of(), limit, fn, aggField, null);
         }
 
         return new OqlQuery(matcher.group(2), parseProjection(selectList, alias),
                 parseWhere(whereClause, alias), parseOrderBy(orderByClause, alias), limit,
-                null, null);
+                null, null, null);
+    }
+
+    /**
+     * Parse a GROUP BY SELECT list like {@code "status, COUNT(*)"} or {@code "status, category, SUM(amount)"}.
+     * Each comma-separated item is either an aggregate function call (→ GroupByColumn with fn set) or a
+     * plain field reference (→ group key column). The aggregate column name follows Geode's convention:
+     * COUNT(*)/COUNT(field) → {@code "0"} (positional ordinal); SUM/AVG/MIN/MAX(field) → the field name.
+     */
+    private static List<GroupByColumn> parseGroupBySelectList(String selectList, String alias) {
+        List<GroupByColumn> columns = new ArrayList<>();
+        boolean hasAggregate = false;
+        for (String raw : selectList.split(",")) {
+            String item = raw.trim();
+            Matcher agg = AGGREGATE.matcher(item);
+            if (agg.matches()) {
+                if (hasAggregate) {
+                    throw new UnsupportedQueryException(
+                            "only one aggregate function per GROUP BY is supported: " + selectList);
+                }
+                hasAggregate = true;
+                AggregateFunction fn = parseAggregateFunction(agg.group(1), agg.group(2));
+                List<String> fieldPath = (fn == AggregateFunction.COUNT_STAR)
+                        ? null : toPath(agg.group(2), alias);
+                // COUNT → column name "0"; SUM/AVG/MIN/MAX → the simple field name
+                String colName = (fn == AggregateFunction.COUNT_STAR || fn == AggregateFunction.COUNT_FIELD)
+                        ? "0" : agg.group(2).contains(".") ? toPath(agg.group(2), alias).get(toPath(agg.group(2), alias).size() - 1) : agg.group(2);
+                columns.add(new GroupByColumn(colName, fn, fieldPath));
+            } else {
+                if (!item.matches(PROJECTION_FIELD)) {
+                    throw new UnsupportedQueryException("unsupported GROUP BY SELECT column: " + item);
+                }
+                List<String> path = toPath(item, alias);
+                String colName = path.get(path.size() - 1); // simple field name
+                columns.add(new GroupByColumn(colName, null, path));
+            }
+        }
+        if (!hasAggregate) {
+            throw new UnsupportedQueryException(
+                    "GROUP BY SELECT list must contain at least one aggregate function: " + selectList);
+        }
+        return columns;
     }
 
     private static AggregateFunction parseAggregateFunction(String fn, String arg) {

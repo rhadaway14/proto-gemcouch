@@ -77,6 +77,11 @@ public class QueryHandler implements OperationHandler {
 
         String region = query.regionPath();
 
+        if (query.isGroupBy()) {
+            handleGroupBy(ctx, oql, query, region, txId);
+            return;
+        }
+
         if (query.isAggregate()) {
             handleAggregate(ctx, oql, query, region, txId);
             return;
@@ -202,6 +207,40 @@ public class QueryHandler implements OperationHandler {
                 "result", result, "pushdown", pushdownUsed, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(
                 GemResponseWriter.buildAggregateQueryResponse(txId, result, isCount)));
+    }
+
+    /**
+     * Handle a GROUP BY query: fetch candidates, filter, group-and-aggregate in-shim, then reply
+     * with the StructBag wire shape that Geode 1.15 produces for GROUP BY results.
+     */
+    private void handleGroupBy(ChannelHandlerContext ctx, String oql, OqlQuery query,
+                               String region, int txId) {
+        Collection<StoredValue> candidates = null;
+        boolean pushdownUsed = false;
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+            if (eligible.isPresent()) {
+                Optional<List<StoredValue>> pushed =
+                        repository.queryPushdownByPredicates(region, eligible.get(), 0);
+                if (pushed.isPresent()) {
+                    candidates = pushed.get();
+                    pushdownUsed = true;
+                }
+            }
+        }
+        if (candidates == null) {
+            candidates = repository.getAll(region, repository.keySet(region)).values();
+        }
+
+        List<StoredValue> matched = matchesOf(candidates, query);
+        List<List<Object>> rows = query.computeGroupBy(matched, fieldResolver);
+
+        log.info(StructuredLog.event(
+                "handler_groupby_ok", "query", oql, "region", region,
+                "rows", matched.size(), "groups", rows.size(),
+                "pushdown", pushdownUsed, "txId", txId));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                GemResponseWriter.buildGroupByQueryResponse(txId, query.groupByColumns(), rows)));
     }
 
     /** Authoritatively filter a candidate set to the values that satisfy the query's WHERE clause. */
