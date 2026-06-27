@@ -6,6 +6,16 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **OQL aggregate functions (1.4.0-M1)** — `SELECT COUNT(*) / COUNT(field) / SUM(field) / MIN(field) /
+  MAX(field) / AVG(field) FROM /region [WHERE …]` computed in-shim over the WHERE-filtered candidate set.
+  `COUNT(*)` and `COUNT(field)` return `Integer`; `SUM`/`AVG`/`MIN`/`MAX` return `Number` (or `null` for
+  empty-set `AVG`/`MIN`/`MAX`). `COUNT(field)` skips null/absent values; `SUM` skips non-numeric values.
+  `MIN`/`MAX` work on any `Comparable` (numeric or string). `ORDER BY` with an aggregate is rejected at
+  parse time. Works for both map and PDX values. Wire shape captures from a real Geode 1.15 server and
+  golden-wire-locked. Validated end-to-end by `ProtoGemCouchAggregateQueryIntegrationTest`.
+
 ## [1.3.0] - 2026-06-26
 
 The **parity-completeness** release — closes the remaining value-type fidelity / queryability gaps so more
