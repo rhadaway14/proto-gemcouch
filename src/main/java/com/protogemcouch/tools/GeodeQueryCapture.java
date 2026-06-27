@@ -85,6 +85,10 @@ public final class GeodeQueryCapture {
         if (!existing.isEmpty()) {
             r.removeAll(existing);
         }
+        if ("1".equals(env("DISTINCT_CAPTURE", "0"))) {
+            runDistinctCapture(cache, r, region, serverToClient, proxy);
+            return;
+        }
         if ("1".equals(env("GROUP_BY_CAPTURE", "0"))) {
             runGroupByCapture(cache, r, region, serverToClient, proxy);
             return;
@@ -243,6 +247,54 @@ public final class GeodeQueryCapture {
      *   7. SELECT status, category, COUNT(*) FROM /r e GROUP BY status, category (multi-key)
      *   8. SELECT status, COUNT(*) FROM /r e GROUP BY status HAVING COUNT(*) > 1 (HAVING — may fail on server)
      */
+    private static void runDistinctCapture(ClientCache cache, Region<String, Object> r, String region,
+                                           List<ByteArrayOutputStream> serverToClient,
+                                           ServerSocket proxy) throws Exception {
+        // Seed 5 PDX rows: 3 distinct statuses, 2 distinct categories, with deliberate duplicates
+        // so DISTINCT actually collapses rows.
+        //   k1=active/A/10, k2=active/B/20, k3=closed/A/30, k4=active/A/40, k5=pending/C/50
+        cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "A").writeInt("amount", 10)
+                .create(); // factory warmup
+        r.put("k1", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "A").writeInt("amount", 10).create());
+        r.put("k2", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "B").writeInt("amount", 20).create());
+        r.put("k3", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "closed").writeString("category", "A").writeInt("amount", 30).create());
+        r.put("k4", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "A").writeInt("amount", 40).create());
+        r.put("k5", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "pending").writeString("category", "C").writeInt("amount", 50).create());
+
+        List<String> queries = new ArrayList<>(List.of(
+                // Single-field DISTINCT — 3 distinct status values
+                "SELECT DISTINCT status FROM /" + region + " e",
+                // Multi-field DISTINCT struct — 4 distinct (status, category) pairs
+                "SELECT DISTINCT e.status, e.category FROM /" + region + " e",
+                // DISTINCT with WHERE — only active rows, 2 distinct categories
+                "SELECT DISTINCT status FROM /" + region + " e WHERE category = 'A'",
+                // DISTINCT * — should return all 5 rows (all different PDX instances)
+                "SELECT DISTINCT * FROM /" + region + " e",
+                // DISTINCT on numeric field — 5 distinct amounts
+                "SELECT DISTINCT amount FROM /" + region + " e"
+        ));
+
+        for (String q : queries) {
+            try {
+                runCapture(cache, q, serverToClient);
+            } catch (Exception e) {
+                System.out.println("=== QUERY FAILED: " + q + " => " + e.getMessage() + " ===");
+            }
+        }
+
+        cache.close();
+        if (proxy != null) {
+            proxy.close();
+        }
+        System.exit(0);
+    }
+
     private static void runGroupByCapture(ClientCache cache, Region<String, Object> r, String region,
                                           List<ByteArrayOutputStream> serverToClient,
                                           ServerSocket proxy) throws Exception {

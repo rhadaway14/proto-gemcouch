@@ -145,7 +145,16 @@ public class QueryHandler implements OperationHandler {
         int fieldCount = query.projectionFieldCount();
         int rowCount = matched.size();
         byte[] response;
-        if (fieldCount > 1) {
+        if (query.isDistinct() && fieldCount >= 1) {
+            // DISTINCT: project all rows, deduplicate, then encode with the Set/StructSet CollectionType.
+            List<List<StoredValue>> allRows = new ArrayList<>(matched.size());
+            for (StoredValue value : matched) {
+                allRows.add(query.projectRow(value, fieldResolver));
+            }
+            List<List<StoredValue>> distinctRows = OqlQuery.deduplicateRows(allRows);
+            response = GemResponseWriter.buildDistinctQueryResponse(
+                    txId, fieldCount, query.projectionFieldNames(), distinctRows);
+        } else if (fieldCount > 1) {
             // Multi-field (struct) projection: each row is a list of field values.
             List<List<StoredValue>> rows = new ArrayList<>(matched.size());
             for (StoredValue value : matched) {

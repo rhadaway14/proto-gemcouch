@@ -978,6 +978,18 @@ public final class GemResponseWriter {
     //   + len(0x0023=35) + "org.apache.geode.cache.query.Struct"
     // Then: field_count(1 byte), N field name strings, field_type_count(1 byte),
     //   ObjectType class marker (once), N ObjectType instances (Object/Integer/Number per column).
+    // CollectionType for SELECT DISTINCT <field> — ResultsCollectionType(java.util.Set,
+    // ObjectType(java.lang.Object)). Captured from real Geode 1.15 (DISTINCT_CAPTURE).
+    private static final byte[] DISTINCT_SET_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b57000d6a6176612e7574696c2e53657401c32b5700106a6176612e6c616e672e4f626a656374");
+    // StructSet prefix for SELECT DISTINCT field1, field2 — same shape as GROUP_BY_STRUCT_BAG_PREFIX
+    // but uses StructSet (the distinct-struct collection) instead of StructBag.
+    // org.apache.geode.cache.query.internal.StructSet (0x2f = 47 chars)
+    // org.apache.geode.cache.query.Struct            (0x23 = 35 chars)
+    private static final byte[] DISTINCT_STRUCT_SET_PREFIX = ByteUtils.hex(
+            "01c52b57002f6f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e5374727563745365"
+                    + "7401c42b5700236f72672e6170616368652e67656f64652e63616368652e71756572792e537472756374");
+
     private static final byte[] GROUP_BY_STRUCT_BAG_PREFIX = ByteUtils.hex(
             "01c52b57002f6f72672e6170616368652e67656f64652e63616368652e71756572792e696e7465726e616c2e53747275637442616"
                     + "701c42b5700236f72672e6170616368652e67656f64652e63616368652e71756572792e53747275637" + "4");
@@ -1041,6 +1053,76 @@ public final class GemResponseWriter {
                 buf.writeLong(Double.doubleToLongBits(((Number) result).doubleValue()));
             } else {
                 buf.writeByte(GEODE_NULL_CODE);
+            }
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    /**
+     * Build the chunked response for a {@code SELECT DISTINCT} query (single-field or multi-field).
+     *
+     * <p>Single-field: Part 1 = {@code ResultsCollectionType(java.util.Set, ObjectType(Object))}
+     * (captured from Geode 1.15). Part 2 = {@code Object[N]} of distinct values — identical shape to
+     * a plain SELECT * result.
+     *
+     * <p>Multi-field struct: Part 1 = {@code StructSet} CollectionType with actual field names +
+     * {@code ObjectType} per column. Part 2 = {@code Object[N]} of {@code Object[M]} struct rows —
+     * same shape as a plain struct SELECT result.
+     *
+     * @param txId       transaction id from the request
+     * @param fieldCount 1 for single-field; &gt;1 for struct
+     * @param fieldNames field names in projection order (used for struct CollectionType)
+     * @param rows       deduplicated projected rows; each inner list has one {@link StoredValue} per field
+     */
+    public static byte[] buildDistinctQueryResponse(int txId, int fieldCount, List<String> fieldNames,
+                                                    List<List<StoredValue>> rows) {
+        if (fieldCount == 1) {
+            // Single-field DISTINCT: same Object[] result shape as buildQueryResponse, but with
+            // the java.util.Set CollectionType so the client deduplicates into a ResultsBag/Set.
+            byte[] collectionType = DISTINCT_SET_COLLECTION_TYPE;
+            byte[] resultPart = buildDistinctScalarResultPart(rows);
+            return buildMultiChunkResponse(txId, 2,
+                    List.of(List.of(new Part(collectionType, (byte) 1), new Part(resultPart, (byte) 1))));
+        } else {
+            // Multi-field DISTINCT: StructSet CollectionType + Object[N] of Object[M] struct rows.
+            byte[] collectionType = buildDistinctStructCollectionType(fieldCount, fieldNames);
+            byte[] resultPart = structObjectArray(rows);
+            return buildMultiChunkResponse(txId, 2,
+                    List.of(List.of(new Part(collectionType, (byte) 1), new Part(resultPart, (byte) 1))));
+        }
+    }
+
+    private static byte[] buildDistinctScalarResultPart(List<List<StoredValue>> rows) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeByte(OBJECT_ARRAY_CODE);
+            writeGeodeArrayLength(buf, rows.size());
+            buf.writeBytes(QUERY_OBJECT_ARRAY_COMPONENT);
+            for (List<StoredValue> row : rows) {
+                buf.writeBytes(encodeStoredValueForGetAll(row.get(0)));
+            }
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
+    private static byte[] buildDistinctStructCollectionType(int fieldCount, List<String> fieldNames) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeBytes(DISTINCT_STRUCT_SET_PREFIX);
+            writeGeodeArrayLength(buf, fieldCount);
+            for (String name : fieldNames) {
+                buf.writeBytes(ValueEncoding.encodeGeodeStringValue(name));
+            }
+            writeGeodeArrayLength(buf, fieldCount);
+            buf.writeBytes(QUERY_OBJECT_TYPE_CLASS);
+            for (int i = 0; i < fieldCount; i++) {
+                buf.writeBytes(QUERY_OBJECT_TYPE_ELEMENT);
             }
             return toByteArrayAndRelease(buf);
         } catch (RuntimeException e) {

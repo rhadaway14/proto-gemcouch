@@ -96,11 +96,12 @@ public final class OqlQuery {
     private final AggregateFunction aggregateFunction; // null = not an aggregate query
     private final List<String> aggregateField;         // field path for COUNT(f)/SUM/MIN/MAX/AVG; null for COUNT(*)
     private final List<GroupByColumn> groupByColumns;  // null = not a GROUP BY query
+    private final boolean distinct;                    // true when SELECT DISTINCT is used
 
     private OqlQuery(String regionPath, List<List<String>> projectionFields,
                     List<List<Condition>> orGroups, List<OrderKey> orderBy, int limit,
                     AggregateFunction aggregateFunction, List<String> aggregateField,
-                    List<GroupByColumn> groupByColumns) {
+                    List<GroupByColumn> groupByColumns, boolean distinct) {
         this.regionPath = regionPath;
         this.projectionFields = projectionFields;
         this.orGroups = orGroups;
@@ -109,6 +110,7 @@ public final class OqlQuery {
         this.aggregateFunction = aggregateFunction;
         this.aggregateField = aggregateField;
         this.groupByColumns = groupByColumns;
+        this.distinct = distinct;
     }
 
     /** Whether the query has a {@code LIMIT} clause. */
@@ -128,6 +130,19 @@ public final class OqlQuery {
     /** Number of projected fields: 0 for {@code SELECT *}, 1 for a single field, N for a struct. */
     public int projectionFieldCount() {
         return projectionFields.size();
+    }
+
+    /**
+     * The display names of the projected fields in order — the last path segment of each projection
+     * field (e.g. {@code e.address.zip} → {@code "zip"}). Used by the DISTINCT struct CollectionType
+     * to embed the actual field names rather than {@code field$0}, {@code field$1}.
+     */
+    public List<String> projectionFieldNames() {
+        List<String> names = new ArrayList<>(projectionFields.size());
+        for (List<String> path : projectionFields) {
+            names.add(path.get(path.size() - 1));
+        }
+        return names;
     }
 
     /** Whether the query has an ORDER BY (so the response must preserve row order). */
@@ -185,6 +200,47 @@ public final class OqlQuery {
     /** True when the query has a GROUP BY clause. */
     public boolean isGroupBy() {
         return groupByColumns != null;
+    }
+
+    /** True when the SELECT list had the DISTINCT keyword. */
+    public boolean isDistinct() {
+        return distinct;
+    }
+
+    /**
+     * Deduplicate a list of projected rows for a DISTINCT query.
+     *
+     * <p>For single-field projections each row is a one-element list; the dedup key is the string
+     * representation of the projected value. For multi-field (struct) projections the key is the
+     * concatenation of all field values. First-seen row wins (preserves the order Couchbase returns).
+     *
+     * @param rows projected rows from {@link #projectRow} — each inner list has one element per
+     *             SELECT field
+     * @return a new list containing only the first occurrence of each distinct row
+     */
+    public static List<List<StoredValue>> deduplicateRows(List<List<StoredValue>> rows) {
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        List<List<StoredValue>> result = new ArrayList<>();
+        for (List<StoredValue> row : rows) {
+            String key = rowKey(row);
+            if (seen.add(key)) {
+                result.add(row);
+            }
+        }
+        return result;
+    }
+
+    private static String rowKey(List<StoredValue> row) {
+        if (row.size() == 1) {
+            String v = row.get(0).value();
+            return v == null ? "null" : v;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (StoredValue sv : row) {
+            String v = sv.value();
+            sb.append(v == null ? "null" : v).append('');
+        }
+        return sb.toString();
     }
 
     /** The GROUP BY SELECT columns in order (group keys first, then aggregate column); defined when {@link #isGroupBy()}. */
@@ -664,7 +720,7 @@ public final class OqlQuery {
             }
             List<GroupByColumn> columns = parseGroupBySelectList(selectList, alias);
             return new OqlQuery(matcher.group(2), List.of(),
-                    parseWhere(whereClause, alias), List.of(), limit, null, null, columns);
+                    parseWhere(whereClause, alias), List.of(), limit, null, null, columns, false);
         }
 
         // Check for a scalar aggregate before trying the projection path.
@@ -677,12 +733,24 @@ public final class OqlQuery {
             List<String> aggField = (fn == AggregateFunction.COUNT_STAR)
                     ? null : toPath(aggMatcher.group(2), alias);
             return new OqlQuery(matcher.group(2), List.of(),
-                    parseWhere(whereClause, alias), List.of(), limit, fn, aggField, null);
+                    parseWhere(whereClause, alias), List.of(), limit, fn, aggField, null, false);
         }
 
-        return new OqlQuery(matcher.group(2), parseProjection(selectList, alias),
+        // Check for SELECT DISTINCT.
+        boolean isDistinct = false;
+        String trimmedSelect = selectList.trim();
+        if (trimmedSelect.toUpperCase().startsWith("DISTINCT")) {
+            isDistinct = true;
+            trimmedSelect = trimmedSelect.substring("DISTINCT".length()).trim();
+            if (trimmedSelect.equals("*")) {
+                // SELECT DISTINCT * fails on real Geode 1.15 (SerializationException) — reject cleanly.
+                throw new UnsupportedQueryException("SELECT DISTINCT * is not supported: " + oql);
+            }
+        }
+
+        return new OqlQuery(matcher.group(2), parseProjection(trimmedSelect, alias),
                 parseWhere(whereClause, alias), parseOrderBy(orderByClause, alias), limit,
-                null, null, null);
+                null, null, null, isDistinct);
     }
 
     /**
