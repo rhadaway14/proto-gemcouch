@@ -944,35 +944,135 @@ public final class OqlQuery {
     }
 
     private static List<List<Condition>> parseWhere(String where, String alias) {
-        List<List<Condition>> orGroups = new ArrayList<>();
         if (where == null || where.isBlank()) {
-            return orGroups;
+            return new ArrayList<>();
         }
-        if (where.contains("(") || where.contains(")")) {
-            throw new UnsupportedQueryException("parentheses are not supported: " + where);
+        return parseDnf(where.trim(), alias);
+    }
+
+    /**
+     * Parse a WHERE sub-expression into DNF (list of AND-groups). OR has lower precedence than AND;
+     * parentheses override precedence. `(A OR B) AND C` is distributed to `[[A,C],[B,C]]`.
+     */
+    private static List<List<Condition>> parseDnf(String expr, String alias) {
+        List<String> orParts = splitTopLevel(expr, "OR");
+        List<List<Condition>> result = new ArrayList<>();
+        for (String part : orParts) {
+            result.addAll(parseConjunction(part.trim(), alias));
         }
-        for (String orGroup : where.split("(?i)\\s+OR\\s+")) {
-            List<Condition> andGroup = new ArrayList<>();
-            for (String clause : orGroup.split("(?i)\\s+AND\\s+")) {
-                Matcher m = CONDITION.matcher(clause);
-                if (m.matches()) {
-                    andGroup.add(new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
-                            Literal.parse(m.group(3))));
-                    continue;
+        return result;
+    }
+
+    /** Parse a conjunction into DNF, distributing any inner OR (via cross-product) upward. */
+    private static List<List<Condition>> parseConjunction(String expr, String alias) {
+        List<String> andParts = splitTopLevel(expr, "AND");
+        List<List<Condition>> dnf = new ArrayList<>();
+        dnf.add(new ArrayList<>()); // start with a single empty AND-group
+        for (String part : andParts) {
+            List<List<Condition>> atomDnf = parseAtomDnf(part.trim(), alias);
+            List<List<Condition>> next = new ArrayList<>();
+            for (List<Condition> existing : dnf) {
+                for (List<Condition> atomGroup : atomDnf) {
+                    List<Condition> combined = new ArrayList<>(existing);
+                    combined.addAll(atomGroup);
+                    next.add(combined);
                 }
-                Matcher in = IN_CONDITION.matcher(clause);
-                if (in.matches()) {
-                    // `<literal> IN <path>`: the path resolves to the collection; the literal is the
-                    // element sought (containment). The left operand must be a literal, not a field.
-                    andGroup.add(new Condition(toPath(in.group(2), alias), Operator.IN,
-                            Literal.parse(in.group(1))));
-                    continue;
-                }
-                throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
             }
-            orGroups.add(andGroup);
+            dnf = next;
         }
-        return orGroups;
+        return dnf;
+    }
+
+    /** Parse an atom: either a fully-parenthesized sub-expression or a leaf condition. */
+    private static List<List<Condition>> parseAtomDnf(String expr, String alias) {
+        String e = expr.trim();
+        if (e.startsWith("(")) {
+            int close = findMatchingClose(e, 0);
+            if (close == e.length() - 1) {
+                return parseDnf(e.substring(1, close).trim(), alias);
+            }
+        }
+        List<Condition> single = new ArrayList<>();
+        single.add(parseSingleCondition(e, alias));
+        List<List<Condition>> result = new ArrayList<>();
+        result.add(single);
+        return result;
+    }
+
+    /** Parse one leaf condition clause (e.g. `status = 'active'` or `'x' IN tags`). */
+    private static Condition parseSingleCondition(String clause, String alias) {
+        Matcher m = CONDITION.matcher(clause);
+        if (m.matches()) {
+            return new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
+                    Literal.parse(m.group(3)));
+        }
+        Matcher in = IN_CONDITION.matcher(clause);
+        if (in.matches()) {
+            // `<literal> IN <path>`: the path resolves to the collection; the literal is the
+            // element sought (containment). The left operand must be a literal, not a field.
+            return new Condition(toPath(in.group(2), alias), Operator.IN,
+                    Literal.parse(in.group(1)));
+        }
+        throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
+    }
+
+    /**
+     * Find the index of the `)` that closes the `(` at position {@code open} in {@code s},
+     * skipping nested parens and single-quoted string literals.
+     */
+    private static int findMatchingClose(String s, int open) {
+        int depth = 0;
+        for (int i = open; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '(') { depth++; }
+            else if (c == ')') { depth--; if (depth == 0) return i; }
+            else if (c == '\'') { i++; while (i < s.length() && s.charAt(i) != '\'') i++; }
+        }
+        throw new UnsupportedQueryException("unmatched parenthesis: " + s);
+    }
+
+    /**
+     * Split {@code expr} on top-level (paren-depth=0, not inside string literals) occurrences of
+     * {@code keyword} (case-insensitive), where the keyword is bounded by whitespace on both sides.
+     * Returns a list of at least one part (the original expression if no split point is found).
+     */
+    private static List<String> splitTopLevel(String expr, String keyword) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        int i = 0;
+        int n = expr.length();
+        int kwLen = keyword.length();
+        while (i < n) {
+            char c = expr.charAt(i);
+            if (c == '(') { depth++; i++; }
+            else if (c == ')') { depth--; i++; }
+            else if (c == '\'') {
+                i++;
+                while (i < n && expr.charAt(i) != '\'') i++;
+                if (i < n) i++;
+            } else if (depth == 0 && Character.isWhitespace(c)) {
+                int wsStart = i;
+                int pos = i;
+                while (pos < n && Character.isWhitespace(expr.charAt(pos))) pos++;
+                if (pos + kwLen <= n
+                        && expr.substring(pos, pos + kwLen).equalsIgnoreCase(keyword)
+                        && (pos + kwLen == n || Character.isWhitespace(expr.charAt(pos + kwLen)))) {
+                    parts.add(expr.substring(start, wsStart).trim());
+                    i = pos + kwLen;
+                    while (i < n && Character.isWhitespace(expr.charAt(i))) i++;
+                    start = i;
+                } else {
+                    i++;
+                }
+            } else {
+                i++;
+            }
+        }
+        String last = expr.substring(start).trim();
+        if (!last.isEmpty()) parts.add(last);
+        if (parts.isEmpty()) parts.add(expr.trim());
+        return parts;
     }
 
     /** Raised when a query uses a feature outside the supported subset. */
