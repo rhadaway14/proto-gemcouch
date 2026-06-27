@@ -8,6 +8,14 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ### Added
 
+- **OQL GROUP BY (1.4.0-M2)** — `SELECT <key>, <agg>(<field>|*) FROM /region [WHERE …] GROUP BY <key>`
+  groups the WHERE-filtered set by one or more key columns and computes a per-group aggregate. Result is a
+  `SelectResults<Struct>` with real column names: `"0"` for COUNT (Geode 1.15 convention), field name for
+  SUM/AVG/MIN/MAX. SUM and AVG use integer arithmetic when all inputs are integral. `ORDER BY` and `HAVING`
+  with `GROUP BY` are not supported (deferred; real Geode 1.15 fails on `HAVING` too). Wire shape (StructBag
+  + StructTypeImpl + per-column ObjectType + `Object[groups][cols]`) captured from a real Geode 1.15 server
+  via `GeodeQueryCapture GROUP_BY_CAPTURE=1`. Works for map and PDX values. Validated end-to-end by
+  `ProtoGemCouchGroupByIntegrationTest`.
 - **OQL aggregate functions (1.4.0-M1)** — `SELECT COUNT(*) / COUNT(field) / SUM(field) / MIN(field) /
   MAX(field) / AVG(field) FROM /region [WHERE …]` computed in-shim over the WHERE-filtered candidate set.
   `COUNT(*)` and `COUNT(field)` return `Integer`; `SUM`/`AVG`/`MIN`/`MAX` return `Number` (or `null` for

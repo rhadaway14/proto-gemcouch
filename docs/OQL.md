@@ -1,9 +1,9 @@
 # OQL query support — design notes
 
-Status: **SELECT * / single-field projection / WHERE (AND+OR) / aggregate functions done**, all
+Status: **SELECT * / single-field projection / WHERE (AND+OR) / aggregate functions / GROUP BY done**, all
 end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`,
-`ProtoGemCouchAggregateQueryIntegrationTest`). Supported:
-`SELECT (* | <field> | <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [ORDER BY ...] [LIMIT n]` where
+`ProtoGemCouchAggregateQueryIntegrationTest`, `ProtoGemCouchGroupByIntegrationTest`). Supported:
+`SELECT (* | <field> | <agg>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY ...] [LIMIT n]` where
 conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals)
 combined with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level
 fields of map-typed values; the response is filtered (and projected) accordingly, with `LIMIT` capping
@@ -95,6 +95,25 @@ as a one-element `SelectResults`.
   `CollectionType(java.util.Collection, java.lang.Number)` for SUM/AVG/MIN/MAX. Part 2 =
   `Object[1]{java.lang.Object, <serialized scalar>}` (DSCODE `0x34`). Captured from a real Geode 1.15
   server and golden-wire-locked in `GoldenWireResponseTest`.
+
+**GROUP BY** (`SELECT <key>, <agg>(<field>|*) FROM /region [alias] [WHERE …] GROUP BY <key>`, as of
+1.4.0-M2): groups the WHERE-filtered set by one or more key columns and computes a per-group aggregate.
+The result is a `SelectResults<Struct>` with actual column names (not `field$0`):
+
+- `COUNT(*)`/`COUNT(field)` — column name `"0"` (Geode 1.15 convention); always an `Integer`.
+- `SUM(field)` — column name = field name; integer arithmetic when all inputs are integral (`Integer`/`Long`), otherwise `Double`.
+- `AVG(field)` — column name = field name; integer division when all inputs are integral, otherwise `Double`.
+- `MIN(field)` / `MAX(field)` — column name = field name; preserves source type (`Comparable`).
+- **WHERE** narrows rows before grouping.
+- **`ORDER BY`** with `GROUP BY` is **not supported** (raises an error at parse time). `HAVING` is also not
+  supported (deferred; real Geode 1.15 fails on it too).
+- Works on map and PDX values (PDX fields resolved via `PdxFieldAccessor`).
+- Wire shape: Part 1 = `StructBag` CollectionType wrapping `StructTypeImpl` with actual field names +
+  one `ObjectType` per column (`java.lang.Integer` for COUNT, `java.lang.Number` for SUM/AVG/MIN/MAX,
+  `java.lang.Object` for group-key columns). Part 2 = `Object[N_groups]` of `Object[M_cols]` struct rows
+  (DSCODE `0x34`). Captured from a real Geode 1.15 server via `GeodeQueryCapture GROUP_BY_CAPTURE=1` and
+  implemented in `GemResponseWriter.buildGroupByQueryResponse`. Validated end-to-end by
+  `ProtoGemCouchGroupByIntegrationTest`.
 
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
