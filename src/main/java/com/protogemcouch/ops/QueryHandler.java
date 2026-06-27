@@ -77,6 +77,11 @@ public class QueryHandler implements OperationHandler {
 
         String region = query.regionPath();
 
+        if (query.isAggregate()) {
+            handleAggregate(ctx, oql, query, region, txId);
+            return;
+        }
+
         // Candidate source: pushed-down (backend pre-filtered) when eligible, else the full-region scan.
         // Either way the candidates are a superset; query.matches() below is authoritative.
         int limit = query.limit();
@@ -158,6 +163,45 @@ public class QueryHandler implements OperationHandler {
                 "handler_query_ok", "query", oql, "region", region, "rows", rowCount,
                 "pushdown", pushdownUsed, "limit", query.hasLimit() ? limit : -1, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+    }
+
+    /**
+     * Handle an aggregate query (COUNT/SUM/MIN/MAX/AVG): fetch candidates (via pushdown when eligible,
+     * else full scan), filter in-shim, compute the scalar result, and reply with the aggregate wire shape.
+     */
+    private void handleAggregate(ChannelHandlerContext ctx, String oql, OqlQuery query,
+                                 String region, int txId) {
+        // Use existing candidate-set logic (pushdown when eligible, else scan) — candidates are always
+        // a superset; the in-shim matcher is authoritative for both the filter and the aggregation.
+        Collection<StoredValue> candidates = null;
+        boolean pushdownUsed = false;
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+            if (eligible.isPresent()) {
+                Optional<List<StoredValue>> pushed =
+                        repository.queryPushdownByPredicates(region, eligible.get(), 0);
+                if (pushed.isPresent()) {
+                    candidates = pushed.get();
+                    pushdownUsed = true;
+                }
+            }
+        }
+        if (candidates == null) {
+            candidates = repository.getAll(region, repository.keySet(region)).values();
+        }
+
+        List<StoredValue> matched = matchesOf(candidates, query);
+        Object result = query.computeAggregateRaw(matched, fieldResolver);
+
+        boolean isCount = query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_STAR
+                || query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_FIELD;
+
+        log.info(StructuredLog.event(
+                "handler_aggregate_ok", "query", oql, "region", region,
+                "fn", query.aggregateFunction(), "rows", matched.size(),
+                "result", result, "pushdown", pushdownUsed, "txId", txId));
+        ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                GemResponseWriter.buildAggregateQueryResponse(txId, result, isCount)));
     }
 
     /** Authoritatively filter a candidate set to the values that satisfy the query's WHERE clause. */

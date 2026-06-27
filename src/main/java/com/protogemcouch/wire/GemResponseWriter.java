@@ -949,6 +949,83 @@ public final class GemResponseWriter {
         );
     }
 
+    // --- OQL aggregate query (chunked) response -----------------------------------------------
+    // Wire shape captured via GeodeQueryCapture AGGREGATE_CAPTURE=1 against a real Geode 1.15 server.
+    //
+    // Both aggregate CollectionType parts begin with the java.util.Collection wrapper (0x01 0xc5 =
+    // DataSerializableFixedID marker + RESULTS_COLLECTION_TYPE id), then the element ObjectType
+    // (0x01 0xc3 = DS_FIXED_ID + OBJECT_TYPE id), then the element class descriptor.
+    //
+    //   COUNT(*) / COUNT(field) element type: java.lang.Integer (0x39 = GEODE_INTEGER_CODE)
+    //   SUM / AVG / MIN / MAX element type:   java.lang.Number  (abstract; actual value type varies)
+    //
+    // Part 2 is always an Object[1] containing the scalar result:
+    //   0x34 = GEODE_OBJECT_ARRAY_CODE
+    //   0x01 = writeGeodeArrayLength(1)
+    //   CLASS_DESCRIPTOR("java.lang.Object") = 2b 57 00 10 "java.lang.Object"
+    //   <serialized scalar>
+    // Null result (AVG/MIN/MAX over empty set): 0x29 = GEODE_NULL_CODE.
+    private static final byte[] AGG_COUNT_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b5700146a6176612e7574696c2e436f6c6c656374696f6e"
+                    + "01c32b5700116a6176612e6c616e672e496e7465676572");
+    private static final byte[] AGG_NUMBER_COLLECTION_TYPE = ByteUtils.hex(
+            "01c52b5700146a6176612e7574696c2e436f6c6c656374696f6e"
+                    + "01c32b5700106a6176612e6c616e672e4e756d626572");
+    // Object[1] prefix: GEODE_OBJECT_ARRAY_CODE + length 1 + CLASS_DESCRIPTOR("java.lang.Object")
+    private static final byte[] AGG_RESULT_OBJECT_ARRAY_PREFIX = ByteUtils.hex(
+            "34012b5700106a6176612e6c616e672e4f626a656374");
+
+    /**
+     * Build the chunked response for an OQL aggregate query: one chunk, two parts (CollectionType +
+     * Object[1]{result}). The {@code result} may be {@code null} (for undefined aggregates like AVG/MIN/MAX
+     * over an empty set) or any {@link Number} subtype. The {@code isCount} flag selects the
+     * {@code java.lang.Integer} CollectionType (for COUNT) vs {@code java.lang.Number} (for the rest).
+     * The scalar is encoded with the appropriate Geode DSCODE (Integer 0x39, Long 0x3a, Double 0x3c),
+     * defaulting to double for unknown Number subtypes.
+     *
+     * <p>Wire shape matched byte-for-byte to the real Geode 1.15 server (captured via
+     * {@code GeodeQueryCapture AGGREGATE_CAPTURE=1}).
+     */
+    public static byte[] buildAggregateQueryResponse(int txId, Object result, boolean isCount) {
+        byte[] collectionType = isCount ? AGG_COUNT_COLLECTION_TYPE : AGG_NUMBER_COLLECTION_TYPE;
+        byte[] resultPart = buildAggregateResultPart(result);
+        return buildMultiChunkResponse(txId, 2,
+                List.of(List.of(new Part(collectionType, (byte) 1), new Part(resultPart, (byte) 1))));
+    }
+
+    private static byte[] buildAggregateResultPart(Object result) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            buf.writeBytes(AGG_RESULT_OBJECT_ARRAY_PREFIX);
+            if (result == null) {
+                buf.writeByte(GEODE_NULL_CODE);
+            } else if (result instanceof Integer) {
+                buf.writeByte(GEODE_INTEGER_CODE);
+                buf.writeInt((Integer) result);
+            } else if (result instanceof Long) {
+                buf.writeByte(GEODE_LONG_CODE);
+                buf.writeLong((Long) result);
+            } else if (result instanceof Double) {
+                buf.writeByte(GEODE_DOUBLE_CODE);
+                buf.writeLong(Double.doubleToLongBits((Double) result));
+            } else if (result instanceof Float) {
+                buf.writeByte(GEODE_FLOAT_CODE);
+                buf.writeInt(Float.floatToIntBits((Float) result));
+            } else if (result instanceof String) {
+                buf.writeBytes(ValueEncoding.encodeGeodeStringValue((String) result));
+            } else if (result instanceof Number) {
+                buf.writeByte(GEODE_DOUBLE_CODE);
+                buf.writeLong(Double.doubleToLongBits(((Number) result).doubleValue()));
+            } else {
+                buf.writeByte(GEODE_NULL_CODE);
+            }
+            return toByteArrayAndRelease(buf);
+        } catch (RuntimeException e) {
+            buf.release();
+            throw e;
+        }
+    }
+
     // --- OQL query (chunked) response ---------------------------------------------------------
     // Byte templates captured from a real Geode 1.15 server's SELECT * response (see GeodeQueryCapture
     // / docs/OQL.md). The CollectionType part is fixed for SELECT * (ResultsCollectionType<Object>).
