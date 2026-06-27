@@ -85,6 +85,11 @@ public final class GeodeQueryCapture {
         if (!existing.isEmpty()) {
             r.removeAll(existing);
         }
+        if ("1".equals(env("GROUP_BY_CAPTURE", "0"))) {
+            runGroupByCapture(cache, r, region, serverToClient, proxy);
+            return;
+        }
+
         if ("1".equals(env("SEED_TX", "0"))) {
             org.apache.geode.cache.CacheTransactionManager txMgr = cache.getCacheTransactionManager();
             int txOps = Integer.parseInt(env("SEED_COUNT", "2"));
@@ -213,6 +218,103 @@ public final class GeodeQueryCapture {
             proxy.close();
         }
         System.exit(0);
+    }
+
+    /**
+     * GROUP_BY_CAPTURE=1 mode: seed 4 map entries, run GROUP BY queries and dump the response bytes.
+     * Queries:
+     *   1. SELECT status, COUNT(*) FROM /r GROUP BY status
+     *   2. SELECT status, SUM(amount) FROM /r GROUP BY status
+     *   3. SELECT status, COUNT(*) FROM /r GROUP BY status HAVING COUNT(*) > 1
+     *   4. SELECT status, COUNT(*) FROM /r WHERE amount > 10 GROUP BY status
+     *   5. SELECT status, category, COUNT(*) FROM /r GROUP BY status, category  (multi-key)
+     */
+    /**
+     * GROUP_BY_CAPTURE=1 mode: seed 4 PDX entries (so field access works in Geode OQL), run GROUP BY
+     * queries, and dump the response bytes per query.
+     * <p>
+     * Queries:
+     *   1. SELECT status, COUNT(*) FROM /r e GROUP BY status                (2 groups, count per group)
+     *   2. SELECT status, SUM(amount) FROM /r e GROUP BY status             (sum per group)
+     *   3. SELECT status, MIN(amount) FROM /r e GROUP BY status             (min per group)
+     *   4. SELECT status, MAX(amount) FROM /r e GROUP BY status             (max per group)
+     *   5. SELECT status, AVG(amount) FROM /r e GROUP BY status             (avg per group)
+     *   6. SELECT status, COUNT(*) FROM /r e WHERE amount > 10 GROUP BY status (with WHERE)
+     *   7. SELECT status, category, COUNT(*) FROM /r e GROUP BY status, category (multi-key)
+     *   8. SELECT status, COUNT(*) FROM /r e GROUP BY status HAVING COUNT(*) > 1 (HAVING — may fail on server)
+     */
+    private static void runGroupByCapture(ClientCache cache, Region<String, Object> r, String region,
+                                          List<ByteArrayOutputStream> serverToClient,
+                                          ServerSocket proxy) throws Exception {
+        // Seed with PDX so Geode OQL can resolve named fields
+        cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "A").writeInt("amount", 10)
+                .create();  // factory warmup — first create doesn't write to region
+        r.put("k1", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "A").writeInt("amount", 10).create());
+        r.put("k2", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "active").writeString("category", "B").writeInt("amount", 20).create());
+        r.put("k3", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "closed").writeString("category", "A").writeInt("amount", 30).create());
+        r.put("k4", cache.createPdxInstanceFactory("demo.Order")
+                .writeString("status", "closed").writeString("category", "A").writeInt("amount", 40).create());
+
+        List<String> queries = new ArrayList<>(List.of(
+                "SELECT status, COUNT(*) FROM /" + region + " e GROUP BY status",
+                "SELECT status, SUM(amount) FROM /" + region + " e GROUP BY status",
+                "SELECT status, MIN(amount) FROM /" + region + " e GROUP BY status",
+                "SELECT status, MAX(amount) FROM /" + region + " e GROUP BY status",
+                "SELECT status, AVG(amount) FROM /" + region + " e GROUP BY status",
+                "SELECT status, COUNT(*) FROM /" + region + " e WHERE amount > 10 GROUP BY status",
+                "SELECT status, category, COUNT(*) FROM /" + region + " e GROUP BY status, category",
+                "SELECT status, COUNT(*) FROM /" + region + " e GROUP BY status HAVING COUNT(*) > 1"
+        ));
+
+        for (String q : queries) {
+            try {
+                runCapture(cache, q, serverToClient);
+            } catch (Exception e) {
+                System.out.println("=== QUERY FAILED: " + q + " => " + e.getMessage() + " ===");
+            }
+        }
+
+        cache.close();
+        if (proxy != null) {
+            proxy.close();
+        }
+        System.exit(0);
+    }
+
+    private static void runCapture(ClientCache cache, String query,
+                                   List<ByteArrayOutputStream> serverToClient) throws Exception {
+        Map<ByteArrayOutputStream, Integer> before = new IdentityHashMap<>();
+        synchronized (serverToClient) {
+            for (ByteArrayOutputStream s : serverToClient) {
+                before.put(s, s.size());
+            }
+        }
+
+        System.out.println("=== executing: " + query + " ===");
+        SelectResults<?> results = (SelectResults<?>) cache.getQueryService().newQuery(query).execute();
+        System.out.println("=== result size=" + results.size() + " values=" + new ArrayList<>(results) + " ===");
+
+        Thread.sleep(750);
+
+        synchronized (serverToClient) {
+            int i = 0;
+            for (ByteArrayOutputStream s : serverToClient) {
+                byte[] all = s.toByteArray();
+                int from = before.getOrDefault(s, 0);
+                if (all.length > from) {
+                    byte[] delta = new byte[all.length - from];
+                    System.arraycopy(all, from, delta, 0, delta.length);
+                    System.out.println("=== CONN " + i + " QUERY-RESPONSE " + delta.length + " bytes ===");
+                    System.out.println(hex(delta));
+                    analyzeChunks(delta);
+                }
+                i++;
+            }
+        }
     }
 
     private static void pump(InputStream in, OutputStream out, ByteArrayOutputStream capture, String dir) {
