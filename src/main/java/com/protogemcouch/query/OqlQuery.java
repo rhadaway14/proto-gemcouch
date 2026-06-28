@@ -506,7 +506,7 @@ public final class OqlQuery {
      */
     public Optional<List<FieldPredicate>> pushdownPredicates() {
         if (orGroups.size() != 1) {
-            return Optional.empty(); // no WHERE (size 0) or an OR is present (size > 1)
+            return Optional.empty(); // no WHERE (size 0) or OR-of-multiple-groups: use pushdownOrGroups()
         }
         List<FieldPredicate> predicates = new ArrayList<>();
         for (Condition condition : orGroups.get(0)) {
@@ -526,6 +526,40 @@ public final class OqlQuery {
             // else (string range, boolean, null, ...): skip — the matcher re-filters authoritatively.
         }
         return predicates.isEmpty() ? Optional.empty() : Optional.of(predicates);
+    }
+
+    /**
+     * For a multi-group OR WHERE, return one {@link FieldPredicate} list per OR-group for backend
+     * pre-filtering. Only applicable when {@code orGroups.size() > 1}; returns empty otherwise. Also
+     * returns empty if any group has no eligible predicates — a group with zero eligible conditions would
+     * need to match every document, making OR pushdown equivalent to a full scan.
+     */
+    public Optional<List<List<FieldPredicate>>> pushdownOrGroups() {
+        if (orGroups.size() <= 1) {
+            return Optional.empty(); // single group → use pushdownPredicates(); no groups → no WHERE
+        }
+        List<List<FieldPredicate>> groups = new ArrayList<>();
+        for (List<Condition> group : orGroups) {
+            List<FieldPredicate> predicates = new ArrayList<>();
+            for (Condition condition : group) {
+                if (condition.path.size() != 1) continue;
+                String field = condition.path.get(0);
+                if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
+                    predicates.add(FieldPredicate.stringEquality(field, condition.literal.asText()));
+                } else if (condition.literal.isNumeric()) {
+                    PushdownOp op = numericOp(condition.op);
+                    if (op != null) {
+                        predicates.add(FieldPredicate.numericComparison(
+                                field, op, condition.literal.numberValue(), condition.literal.asText()));
+                    }
+                }
+            }
+            if (predicates.isEmpty()) {
+                return Optional.empty(); // this OR branch is ineligible; must fall back to scan
+            }
+            groups.add(predicates);
+        }
+        return Optional.of(groups);
     }
 
     /** Map a comparison operator to its pushdown form; {@code null} for the unsupported {@code NEQ}. */

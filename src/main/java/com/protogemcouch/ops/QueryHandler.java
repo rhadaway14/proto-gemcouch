@@ -99,17 +99,30 @@ public class QueryHandler implements OperationHandler {
         // The predicate list to push: the eligible subset of the WHERE, or an empty list to push just a
         // region-scoped LIMIT when there is no WHERE (so the backend caps rows instead of a full scan).
         List<OqlQuery.FieldPredicate> pushPreds = null;
+        List<List<OqlQuery.FieldPredicate>> pushOrGroups = null;
         if (pushdownEnabled) {
             Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
             if (eligible.isPresent()) {
                 pushPreds = eligible.get();
-            } else if (limitPushed && !query.hasWhere()) {
-                pushPreds = List.of(); // no WHERE + pushable LIMIT -> region-scoped LIMIT
+            } else {
+                Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
+                if (orEligible.isPresent()) {
+                    pushOrGroups = orEligible.get();
+                } else if (limitPushed && !query.hasWhere()) {
+                    pushPreds = List.of(); // no WHERE + pushable LIMIT -> region-scoped LIMIT
+                }
             }
         }
         if (pushPreds != null) {
             Optional<List<StoredValue>> pushed = repository.queryPushdownByPredicates(
                     region, pushPreds, limitPushed ? limit : 0);
+            if (pushed.isPresent()) {
+                candidates = pushed.get();
+                pushdownUsed = true;
+            }
+        } else if (pushOrGroups != null) {
+            Optional<List<StoredValue>> pushed = repository.queryPushdownByOrGroups(
+                    region, pushOrGroups, limitPushed ? limit : 0);
             if (pushed.isPresent()) {
                 candidates = pushed.get();
                 pushdownUsed = true;
@@ -125,8 +138,9 @@ public class QueryHandler implements OperationHandler {
         // candidates) but the matcher rejected some, true matches beyond the cap may have been dropped —
         // refetch the full candidate set (unbounded pushdown, else scan) so we never under-return.
         if (limitPushed && pushdownUsed && matched.size() < limit && candidates.size() >= limit) {
-            Optional<List<StoredValue>> refetched =
-                    repository.queryPushdownByPredicates(region, pushPreds, 0);
+            Optional<List<StoredValue>> refetched = pushOrGroups != null
+                    ? repository.queryPushdownByOrGroups(region, pushOrGroups, 0)
+                    : repository.queryPushdownByPredicates(region, pushPreds, 0);
             if (refetched.isPresent()) {
                 candidates = refetched.get();
             } else {
@@ -194,9 +208,13 @@ public class QueryHandler implements OperationHandler {
             if (eligible.isPresent()) {
                 Optional<List<StoredValue>> pushed =
                         repository.queryPushdownByPredicates(region, eligible.get(), 0);
-                if (pushed.isPresent()) {
-                    candidates = pushed.get();
-                    pushdownUsed = true;
+                if (pushed.isPresent()) { candidates = pushed.get(); pushdownUsed = true; }
+            } else {
+                Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
+                if (orEligible.isPresent()) {
+                    Optional<List<StoredValue>> pushed =
+                            repository.queryPushdownByOrGroups(region, orEligible.get(), 0);
+                    if (pushed.isPresent()) { candidates = pushed.get(); pushdownUsed = true; }
                 }
             }
         }
@@ -231,9 +249,13 @@ public class QueryHandler implements OperationHandler {
             if (eligible.isPresent()) {
                 Optional<List<StoredValue>> pushed =
                         repository.queryPushdownByPredicates(region, eligible.get(), 0);
-                if (pushed.isPresent()) {
-                    candidates = pushed.get();
-                    pushdownUsed = true;
+                if (pushed.isPresent()) { candidates = pushed.get(); pushdownUsed = true; }
+            } else {
+                Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
+                if (orEligible.isPresent()) {
+                    Optional<List<StoredValue>> pushed =
+                            repository.queryPushdownByOrGroups(region, orEligible.get(), 0);
+                    if (pushed.isPresent()) { candidates = pushed.get(); pushdownUsed = true; }
                 }
             }
         }
