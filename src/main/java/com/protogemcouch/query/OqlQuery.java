@@ -197,6 +197,15 @@ public final class OqlQuery {
         return aggregateFunction;
     }
 
+    /**
+     * The field path for the aggregate (defined for all aggregate functions except {@link
+     * AggregateFunction#COUNT_STAR}; {@code null} for COUNT(*)). A single-element path is a top-level
+     * field (the only case eligible for pushdown).
+     */
+    public List<String> aggregateFieldPath() {
+        return aggregateField;
+    }
+
     /** True when the query has a GROUP BY clause. */
     public boolean isGroupBy() {
         return groupByColumns != null;

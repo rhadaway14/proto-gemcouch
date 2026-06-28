@@ -1237,6 +1237,121 @@ public class CouchbaseRepository implements Repository {
         return executePushdown(statement, params, region, predicateCount);
     }
 
+    @Override
+    public Optional<Number> aggregatePushdown(
+            String region,
+            OqlQuery.AggregateFunction fn,
+            List<String> fieldPath,
+            List<OqlQuery.FieldPredicate> predicates) {
+        // Only single-element field paths are pushdown-eligible; COUNT(*) has no field.
+        if (fn != OqlQuery.AggregateFunction.COUNT_STAR
+                && (fieldPath == null || fieldPath.size() != 1)) {
+            return Optional.empty();
+        }
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        // Aggregate WHERE: region-scoped, map types only (no opaque/PDX escape — result is exact
+        // for map-typed regions; caller stays authoritative by keeping the in-shim fallback).
+        String mapFilter = "c.`type` IN [\""
+                + TYPE_STRING_OBJECT_HASH_MAP + "\", \"" + TYPE_STRING_HASH_MAP + "\"]";
+        StringBuilder whereBuilder = new StringBuilder("META(c).id LIKE $prefix AND ").append(mapFilter);
+        for (int i = 0; i < predicates.size(); i++) {
+            OqlQuery.FieldPredicate p = predicates.get(i);
+            String field = p.field();
+            if (field == null || !SAFE_FIELD.matcher(field).matches()) {
+                return Optional.empty();
+            }
+            whereBuilder.append(" AND ");
+            String envPath  = "c.`value`.`" + field + "`.`value`";
+            String barePath = "c.`value`.`" + field + "`";
+            if (p.numeric()) {
+                String nParam = "an_" + i;
+                params.put(nParam, p.number());
+                whereBuilder.append(numericFragment(p.op().symbol(), nParam, envPath, barePath));
+            } else {
+                String vParam = "av_" + i;
+                params.put(vParam, p.text());
+                Double numeric = parseNumericOrNull(p.text());
+                String nParam = null;
+                if (numeric != null) {
+                    nParam = "an_" + i;
+                    params.put(nParam, numeric);
+                }
+                whereBuilder.append(stringFragment(vParam, nParam, envPath, barePath));
+            }
+        }
+
+        // Build the SELECT aggregate expression.
+        String aggExpr;
+        if (fn == OqlQuery.AggregateFunction.COUNT_STAR) {
+            aggExpr = "COUNT(*)";
+        } else {
+            String f = fieldPath.get(0);
+            if (!SAFE_FIELD.matcher(f).matches()) {
+                return Optional.empty();
+            }
+            String envPath  = "c.`value`.`" + f + "`.`value`";
+            String barePath = "c.`value`.`" + f + "`";
+            String fieldExpr = "COALESCE(" + envPath + ", " + barePath + ")";
+            switch (fn) {
+                case COUNT_FIELD: aggExpr = "COUNT(" + fieldExpr + ")"; break;
+                case SUM:         aggExpr = "SUM(TO_NUMBER(" + fieldExpr + "))"; break;
+                case AVG:         aggExpr = "AVG(TO_NUMBER(" + fieldExpr + "))"; break;
+                case MIN:         aggExpr = "MIN(" + fieldExpr + ")"; break;
+                case MAX:         aggExpr = "MAX(" + fieldExpr + ")"; break;
+                default: return Optional.empty();
+            }
+        }
+
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT " + aggExpr + " AS r FROM " + keyspace + " c WHERE "
+                + whereBuilder;
+
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .parameters(params)
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            List<JsonObject> rows = result.rowsAs(JsonObject.class);
+            if (rows.isEmpty()) {
+                return Optional.of(0);
+            }
+            Object raw = rows.get(0).get("r");
+            Number n = toAggregateNumber(fn, raw);
+            log.info(StructuredLog.event(
+                    "repository_aggregate_pushdown_ok", "region", region,
+                    "fn", fn, "predicates", predicates.size(), "result", n));
+            return Optional.of(n);
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_aggregate_pushdown_unavailable", "region", region,
+                    "fn", fn, "error", e.getMessage()));
+            return Optional.empty();
+        }
+    }
+
+    /** Convert the raw N1QL aggregate result to the Number type the shim wire encoder expects. */
+    private static Number toAggregateNumber(OqlQuery.AggregateFunction fn, Object raw) {
+        if (raw == null) {
+            return null; // AVG/MIN/MAX over empty set
+        }
+        if (fn == OqlQuery.AggregateFunction.COUNT_STAR
+                || fn == OqlQuery.AggregateFunction.COUNT_FIELD) {
+            return raw instanceof Number ? ((Number) raw).intValue() : 0;
+        }
+        if (raw instanceof Number) {
+            return (Number) raw;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(raw));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     /** Build the PDX-aware WHERE for a non-empty predicate list, binding params; null on a bad field. */
     private String buildPredicateWhere(List<OqlQuery.FieldPredicate> predicates, JsonObject params) {
         // Delegate to the shared per-group clause builder (group index 0 → param names v0/n0).

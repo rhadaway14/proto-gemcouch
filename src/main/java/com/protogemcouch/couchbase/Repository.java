@@ -182,6 +182,29 @@ public interface Repository {
     }
 
     /**
+     * Push an aggregate function to the backend rather than fetching candidates and computing in-shim.
+     *
+     * <p>Only attempted when the WHERE is a single AND-group of string-equality and/or numeric
+     * comparison predicates on simple top-level fields (the same gate as
+     * {@link #queryPushdownByPredicates}). The backend computes the aggregate over its own map-typed
+     * documents that satisfy the predicates, without the opaque-type escape — so the result is exact
+     * for regions containing only map-typed values and may undercount for regions mixing map and
+     * opaque/PDX documents (the caller falls back to the in-shim scan on {@link Optional#empty()},
+     * but cannot detect the undercount case).
+     *
+     * <p>Returns the scalar result ({@code Integer} for COUNT, {@code Double} for SUM/AVG/MIN/MAX/field
+     * counts), or {@link Optional#empty()} when pushdown is unavailable (no index, query error,
+     * ineligible field, or any other problem). The default is "no pushdown".
+     */
+    default Optional<Number> aggregatePushdown(
+            String region,
+            OqlQuery.AggregateFunction fn,
+            List<String> fieldPath,
+            List<OqlQuery.FieldPredicate> predicates) {
+        return Optional.empty();
+    }
+
+    /**
      * Install an extractor that, given a stored PDX instance's wire bytes, returns its scalar fields
      * (name→value). When set, the backend writes those fields as a queryable sidecar next to the opaque
      * PDX bytes so {@link #queryPushdownByPredicates} can filter PDX documents by field (instead of
