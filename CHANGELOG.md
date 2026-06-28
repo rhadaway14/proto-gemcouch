@@ -4,7 +4,13 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased] — 1.5.0-dev
+## [1.5.0] - 2026-06-28
+
+The **OQL at scale** release — aggregate pushdown, GROUP BY pushdown, and three new predicate types
+(`IN (list)`, `LIKE`, `IS NULL`/`IS NOT NULL`) bring the most common OQL patterns fully into Couchbase
+N1QL rather than in-shim scanning. All changes are additive and non-breaking (semver minor): no new
+client-facing wire forms, so existing 1.15.x clients and the validated 1.13/1.14/1.15 cross-version
+range are unchanged.
 
 ### Added
 
@@ -17,6 +23,36 @@ All notable changes to ProtoGemCouch are documented here. The format follows
   with `REQUEST_PLUS` scan consistency. Falls back to the existing candidate-fetch + in-shim path when
   the pushdown returns `Optional.empty()` (ineligible WHERE, OR WHERE, pushdown disabled, any error).
   `OqlQuery.aggregateFieldPath()` exposes the aggregate field for the repository layer.
+- **GROUP BY pushdown to N1QL (1.5.0-M2)** — when `OQL_PUSHDOWN=true` and a GROUP BY query has a
+  single top-level group key and a single-AND-group (or absent) WHERE, the entire GROUP BY computation
+  is pushed to Couchbase: `SELECT COALESCE(val.key.value, val.key) AS k, COUNT(*)/SUM/etc AS v WHERE
+  … AND type IN [map types] GROUP BY COALESCE(…)`. Result is exact for map-typed regions; falls back
+  to in-shim grouping otherwise. `OqlQuery.pushdownGroupBy()` is the eligibility gate;
+  `Repository.groupByPushdown(…)` is the new interface method.
+- **IN (list) predicate (1.5.0-M3)** — `WHERE field IN ('a', 'b', 'c')` and `WHERE field IN SET
+  ('a', 'b', 'c')` are now parsed, matched in-shim, and pushed to N1QL as
+  `TO_STRING(field) IN $arr` (bound `JsonArray`). Extracted as `FieldPredicate` for all pushdown paths
+  (predicate, aggregate, GROUP BY).
+- **LIKE predicate (1.5.0-M3)** — `WHERE field LIKE 'pattern%'` is now parsed, matched in-shim via
+  a `%`→`.*` / `_`→`.` regex conversion, and pushed to N1QL as `TO_STRING(field) LIKE $pattern`.
+- **IS NULL / IS NOT NULL predicates (1.5.0-M3)** — `WHERE field IS NULL` and `WHERE field IS NOT
+  NULL` are parsed; an absent field and an explicit null are both treated as null by the in-shim
+  matcher; pushed to N1QL as `field IS NOT VALUED` / `field IS VALUED`.
+
+### Hardening (1.5.0-M4)
+
+- **Security re-review** — all M1-M3 N1QL templates confirmed injection-free: field names through
+  `SAFE_FIELD` before interpolation, all literal values as bind params (string via `$v`, numeric via
+  `$n`, IN-list via `JsonArray` bound to `$v`, LIKE pattern via `$v`; IS NULL/IS NOT NULL have no
+  values). `appendMapOnlyPredFrag` centralizes the map-only predicate fragment; `buildGroupAndClause`
+  covers the PDX side. Read-only flag set on all N1QL calls. `SECURITY.md` updated through 1.5.0-M3.
+- **Soak** — 300s query-heavy profile soak (1,234,581 ops): **`SOAK_VERDICT PASS`** (errors=0,
+  shed=0, conn_growth=-17, mem_growth=19.4%, p99=7.5ms). All M1–M3 pushdown paths exercised under
+  load. No regressions vs 1.4.0.
+- **Cross-version matrix** — Geode 1.15.1 and 1.15.4 clients: 36 tests PASS each (2026-06-28).
+  1.5.0 adds no new client-facing wire forms (pushdown is server-internal; new predicate types affect
+  only the WHERE evaluation and N1QL generation), so the validated range (Geode 1.13/1.14/1.15) is
+  unchanged.
 
 ---
 
