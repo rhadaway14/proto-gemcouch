@@ -1613,11 +1613,13 @@ public class CouchbaseRepository implements Repository {
                 mapPreds.append(likeFragment(vParam, envelopePath, barePath));
                 pdxPreds.append(likeFragment(vParam, pdxPath));
             } else if (predicate.numeric()) {
+                // Covers numeric =, ranges, and != — numericFragment's "TYPE = string" escape keeps it a
+                // superset (a number stored as a string, or any string scalar for !=, stays a candidate).
                 String nParam = "n" + groupIndex + "_" + i;
                 params.put(nParam, predicate.number());
                 mapPreds.append(numericFragment(op.symbol(), nParam, envelopePath, barePath));
                 pdxPreds.append(numericFragment(op.symbol(), nParam, pdxPath));
-            } else {
+            } else if (op == OqlQuery.PushdownOp.EQ) {
                 String vParam = "v" + groupIndex + "_" + i;
                 params.put(vParam, predicate.text());
                 Double numeric = parseNumericOrNull(predicate.text());
@@ -1628,6 +1630,14 @@ public class CouchbaseRepository implements Repository {
                 }
                 mapPreds.append(stringFragment(vParam, nParam, envelopePath, barePath));
                 pdxPreds.append(stringFragment(vParam, nParam, pdxPath));
+            } else {
+                // String range (LT/LTE/GT/GTE): compare by string form; the matcher re-filters by
+                // String.compareTo. The "TYPE = number" escape keeps numeric scalars as candidates (a
+                // number's TO_STRING and String.valueOf forms can differ), so this stays a superset.
+                String vParam = "v" + groupIndex + "_" + i;
+                params.put(vParam, predicate.text());
+                mapPreds.append(stringComparisonFragment(op.symbol(), vParam, envelopePath, barePath));
+                pdxPreds.append(stringComparisonFragment(op.symbol(), vParam, pdxPath));
             }
         }
         return "(" + mapPreds + ")"
@@ -1732,7 +1742,7 @@ public class CouchbaseRepository implements Repository {
         } else if (predicate.numeric()) {
             params.put(paramPrefix, predicate.number());
             sb.append(numericFragment(op.symbol(), paramPrefix, envPath, barePath));
-        } else {
+        } else if (op == OqlQuery.PushdownOp.EQ) {
             params.put(paramPrefix, predicate.text());
             Double numeric = parseNumericOrNull(predicate.text());
             String nParam = null;
@@ -1741,6 +1751,11 @@ public class CouchbaseRepository implements Repository {
                 params.put(nParam, numeric);
             }
             sb.append(stringFragment(paramPrefix, nParam, envPath, barePath));
+        } else {
+            // String range (LT/LTE/GT/GTE): the candidate path's superset escape (TYPE = number) would
+            // over-count an exact aggregate/GROUP BY, so decline here and let the caller fall back to the
+            // in-shim aggregate (candidate-fetch may still push the range via buildGroupAndClause).
+            return false;
         }
         return true;
     }
@@ -1778,6 +1793,26 @@ public class CouchbaseRepository implements Repository {
             if (nParam != null) {
                 fragment.append(" OR ").append(paths[i]).append(" = $").append(nParam);
             }
+        }
+        return fragment.append(")").toString();
+    }
+
+    /**
+     * String range-comparison fragment over one or more candidate scalar paths (OR-ed): {@code
+     * TO_STRING(p) <op> $v} per path, each with a {@code TYPE(p) = "number"} escape so a numeric scalar
+     * stays a candidate (its {@code TO_STRING} form can differ from the matcher's {@code String.valueOf},
+     * e.g. {@code 5} vs {@code 5.0}). The in-shim matcher re-filters by {@code String.compareTo}, so this
+     * is a superset. (String collation matches Java's for BMP characters; supplementary-plane characters
+     * at a range boundary can differ — a documented bound.)
+     */
+    private static String stringComparisonFragment(String op, String vParam, String... paths) {
+        StringBuilder fragment = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) {
+                fragment.append(" OR ");
+            }
+            fragment.append("TO_STRING(").append(paths[i]).append(") ").append(op).append(" $").append(vParam)
+                    .append(" OR TYPE(").append(paths[i]).append(") = \"number\"");
         }
         return fragment.append(")").toString();
     }

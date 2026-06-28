@@ -18,7 +18,10 @@ import java.util.regex.Pattern;
  * {@code SELECT (* | <field> | <aggregate>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias]
  * [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY <keys>] [LIMIT n]}, where conditions are
  * {@code <field> <op> <literal>} (ops {@code = <> != < <= > >=}; literals are quoted strings, numbers,
- * booleans, or {@code null}) combined with {@code AND}/{@code OR} (AND binds tighter; no parentheses).
+ * booleans, or {@code null}), plus {@code field IN (...)}, {@code field LIKE 'pat'}, and {@code field IS
+ * [NOT] NULL}, combined with {@code AND}/{@code OR} (AND binds tighter) with full parenthesis support.
+ * ({@code BETWEEN} is intentionally absent — it is not part of Geode OQL; the real client's query
+ * compiler rejects it, so use {@code field >= lo AND field <= hi}.)
  * Aggregate queries ({@link #isAggregate()}) compute a scalar over the WHERE-filtered set.
  * GROUP BY queries ({@link #isGroupBy()}) group the WHERE-filtered set by key columns and compute
  * per-group aggregates; {@code ORDER BY} and {@code HAVING} are not supported with GROUP BY.
@@ -197,7 +200,7 @@ public final class OqlQuery {
 
     /** The comparison of a pushdown-eligible scalar predicate. */
     public enum PushdownOp {
-        EQ("="), LT("<"), LTE("<="), GT(">"), GTE(">="),
+        EQ("="), NEQ("!="), LT("<"), LTE("<="), GT(">"), GTE(">="),
         LIKE("LIKE"), IN_LIST("IN"), IS_NULL("IS NULL"), IS_NOT_NULL("IS NOT NULL");
 
         private final String symbol;
@@ -228,6 +231,15 @@ public final class OqlQuery {
 
         static FieldPredicate numericComparison(String field, PushdownOp op, double number, String text) {
             return new FieldPredicate(field, op, true, text, number, null);
+        }
+
+        /**
+         * A string range comparison ({@code field < <= > >= 'text'}) on a top-level field — the
+         * non-numeric counterpart of {@link #numericComparison}. The backend compares by string form
+         * ({@code TO_STRING(field) <op> $v}); the in-shim matcher re-filters by {@code String.compareTo}.
+         */
+        static FieldPredicate stringComparison(String field, PushdownOp op, String text) {
+            return new FieldPredicate(field, op, false, text, 0d, null);
         }
 
         static FieldPredicate likePredicate(String field, String pattern) {
@@ -696,7 +708,7 @@ public final class OqlQuery {
                 if (condition.literal != null && condition.literal.isPlainString()) {
                     return FieldPredicate.stringEquality(field, condition.literal.asText());
                 }
-                // fall through to numeric check
+                // fall through to the numeric check
             default:
                 if (condition.literal != null && condition.literal.isNumeric()) {
                     PushdownOp op = numericOp(condition.op);
@@ -704,20 +716,41 @@ public final class OqlQuery {
                         return FieldPredicate.numericComparison(
                                 field, op, condition.literal.numberValue(), condition.literal.asText());
                     }
+                    return null;
+                }
+                // String range comparison (field < <= > >= 'text'): pushed by string form; the matcher
+                // re-filters by String.compareTo. (String EQ is handled above; string NEQ is not pushed.)
+                if (condition.literal != null && condition.literal.isPlainString()) {
+                    PushdownOp op = stringRangeOp(condition.op);
+                    if (op != null) {
+                        return FieldPredicate.stringComparison(field, op, condition.literal.asText());
+                    }
                 }
                 return null;
         }
     }
 
-    /** Map a comparison operator to its pushdown form; {@code null} for the unsupported {@code NEQ}. */
+    /** Map a comparison operator to its numeric pushdown form, including {@code NEQ} ({@code !=}). */
     private static PushdownOp numericOp(Operator op) {
         switch (op) {
             case EQ: return PushdownOp.EQ;
+            case NEQ: return PushdownOp.NEQ;
             case LT: return PushdownOp.LT;
             case LTE: return PushdownOp.LTE;
             case GT: return PushdownOp.GT;
             case GTE: return PushdownOp.GTE;
-            default: return null; // NEQ
+            default: return null;
+        }
+    }
+
+    /** Map a range operator to its pushdown form for a string literal; {@code null} for EQ/NEQ. */
+    private static PushdownOp stringRangeOp(Operator op) {
+        switch (op) {
+            case LT: return PushdownOp.LT;
+            case LTE: return PushdownOp.LTE;
+            case GT: return PushdownOp.GT;
+            case GTE: return PushdownOp.GTE;
+            default: return null; // EQ handled separately; string NEQ is not pushed
         }
     }
 

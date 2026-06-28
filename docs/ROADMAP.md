@@ -408,11 +408,26 @@ items are additive/non-breaking (semver minors).
 - Known semantics difference vs the scan (documented): `NULL`/missing and mixed-type fields follow N1QL
   collation rather than the in-shim "nulls last" rule.
 
-### 1.6.0-M2 — Remaining predicate gaps
-- [ ] **`BETWEEN`** — `WHERE age BETWEEN 18 AND 65` → `$lo <= TO_NUMBER(field) AND TO_NUMBER(field) <= $hi`.
-- [ ] **String range predicates** — `WHERE name > 'M'` (today only numeric ranges push; strings scan).
-- [ ] **Numeric `<>`/`!=`** — currently scans.
-- [ ] Unit + ITs for each.
+### 1.6.0-M2 — Remaining predicate gaps · **COMPLETE** (2026-06-28)
+- [x] **`BETWEEN` — dropped as a non-goal (real-client finding).** The original plan pushed `WHERE field
+  BETWEEN lo AND hi`, but real-client IT validation surfaced that **`BETWEEN` is not part of Geode OQL**:
+  the Geode 1.15 client's query compiler rejects it (`QueryInvalid: unexpected token: BETWEEN`) before
+  the query is ever sent to the shim, so any shim-side support is unreachable. Documented in `docs/OQL.md`
+  (use `field >= lo AND field <= hi`). Lesson reinforced: validate new OQL syntax against the real client
+  early — the client compiles the query string locally.
+- [x] **String range predicates** — `WHERE name > 'M'` (`< <= > >=` on a string literal) now pushes as
+  `TO_STRING(field) <op> $v` with a `TYPE = "number"` superset escape; the matcher re-filters by
+  `String.compareTo`. (In-shim matching already worked; this adds the pushdown.)
+- [x] **Numeric `<>`/`!=`** — now pushes via the existing `numericFragment` (`TO_NUMBER(field) != $n OR
+  TYPE = "string"`, a valid superset). New `PushdownOp.NEQ`.
+- [x] **Aggregate exactness preserved** — `appendMapOnlyPredFrag` declines string-range predicates so an
+  exact aggregate/GROUP BY falls back to the in-shim path rather than over-counting via the superset
+  escape; the candidate-fetch path still pushes them.
+- [x] Validated by `OqlQueryM2RangePredicateTest` (9 unit) + 5 new real-client cases in
+  `ProtoGemCouchQueryPushdownIntegrationTest` (string ranges `>`/`<`, string range over PDX, numeric
+  `<>` alone and ANDed). `docs/OQL.md` updated.
+- Remaining still-scan: string `<>`/`!=`, boolean/null literals. (`BETWEEN` is not expressible in Geode
+  OQL — see above.)
 
 ### 1.6.0-M3 — DISTINCT pushdown + pushdown observability
 - [ ] **DISTINCT pushdown** — push `SELECT DISTINCT` to N1QL (in-shim only since 1.4.0-M3).
