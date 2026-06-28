@@ -194,13 +194,36 @@ public class QueryHandler implements OperationHandler {
     }
 
     /**
-     * Handle an aggregate query (COUNT/SUM/MIN/MAX/AVG): fetch candidates (via pushdown when eligible,
-     * else full scan), filter in-shim, compute the scalar result, and reply with the aggregate wire shape.
+     * Handle an aggregate query (COUNT/SUM/MIN/MAX/AVG): try aggregate pushdown first when eligible,
+     * then fall back to fetch-candidates + in-shim compute.
      */
     private void handleAggregate(ChannelHandlerContext ctx, String oql, OqlQuery query,
                                  String region, int txId) {
-        // Use existing candidate-set logic (pushdown when eligible, else scan) — candidates are always
-        // a superset; the in-shim matcher is authoritative for both the filter and the aggregation.
+        boolean isCount = query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_STAR
+                || query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_FIELD;
+
+        // Aggregate pushdown: try when WHERE is a single AND-group with eligible predicates.
+        // The backend computes the scalar directly; fall back to in-shim scan otherwise.
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+            if (eligible.isPresent()) {
+                Optional<Number> pushed = repository.aggregatePushdown(
+                        region, query.aggregateFunction(), query.aggregateFieldPath(), eligible.get());
+                if (pushed.isPresent()) {
+                    Object result = pushed.get();
+                    log.info(StructuredLog.event(
+                            "handler_aggregate_ok", "query", oql, "region", region,
+                            "fn", query.aggregateFunction(), "rows", -1,
+                            "result", result, "pushdown", true, "txId", txId));
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                            GemResponseWriter.buildAggregateQueryResponse(txId, result, isCount)));
+                    return;
+                }
+            }
+        }
+
+        // Fallback: fetch candidates (via predicate/OR pushdown when eligible, else full scan),
+        // filter in-shim, compute the aggregate in-shim.
         Collection<StoredValue> candidates = null;
         boolean pushdownUsed = false;
         if (pushdownEnabled) {
@@ -224,9 +247,6 @@ public class QueryHandler implements OperationHandler {
 
         List<StoredValue> matched = matchesOf(candidates, query);
         Object result = query.computeAggregateRaw(matched, fieldResolver);
-
-        boolean isCount = query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_STAR
-                || query.aggregateFunction() == OqlQuery.AggregateFunction.COUNT_FIELD;
 
         log.info(StructuredLog.event(
                 "handler_aggregate_ok", "query", oql, "region", region,
