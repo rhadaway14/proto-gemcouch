@@ -296,6 +296,54 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
                 "scalar field still selects despite a non-scalar PDX field");
     }
 
+    // --- OR pushdown ---
+
+    @Test
+    void orPushdownTwoGroupsReturnsCorrectRows() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active",  "amount", 10)));
+        region.put("b", new HashMap<>(Map.of("status", "closed",  "amount", 20)));
+        region.put("c", new HashMap<>(Map.of("status", "pending", "amount", 30)));
+
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'active' OR status = 'closed'");
+        assertEquals(2, r.size(), "OR pushdown returns both matching rows");
+    }
+
+    @Test
+    void orPushdownWithAndInGroupReturnsCorrectRows() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active",  "amount", 100)));
+        region.put("b", new HashMap<>(Map.of("status", "active",  "amount", 5)));
+        region.put("c", new HashMap<>(Map.of("status", "pending", "amount", 1)));
+        region.put("d", new HashMap<>(Map.of("status", "closed",  "amount", 50)));
+
+        // (status='active' AND amount>50) OR status='pending'
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName
+                        + " WHERE status = 'active' AND amount > 50 OR status = 'pending'");
+        assertEquals(2, r.size(), "active/100 and pending/1 match; active/5 and closed/50 do not");
+    }
+
+    @Test
+    void orPushdownOverPdxValuesIsCorrect() throws Exception {
+        region.put("a", pdxOrder("active",  10));
+        region.put("b", pdxOrder("closed",  20));
+        region.put("c", pdxOrder("pending", 30));
+
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'active' OR status = 'closed'");
+        assertEquals(2, r.size(), "OR pushdown over PDX values returns correct rows");
+    }
+
+    @Test
+    void orPushdownNoMatchReturnsNoRows() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active")));
+        region.put("b", new HashMap<>(Map.of("status", "closed")));
+
+        SelectResults<?> r = query(
+                "SELECT * FROM /" + regionName + " WHERE status = 'vip' OR status = 'premium'");
+        assertEquals(0, r.size(), "no rows match either OR branch");
+    }
+
     private SelectResults<?> query(String oql) throws Exception {
         return (SelectResults<?>) cache.getQueryService().newQuery(oql).execute();
     }

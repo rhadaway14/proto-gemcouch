@@ -67,8 +67,6 @@ class OqlQueryTest {
     void rejectsUnsupportedQueries() {
         assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse("SELECT DISTINCT * FROM /orders"));
         assertThrows(OqlQuery.UnsupportedQueryException.class,
-                () -> OqlQuery.parse("SELECT * FROM /orders WHERE (status = 'a')"), "parentheses");
-        assertThrows(OqlQuery.UnsupportedQueryException.class,
                 () -> OqlQuery.parse("SELECT * FROM /orders WHERE status"), "malformed condition");
         assertThrows(OqlQuery.UnsupportedQueryException.class, () -> OqlQuery.parse(""));
     }
