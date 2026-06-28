@@ -8,6 +8,23 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 
 ### Added
 
+- **OQL DISTINCT + parenthesized WHERE + OR pushdown (1.4.0-M3)** — three OQL completeness items:
+  - `SELECT DISTINCT <field> [, <field>]` deduplicates projected rows in-shim (first-seen order). Single-field
+    returns a `java.util.Set` (wire shape captured from real Geode 1.15); multi-field returns a `StructSet`
+    with actual field names. `SELECT DISTINCT *` is rejected cleanly (real Geode 1.15 also raises an error).
+    Works on map and PDX values. Validated end-to-end by `ProtoGemCouchDistinctQueryIntegrationTest`.
+  - **Parenthesized AND/OR** in `WHERE` clauses: `(A AND B) OR C`, `A AND (B OR C)`, and nested forms are
+    now parsed via a recursive DNF (Disjunctive Normal Form) converter that distributes AND over OR.
+    `(A OR B) AND (C OR D)` expands to four AND-groups — all stored in the existing
+    `List<List<Condition>>` structure, so the matcher, pushdown, and sort paths are unchanged.
+    Previously any `(` or `)` in a WHERE raised `UnsupportedQueryException`. Validated by
+    `OqlQueryParenWhereTest` (11 unit tests) and `ProtoGemCouchParenWhereIntegrationTest` (7 ITs).
+  - **OR pushdown to N1QL** (`OQL_PUSHDOWN=true`): an OR-of-AND WHERE is now pushed as a single N1QL
+    statement with `OR` between per-group AND-clauses. If any group has no eligible predicates the whole
+    OR falls back to the scan. New `Repository.queryPushdownByOrGroups` API + `CouchbaseRepository`
+    implementation; all three handler paths (plain, aggregate, GROUP BY) try the OR path. Validated by
+    `OqlQueryOrPushdownTest` (9 unit tests) and 4 new OR pushdown cases in
+    `ProtoGemCouchQueryPushdownIntegrationTest`.
 - **OQL GROUP BY (1.4.0-M2)** — `SELECT <key>, <agg>(<field>|*) FROM /region [WHERE …] GROUP BY <key>`
   groups the WHERE-filtered set by one or more key columns and computes a per-group aggregate. Result is a
   `SelectResults<Struct>` with real column names: `"0"` for COUNT (Geode 1.15 convention), field name for
