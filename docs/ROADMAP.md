@@ -374,7 +374,57 @@ queryable instead of opaque) and tightened the golden-wire request coverage.
 
 ---
 
-## Current focus — 1.4.0 backlog (theme: OQL query completeness — aggregates, grouping, distinct)
+## Current focus — 1.5.0 backlog (theme: OQL at scale — fast aggregates, fast grouping, complete predicate pushdown)
+
+With 1.4.0 delivering OQL expressiveness (aggregates, GROUP BY, DISTINCT, paren WHERE, OR pushdown), 1.5.0
+makes those features **fast at scale** by pushing aggregates and GROUP BY down to Couchbase N1QL, and
+closes the three highest-frequency missing predicate types (`IN (list)`, `LIKE`, `IS NULL`/`IS NOT NULL`).
+All items are additive/non-breaking (semver minors).
+
+### 1.5.0-M1 — Aggregate pushdown to N1QL · **COMPLETE** (PR #51, 2026-06-28)
+- [x] When the WHERE is a single AND-group of string-equality / numeric predicates (the same gate as the
+  existing `pushdownPredicates()` path), aggregate queries now ask Couchbase to compute the scalar
+  directly via N1QL (`SELECT COUNT(*)/SUM/AVG/MIN/MAX(COALESCE(envelope, bare)) AS r WHERE … AND type IN
+  [map types]`) rather than fetching all candidate documents and computing in-shim.
+- [x] `OqlQuery.aggregateFieldPath()` exposes the field path for the repository layer.
+- [x] `Repository.aggregatePushdown(region, fn, fieldPath, predicates)` — default no-op interface method;
+  `CouchbaseRepository` implements the N1QL aggregate query (REQUEST_PLUS; restricted to map-typed
+  documents — result is exact for map-typed regions, falls back to in-shim scan on `Optional.empty()`).
+- [x] `QueryHandler.handleAggregate()` tries `aggregatePushdown()` first; falls back to the existing
+  candidate-fetch + in-shim compute path when the pushed result is absent (no pushdown, error, ineligible
+  WHERE). OR WHEREs and disabled-pushdown cases skip aggregate pushdown as expected.
+- [x] Security: field names go through `SAFE_FIELD` before interpolation; all predicate values go through
+  bind params (`av_N`, `an_N`); aggregate field also SAFE_FIELD-validated.
+- [x] Validated by `OqlQueryAggregatePushdownTest` (8 unit tests: field-path accessor × 6, handler-wiring × 4).
+
+### 1.5.0-M2 — GROUP BY pushdown to N1QL
+- [ ] When the WHERE is fully eligible (or absent) and the grouping key is a simple top-level field, push
+  the GROUP BY to Couchbase: `SELECT val.key AS k, COUNT(*) AS c FROM … WHERE … GROUP BY val.key`.
+- [ ] `OqlQuery.pushdownGroupBy()` — eligible when single grouping key + WHERE single-AND-group or absent.
+- [ ] `Repository.groupByPushdown(region, groupKey, aggregate, predicates)` — default no-op; `CouchbaseRepository` implements.
+- [ ] `QueryHandler.handleGroupBy()` tries pushed path first; falls back to in-shim grouping.
+- [ ] Unit + ITs.
+
+### 1.5.0-M3 — IN (list) + LIKE + IS NULL / IS NOT NULL
+- [ ] **IN (list)** — `WHERE field IN ('a', 'b', 'c')` literal-list membership; in-shim matcher + N1QL
+  pushdown (`val.field IN [$v0,$v1,…]`).
+- [ ] **LIKE** — `WHERE field LIKE '%pattern%'`; in-shim matcher (java regex) + N1QL LIKE pushdown.
+- [ ] **IS NULL / IS NOT NULL** — `WHERE field IS NULL` / `WHERE field IS NOT NULL`; in-shim matcher +
+  N1QL pushdown.
+- [ ] Unit + ITs for all three.
+
+### 1.5.0-M4 — Hardening + RC → 1.5.0 GA
+- [ ] Security re-review — confirm new N1QL aggregate/GROUP BY templates have no injection surface
+  (field names → SAFE_FIELD, values → bind params).
+- [ ] Soak — query-heavy profile (seed with queryable values, run aggregate + GROUP BY + IN-list queries
+  under load).
+- [ ] Cross-version matrix re-validation.
+- [ ] `CHANGELOG.md` `[1.5.0]` + version bumps (pom 1.4.0→1.5.0, Helm chart, values image tag).
+- [ ] `v1.5.0-rc1` → all gates green → `v1.5.0` GA (operator-gated).
+
+---
+
+## 1.4.0 — SHIPPED 2026-06-27 (theme: OQL query completeness — aggregates, grouping, distinct)
 
 The query **surface** is now broad — 1.1.0 made it fast (N1QL pushdown) and 1.3.0 completed the field-type
 breadth (scalar / nested-object / scalar-array / object-array, over map + PDX). 1.4.0 makes OQL
@@ -383,8 +433,7 @@ clean "unsupported" error. All items are additive/non-breaking (semver minors). 
 standard OQL — the new *reply* shapes are reverse-engineered from a real Geode server and golden-wire-locked
 (the same pattern that produced the original chunked query response). **Cross-region joins stay a documented
 non-goal** (a Couchbase-backed shim would load both whole regions and cross-product them — poor ROI).
-Milestone dates are nominal targets from a ~2026-06-26 start (the project has shipped each minor well ahead
-of calendar).
+**All M1–M4 below are DONE and the `v1.4.0` GA shipped 2026-06-27.**
 
 ### 1.4.0-M1 — Aggregate functions (headline) · **COMPLETE** (ahead of the 2026-07-17 target)
 - [x] `SELECT COUNT(*)`, `COUNT(field)`, `SUM(field)`, `MIN(field)`, `MAX(field)`, `AVG(field)` over
@@ -417,7 +466,7 @@ of calendar).
 - Exit: **M3 COMPLETE** — DISTINCT, paren WHERE (DNF), and OR pushdown all validated real-client; matrix
   + `docs/OQL.md` updated.
 
-### 1.4.0-M4 — Hardening + RC → 1.4.0 GA · **IN PROGRESS** · GA target 2026-09-10
+### 1.4.0-M4 — Hardening + RC → 1.4.0 GA · **COMPLETE** · GA shipped 2026-06-27
 - [x] **Security re-review** — all M3 N1QL paths go through `SAFE_FIELD` in `buildGroupAndClause`;
   `parseDnf`/`splitTopLevel` are pure OQL parsing with no N1QL surface; field names reaching
   `pushdownOrGroups` are structurally constrained by the `CONDITION` regex. No new injection vectors.
@@ -430,7 +479,7 @@ of calendar).
   and GROUP BY reply shapes are consumed only by the query-issuing client, and the real 1.15.1 client
   correctly assembles them), so the validated range is unchanged.
 - [x] **`CHANGELOG.md` `[1.4.0]`** — finalized with M1+M2+M3 entries (2026-06-27).
-- [ ] Cut `v1.4.0-rc1` → verify all CI gates → cut `v1.4.0` GA + GitHub Release (GA tag operator-gated).
+- [x] Cut `v1.4.0-rc1` → verify all CI gates → cut `v1.4.0` GA + GitHub Release (2026-06-27).
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to

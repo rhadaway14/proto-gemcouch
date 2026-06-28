@@ -4,6 +4,22 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased] — 1.5.0-dev
+
+### Added
+
+- **Aggregate pushdown to N1QL (1.5.0-M1)** — when `OQL_PUSHDOWN=true` and the `WHERE` clause is a
+  single AND-group of eligible predicates, aggregate queries (`COUNT`/`SUM`/`AVG`/`MIN`/`MAX`) now push
+  the scalar computation to Couchbase N1QL instead of fetching all candidate documents and computing
+  in-shim. The N1QL query is restricted to map-typed documents (`type IN ["stringObjectHashMap",
+  "stringHashMap"]`) so the result is exact (no superset needed). All field names pass through
+  `SAFE_FIELD` before interpolation; all predicate values use bind params (`av_N`, `an_N`). Executes
+  with `REQUEST_PLUS` scan consistency. Falls back to the existing candidate-fetch + in-shim path when
+  the pushdown returns `Optional.empty()` (ineligible WHERE, OR WHERE, pushdown disabled, any error).
+  `OqlQuery.aggregateFieldPath()` exposes the aggregate field for the repository layer.
+
+---
+
 ## [1.4.0] - 2026-06-27
 
 The **OQL completeness** release — aggregate functions, GROUP BY, DISTINCT, parenthesized AND/OR WHERE,

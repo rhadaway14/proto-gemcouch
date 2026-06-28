@@ -273,10 +273,29 @@ OR, AND-in-group, PDX values, no-match case) and by `OqlQueryOrPushdownTest` (9 
 eligibility, AND-in-group, ineligible-group fallback, numeric predicates, and backward compatibility of
 `pushdownPredicates` for the single-group path).
 
+**Aggregate pushdown (as of 1.5.0-M1).** When `OQL_PUSHDOWN=true` and the aggregate query has an
+eligible single-AND-group `WHERE` (same gate as `pushdownPredicates()`), the shim pushes the entire
+aggregate computation to Couchbase N1QL and returns the scalar result directly — no candidate documents
+are fetched and no in-shim computation is done. Supported functions: `COUNT(*)`, `COUNT(field)`, `SUM`,
+`AVG`, `MIN`, `MAX`.
+
+Key design points:
+- **Map-types-only WHERE.** Unlike regular predicate pushdown (which OR-s in opaque types as candidates
+  for the matcher to re-filter), aggregate pushdown restricts to map-typed documents only
+  (`c.\`type\` IN ["stringObjectHashMap", "stringHashMap"]`). This makes the N1QL result **exact** for
+  map-typed regions — no in-shim re-filter or superset needed. Mixed regions (map + PDX) fall back to
+  the in-shim path via `Optional.empty()`, since PDX docs would be silently excluded.
+- **N1QL shapes.** `SELECT COUNT(*) AS r`, `SELECT COUNT(COALESCE(env, bare)) AS r`, `SELECT SUM(TO_NUMBER(...)) AS r`, etc., from the same region keyspace, with the predicate WHERE appended.
+- **Security.** The aggregate field name is validated via `SAFE_FIELD` before interpolation. All predicate values go through bind params (`av_N` for strings, `an_N` for numbers). `REQUEST_PLUS` scan consistency is always used.
+- **Graceful fallback.** If the pushdown returns `Optional.empty()` (ineligible WHERE, error, OR WHERE, pushdown disabled, PDX/opaque region), the handler falls back to the normal candidate-fetch + in-shim aggregate path.
+- **`OqlQuery.aggregateFieldPath()`** returns the field path list for the repository layer (`null` for `COUNT(*)`, single-element list for all other functions).
+
 **Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), the eligible
 subset of a mixed `AND`, `OR`-of-`AND` (each group must have at least one eligible predicate), `LIMIT`
-with no `ORDER BY` (including with no `WHERE`), and **PDX scalar fields** (via the sidecar) are pushed;
-numeric `<>`/`!=`, string ranges, and boolean/null literals still scan.
+with no `ORDER BY` (including with no `WHERE`), **PDX scalar fields** (via the sidecar), and **aggregate
+functions** (COUNT/SUM/AVG/MIN/MAX on map-typed regions with single-AND-group WHERE) are pushed;
+numeric `<>`/`!=`, string ranges, boolean/null literals, OR-WHEREs for aggregates, and PDX regions for
+aggregates still use the in-shim path.
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`

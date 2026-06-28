@@ -258,6 +258,48 @@ public final class OqlQuery {
     }
 
     /**
+     * When this is a GROUP BY query and is eligible for a full GROUP BY pushdown to N1QL, returns the
+     * eligible WHERE predicates (possibly empty when there is no WHERE). Returns {@link Optional#empty()}
+     * when the GROUP BY is ineligible (multiple group keys, nested field path, multi-segment aggregate
+     * field, OR WHERE, or not a GROUP BY query at all).
+     *
+     * <p>Eligibility: exactly one group key column with a single top-level field; the aggregate column
+     * has a single top-level field (or is COUNT_STAR); the WHERE is a single AND-group or absent.
+     */
+    public Optional<List<FieldPredicate>> pushdownGroupBy() {
+        if (!isGroupBy()) {
+            return Optional.empty();
+        }
+        // Count group keys and check the key field path.
+        List<GroupByColumn> keys = new ArrayList<>();
+        GroupByColumn aggCol = null;
+        for (GroupByColumn col : groupByColumns) {
+            if (col.isGroupKey()) {
+                keys.add(col);
+            } else {
+                aggCol = col;
+            }
+        }
+        if (keys.size() != 1) {
+            return Optional.empty(); // multi-key GROUP BY: not yet supported
+        }
+        GroupByColumn keyCol = keys.get(0);
+        if (keyCol.fieldPath() == null || keyCol.fieldPath().size() != 1) {
+            return Optional.empty();
+        }
+        if (aggCol != null && aggCol.fn() != AggregateFunction.COUNT_STAR) {
+            if (aggCol.fieldPath() == null || aggCol.fieldPath().size() != 1) {
+                return Optional.empty();
+            }
+        }
+        // WHERE must be single-AND-group or absent.
+        if (hasWhere()) {
+            return pushdownPredicates(); // reuse single-AND-group eligibility
+        }
+        return Optional.of(List.of()); // no WHERE → empty predicate list
+    }
+
+    /**
      * Compute the aggregate over an already-WHERE-filtered list of values.
      *
      * <ul>
