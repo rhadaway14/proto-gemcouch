@@ -1218,8 +1218,58 @@ public class CouchbaseRepository implements Repository {
     }
 
     @Override
+    public Optional<List<StoredValue>> queryPushdownByPredicates(
+            String region, List<OqlQuery.FieldPredicate> predicates,
+            List<OqlQuery.OrderByKey> orderBy, int limit) {
+        boolean noPredicates = predicates == null || predicates.isEmpty();
+        boolean noOrder = orderBy == null || orderBy.isEmpty();
+        // Worth a round-trip only when something is pushed: a row cap, or a server-side ORDER BY. An
+        // unbounded, unordered region scan via N1QL has no edge over keySet + getAll.
+        if (noPredicates && limit <= 0 && noOrder) {
+            return Optional.empty();
+        }
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        String where;
+        if (noPredicates) {
+            where = "META(c).id LIKE $prefix AND c.`type` != \"" + TYPE_INVALIDATED + "\"";
+        } else {
+            where = buildPredicateWhere(predicates, params);
+            if (where == null) {
+                return Optional.empty();
+            }
+        }
+
+        String orderClause = buildOrderByClause(orderBy);
+        if (!noOrder && orderClause == null) {
+            return Optional.empty(); // an unvalidated ORDER BY field slipped through
+        }
+
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+        if (orderClause != null) {
+            statement += " ORDER BY " + orderClause;
+        }
+        if (limit > 0) {
+            statement += " LIMIT " + limit;
+        }
+
+        return executePushdown(statement, params, region, noPredicates ? 0 : predicates.size());
+    }
+
+    @Override
     public Optional<List<StoredValue>> queryPushdownByOrGroups(
             String region, List<List<OqlQuery.FieldPredicate>> orGroups, int limit) {
+        return queryPushdownByOrGroups(region, orGroups, null, limit);
+    }
+
+    @Override
+    public Optional<List<StoredValue>> queryPushdownByOrGroups(
+            String region, List<List<OqlQuery.FieldPredicate>> orGroups,
+            List<OqlQuery.OrderByKey> orderBy, int limit) {
         if (orGroups == null || orGroups.isEmpty()) return Optional.empty();
 
         JsonObject params = JsonObject.create();
@@ -1228,13 +1278,53 @@ public class CouchbaseRepository implements Repository {
         String where = buildOrGroupsWhere(orGroups, params);
         if (where == null) return Optional.empty();
 
+        String orderClause = buildOrderByClause(orderBy);
+        if (orderBy != null && !orderBy.isEmpty() && orderClause == null) {
+            return Optional.empty(); // an unvalidated ORDER BY field slipped through
+        }
+
         String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
                 + "`.`" + collection.name() + "`";
         String statement = "SELECT RAW c FROM " + keyspace + " c WHERE " + where;
+        if (orderClause != null) statement += " ORDER BY " + orderClause;
         if (limit > 0) statement += " LIMIT " + limit;
 
         int predicateCount = orGroups.stream().mapToInt(List::size).sum();
         return executePushdown(statement, params, region, predicateCount);
+    }
+
+    /**
+     * Build the N1QL {@code ORDER BY} clause for the given keys, or {@code null} when the list is empty or
+     * any field name fails {@link #SAFE_FIELD} validation (defense-in-depth — only validated identifiers
+     * are ever interpolated). Each key sorts by {@code TO_NUMBER(x) <dir>, TO_STRING(x) <dir>} over
+     * {@code x = COALESCE(envelope, bare, pdxFields)}: the numeric key orders numeric-valued (and
+     * numeric-string) fields like {@link OqlQuery#compareField}'s {@code Double.compare}, and the
+     * lexical key both tiebreaks and orders non-numeric strings — mirroring the in-shim comparator's
+     * "numeric when parseable, else string" rule for the homogeneous (single-type) field case.
+     */
+    private static String buildOrderByClause(List<OqlQuery.OrderByKey> orderBy) {
+        if (orderBy == null || orderBy.isEmpty()) {
+            return null;
+        }
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < orderBy.size(); i++) {
+            OqlQuery.OrderByKey key = orderBy.get(i);
+            String field = key.field();
+            if (field == null || !SAFE_FIELD.matcher(field).matches()) {
+                return null;
+            }
+            String envPath  = "c.`value`.`" + field + "`.`value`";
+            String barePath = "c.`value`.`" + field + "`";
+            String pdxPath  = "c.`pdxFields`.`" + field + "`";
+            String expr = "COALESCE(" + envPath + ", " + barePath + ", " + pdxPath + ")";
+            String dir = key.ascending() ? "ASC" : "DESC";
+            if (i > 0) {
+                b.append(", ");
+            }
+            b.append("TO_NUMBER(").append(expr).append(") ").append(dir)
+                    .append(", TO_STRING(").append(expr).append(") ").append(dir);
+        }
+        return b.toString();
     }
 
     @Override

@@ -90,68 +90,88 @@ public class QueryHandler implements OperationHandler {
         // Candidate source: pushed-down (backend pre-filtered) when eligible, else the full-region scan.
         // Either way the candidates are a superset; query.matches() below is authoritative.
         int limit = query.limit();
-        // LIMIT may be pushed to the backend only when there is no ORDER BY (a sorted top-N needs the
-        // full matched set first). The loose-predicate case is then guarded by a refetch below.
-        boolean limitPushed = query.hasLimit() && limit > 0 && !query.hasOrderBy();
 
+        // ORDER BY pushdown (headline): when the ORDER BY keys are pushdown-eligible (single top-level
+        // fields), push WHERE + ORDER BY (+ LIMIT) so the backend sorts server-side — a true server-side
+        // top-N. The backend row order is then authoritative and the in-shim sort is skipped (the matcher
+        // still re-filters, preserving the surviving rows' relative order).
+        boolean alreadySorted = false;
         boolean pushdownUsed = false;
-        Collection<StoredValue> candidates = null;
-        // The predicate list to push: the eligible subset of the WHERE, or an empty list to push just a
-        // region-scoped LIMIT when there is no WHERE (so the backend caps rows instead of a full scan).
-        List<OqlQuery.FieldPredicate> pushPreds = null;
-        List<List<OqlQuery.FieldPredicate>> pushOrGroups = null;
-        if (pushdownEnabled) {
-            Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
-            if (eligible.isPresent()) {
-                pushPreds = eligible.get();
-            } else {
-                Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
-                if (orEligible.isPresent()) {
-                    pushOrGroups = orEligible.get();
-                } else if (limitPushed && !query.hasWhere()) {
-                    pushPreds = List.of(); // no WHERE + pushable LIMIT -> region-scoped LIMIT
+        List<StoredValue> matched = null;
+        if (pushdownEnabled && query.hasOrderBy()) {
+            Optional<List<StoredValue>> ordered = tryOrderedPushdown(query, region, limit);
+            if (ordered.isPresent()) {
+                matched = ordered.get();
+                alreadySorted = true;
+                pushdownUsed = true;
+            }
+        }
+
+        if (matched == null) {
+            // LIMIT may be pushed to the backend only when there is no ORDER BY (a sorted top-N needs the
+            // full matched set first). The loose-predicate case is then guarded by a refetch below.
+            boolean limitPushed = query.hasLimit() && limit > 0 && !query.hasOrderBy();
+
+            Collection<StoredValue> candidates = null;
+            // The predicate list to push: the eligible subset of the WHERE, or an empty list to push just
+            // a region-scoped LIMIT when there is no WHERE (so the backend caps rows instead of scanning).
+            List<OqlQuery.FieldPredicate> pushPreds = null;
+            List<List<OqlQuery.FieldPredicate>> pushOrGroups = null;
+            if (pushdownEnabled) {
+                Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+                if (eligible.isPresent()) {
+                    pushPreds = eligible.get();
+                } else {
+                    Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
+                    if (orEligible.isPresent()) {
+                        pushOrGroups = orEligible.get();
+                    } else if (limitPushed && !query.hasWhere()) {
+                        pushPreds = List.of(); // no WHERE + pushable LIMIT -> region-scoped LIMIT
+                    }
                 }
             }
-        }
-        if (pushPreds != null) {
-            Optional<List<StoredValue>> pushed = repository.queryPushdownByPredicates(
-                    region, pushPreds, limitPushed ? limit : 0);
-            if (pushed.isPresent()) {
-                candidates = pushed.get();
-                pushdownUsed = true;
+            if (pushPreds != null) {
+                Optional<List<StoredValue>> pushed = repository.queryPushdownByPredicates(
+                        region, pushPreds, limitPushed ? limit : 0);
+                if (pushed.isPresent()) {
+                    candidates = pushed.get();
+                    pushdownUsed = true;
+                }
+            } else if (pushOrGroups != null) {
+                Optional<List<StoredValue>> pushed = repository.queryPushdownByOrGroups(
+                        region, pushOrGroups, limitPushed ? limit : 0);
+                if (pushed.isPresent()) {
+                    candidates = pushed.get();
+                    pushdownUsed = true;
+                }
             }
-        } else if (pushOrGroups != null) {
-            Optional<List<StoredValue>> pushed = repository.queryPushdownByOrGroups(
-                    region, pushOrGroups, limitPushed ? limit : 0);
-            if (pushed.isPresent()) {
-                candidates = pushed.get();
-                pushdownUsed = true;
-            }
-        }
-        if (candidates == null) {
-            candidates = repository.getAll(region, repository.keySet(region)).values();
-        }
-
-        List<StoredValue> matched = matchesOf(candidates, query);
-
-        // LIMIT-pushdown correctness guard: if the backend capped the page (returned a full `limit`
-        // candidates) but the matcher rejected some, true matches beyond the cap may have been dropped —
-        // refetch the full candidate set (unbounded pushdown, else scan) so we never under-return.
-        if (limitPushed && pushdownUsed && matched.size() < limit && candidates.size() >= limit) {
-            Optional<List<StoredValue>> refetched = pushOrGroups != null
-                    ? repository.queryPushdownByOrGroups(region, pushOrGroups, 0)
-                    : repository.queryPushdownByPredicates(region, pushPreds, 0);
-            if (refetched.isPresent()) {
-                candidates = refetched.get();
-            } else {
+            if (candidates == null) {
                 candidates = repository.getAll(region, repository.keySet(region)).values();
-                pushdownUsed = false;
             }
+
             matched = matchesOf(candidates, query);
+
+            // LIMIT-pushdown correctness guard: if the backend capped the page (returned a full `limit`
+            // candidates) but the matcher rejected some, true matches beyond the cap may have been dropped
+            // — refetch the full candidate set (unbounded pushdown, else scan) so we never under-return.
+            if (limitPushed && pushdownUsed && matched.size() < limit && candidates.size() >= limit) {
+                Optional<List<StoredValue>> refetched = pushOrGroups != null
+                        ? repository.queryPushdownByOrGroups(region, pushOrGroups, 0)
+                        : repository.queryPushdownByPredicates(region, pushPreds, 0);
+                if (refetched.isPresent()) {
+                    candidates = refetched.get();
+                } else {
+                    candidates = repository.getAll(region, repository.keySet(region)).values();
+                    pushdownUsed = false;
+                }
+                matched = matchesOf(candidates, query);
+            }
         }
 
-        // ORDER BY (on the source values), then apply LIMIT to the result rows.
-        query.sort(matched, fieldResolver);
+        // ORDER BY (on the source values) in-shim, unless the backend already sorted; then LIMIT the rows.
+        if (!alreadySorted) {
+            query.sort(matched, fieldResolver);
+        }
         if (query.hasLimit() && matched.size() > limit) {
             matched = new ArrayList<>(matched.subList(0, limit));
         }
@@ -314,6 +334,66 @@ public class QueryHandler implements OperationHandler {
                 "pushdown", pushdownUsed, "txId", txId));
         ctx.writeAndFlush(Unpooled.wrappedBuffer(
                 GemResponseWriter.buildGroupByQueryResponse(txId, query.groupByColumns(), rows)));
+    }
+
+    /**
+     * Try to push WHERE + ORDER BY (+ LIMIT) to the backend for a server-side sort / top-N. Returns the
+     * matched (filtered, backend-ordered) values when ordering was pushed, or {@link Optional#empty()} to
+     * fall back to the unordered path + in-shim sort.
+     *
+     * <p>Eligibility: the ORDER BY keys are all single top-level fields, and either the WHERE is
+     * pushdown-eligible (predicate or OR-group) or there is no WHERE at all (a region-scoped ordered
+     * top-N). A WHERE that exists but cannot be pushed is declined here (the unordered scan path handles
+     * it), because pushing an unfiltered ORDER BY over the whole region buys nothing.
+     *
+     * <p>Because the pushed candidates are a superset, a backend-capped page can lose true matches to
+     * false positives; the same top-N guard as the unordered path refetches unbounded (still
+     * backend-ordered) when a full page yields fewer than {@code limit} matches, so we never under-return.
+     */
+    private Optional<List<StoredValue>> tryOrderedPushdown(OqlQuery query, String region, int limit) {
+        Optional<List<OqlQuery.OrderByKey>> orderEligible = query.pushdownOrderBy();
+        if (orderEligible.isEmpty()) {
+            return Optional.empty();
+        }
+        List<OqlQuery.OrderByKey> order = orderEligible.get();
+        int pushLimit = (query.hasLimit() && limit > 0) ? limit : 0;
+
+        List<OqlQuery.FieldPredicate> preds = null;
+        List<List<OqlQuery.FieldPredicate>> orGroups = null;
+        Optional<List<OqlQuery.FieldPredicate>> eligible = query.pushdownPredicates();
+        if (eligible.isPresent()) {
+            preds = eligible.get();
+        } else {
+            Optional<List<List<OqlQuery.FieldPredicate>>> orEligible = query.pushdownOrGroups();
+            if (orEligible.isPresent()) {
+                orGroups = orEligible.get();
+            } else if (!query.hasWhere()) {
+                preds = List.of(); // no WHERE: a region-scoped ordered (top-N) query
+            } else {
+                return Optional.empty(); // WHERE present but unpushable: leave it to the scan path
+            }
+        }
+
+        Optional<List<StoredValue>> pushed = (orGroups != null)
+                ? repository.queryPushdownByOrGroups(region, orGroups, order, pushLimit)
+                : repository.queryPushdownByPredicates(region, preds, order, pushLimit);
+        if (pushed.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<StoredValue> candidates = pushed.get();
+        List<StoredValue> matched = matchesOf(candidates, query); // preserves the backend row order
+
+        if (pushLimit > 0 && matched.size() < limit && candidates.size() >= limit) {
+            Optional<List<StoredValue>> refetched = (orGroups != null)
+                    ? repository.queryPushdownByOrGroups(region, orGroups, order, 0)
+                    : repository.queryPushdownByPredicates(region, preds, order, 0);
+            if (refetched.isEmpty()) {
+                return Optional.empty(); // fall back to the full-region scan + in-shim sort
+            }
+            matched = matchesOf(refetched.get(), query);
+        }
+        return Optional.of(matched);
     }
 
     /** Authoritatively filter a candidate set to the values that satisfy the query's WHERE clause. */

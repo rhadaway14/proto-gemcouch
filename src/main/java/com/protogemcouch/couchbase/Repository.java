@@ -171,6 +171,24 @@ public interface Repository {
     }
 
     /**
+     * Like {@link #queryPushdownByPredicates(String, List, int)} but also pushes an {@code ORDER BY} to
+     * the backend, so the returned candidates are already sorted (enabling true server-side top-N when a
+     * {@code limit} is also pushed). When ordering is pushed the backend row order is
+     * <strong>authoritative</strong>: the caller trusts it and does not re-sort (the matcher still
+     * re-filters, preserving the surviving rows' relative order). Each {@code orderBy} key is a single
+     * top-level field (see {@link OqlQuery#pushdownOrderBy()}).
+     *
+     * <p>The default returns {@link Optional#empty()} (no ordering pushdown), so callers fall back to the
+     * unordered pushdown + in-shim sort. {@code CouchbaseRepository} overrides it to emit the N1QL
+     * {@code ORDER BY}.
+     */
+    default Optional<List<StoredValue>> queryPushdownByPredicates(
+            String region, List<OqlQuery.FieldPredicate> predicates,
+            List<OqlQuery.OrderByKey> orderBy, int limit) {
+        return Optional.empty();
+    }
+
+    /**
      * Like {@link #queryPushdownByPredicates} but for an OR-of-AND WHERE: each inner list is one
      * AND-group's eligible predicates. The generated N1QL ORs the groups together, so the returned
      * candidates are a superset of the true matches and the caller's matcher remains authoritative.
@@ -178,6 +196,17 @@ public interface Repository {
      */
     default Optional<List<StoredValue>> queryPushdownByOrGroups(
             String region, List<List<OqlQuery.FieldPredicate>> orGroups, int limit) {
+        return Optional.empty();
+    }
+
+    /**
+     * Like {@link #queryPushdownByOrGroups(String, List, int)} but also pushes an {@code ORDER BY} (see
+     * {@link #queryPushdownByPredicates(String, List, List, int)} for the authoritative-order contract).
+     * The default returns {@link Optional#empty()}; {@code CouchbaseRepository} overrides it.
+     */
+    default Optional<List<StoredValue>> queryPushdownByOrGroups(
+            String region, List<List<OqlQuery.FieldPredicate>> orGroups,
+            List<OqlQuery.OrderByKey> orderBy, int limit) {
         return Optional.empty();
     }
 

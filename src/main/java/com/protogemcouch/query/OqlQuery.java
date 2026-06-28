@@ -162,6 +162,39 @@ public final class OqlQuery {
         return !orderBy.isEmpty();
     }
 
+    /**
+     * One pushdown-eligible ORDER BY key: a single top-level field and its sort direction. Exposed to
+     * the repository layer so it can emit a N1QL {@code ORDER BY} clause. Multi-segment (nested / array)
+     * ORDER BY paths are not pushdown-eligible and never appear here.
+     */
+    public record OrderByKey(String field, boolean ascending) {
+    }
+
+    /**
+     * When the query has an ORDER BY whose keys are <em>all</em> single top-level fields, return them as
+     * {@link OrderByKey}s so the backend can sort server-side (enabling true server-side top-N when
+     * combined with a pushed LIMIT). Returns {@link Optional#empty()} when there is no ORDER BY, or when
+     * any key is a nested/array path (those still sort in-shim).
+     *
+     * <p>Unlike predicate pushdown (which returns a superset the matcher re-filters), a pushed ORDER BY is
+     * <strong>authoritative</strong>: the caller trusts the backend row order rather than re-sorting (the
+     * matcher still re-filters, which preserves the relative order of the surviving rows). The backend
+     * sort mirrors {@link #compareField} (numeric when the value parses as a number, else lexical).
+     */
+    public Optional<List<OrderByKey>> pushdownOrderBy() {
+        if (orderBy.isEmpty()) {
+            return Optional.empty();
+        }
+        List<OrderByKey> keys = new ArrayList<>(orderBy.size());
+        for (OrderKey key : orderBy) {
+            if (key.path.size() != 1) {
+                return Optional.empty(); // a nested/array ORDER BY field is not pushable
+            }
+            keys.add(new OrderByKey(key.path.get(0), key.ascending));
+        }
+        return Optional.of(keys);
+    }
+
     /** The comparison of a pushdown-eligible scalar predicate. */
     public enum PushdownOp {
         EQ("="), LT("<"), LTE("<="), GT(">"), GTE(">="),
