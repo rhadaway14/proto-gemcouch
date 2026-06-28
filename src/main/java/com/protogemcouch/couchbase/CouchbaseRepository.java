@@ -1266,20 +1266,8 @@ public class CouchbaseRepository implements Repository {
             whereBuilder.append(" AND ");
             String envPath  = "c.`value`.`" + field + "`.`value`";
             String barePath = "c.`value`.`" + field + "`";
-            if (p.numeric()) {
-                String nParam = "an_" + i;
-                params.put(nParam, p.number());
-                whereBuilder.append(numericFragment(p.op().symbol(), nParam, envPath, barePath));
-            } else {
-                String vParam = "av_" + i;
-                params.put(vParam, p.text());
-                Double numeric = parseNumericOrNull(p.text());
-                String nParam = null;
-                if (numeric != null) {
-                    nParam = "an_" + i;
-                    params.put(nParam, numeric);
-                }
-                whereBuilder.append(stringFragment(vParam, nParam, envPath, barePath));
+            if (!appendMapOnlyPredFrag(whereBuilder, p, params, "av_" + i, envPath, barePath)) {
+                return Optional.empty();
             }
         }
 
@@ -1368,20 +1356,8 @@ public class CouchbaseRepository implements Repository {
             whereBuilder.append(" AND ");
             String envPath  = "c.`value`.`" + field + "`.`value`";
             String barePath = "c.`value`.`" + field + "`";
-            if (p.numeric()) {
-                String nParam = "an_" + i;
-                params.put(nParam, p.number());
-                whereBuilder.append(numericFragment(p.op().symbol(), nParam, envPath, barePath));
-            } else {
-                String vParam = "av_" + i;
-                params.put(vParam, p.text());
-                Double numeric = parseNumericOrNull(p.text());
-                String nParam = null;
-                if (numeric != null) {
-                    nParam = "an_" + i;
-                    params.put(nParam, numeric);
-                }
-                whereBuilder.append(stringFragment(vParam, nParam, envPath, barePath));
+            if (!appendMapOnlyPredFrag(whereBuilder, p, params, "av_" + i, envPath, barePath)) {
+                return Optional.empty();
             }
         }
 
@@ -1525,12 +1501,32 @@ public class CouchbaseRepository implements Repository {
                 mapPreds.append(" AND ");
                 pdxPreds.append(" AND ");
             }
-            if (predicate.numeric()) {
+            OqlQuery.PushdownOp op = predicate.op();
+            if (op == OqlQuery.PushdownOp.IS_NULL) {
+                mapPreds.append(isNullFragment(envelopePath, barePath));
+                pdxPreds.append(isNullFragment(pdxPath));
+            } else if (op == OqlQuery.PushdownOp.IS_NOT_NULL) {
+                mapPreds.append(isNotNullFragment(envelopePath, barePath));
+                pdxPreds.append(isNotNullFragment(pdxPath));
+            } else if (op == OqlQuery.PushdownOp.IN_LIST) {
+                List<String> items = predicate.inList();
+                if (items == null || items.isEmpty()) return null;
+                String vParam = "v" + groupIndex + "_" + i;
+                com.couchbase.client.java.json.JsonArray arr = com.couchbase.client.java.json.JsonArray.create();
+                for (String item : items) arr.add(item);
+                params.put(vParam, arr);
+                mapPreds.append(inListFragment(vParam, envelopePath, barePath));
+                pdxPreds.append(inListFragment(vParam, pdxPath));
+            } else if (op == OqlQuery.PushdownOp.LIKE) {
+                String vParam = "v" + groupIndex + "_" + i;
+                params.put(vParam, predicate.text());
+                mapPreds.append(likeFragment(vParam, envelopePath, barePath));
+                pdxPreds.append(likeFragment(vParam, pdxPath));
+            } else if (predicate.numeric()) {
                 String nParam = "n" + groupIndex + "_" + i;
                 params.put(nParam, predicate.number());
-                String op = predicate.op().symbol();
-                mapPreds.append(numericFragment(op, nParam, envelopePath, barePath));
-                pdxPreds.append(numericFragment(op, nParam, pdxPath));
+                mapPreds.append(numericFragment(op.symbol(), nParam, envelopePath, barePath));
+                pdxPreds.append(numericFragment(op.symbol(), nParam, pdxPath));
             } else {
                 String vParam = "v" + groupIndex + "_" + i;
                 params.put(vParam, predicate.text());
@@ -1579,6 +1575,84 @@ public class CouchbaseRepository implements Repository {
                     "predicates", predicateCount, "error", e.getMessage()));
             return Optional.empty();
         }
+    }
+
+    /** LIKE fragment over one or more paths: {@code TO_STRING(p) LIKE $v} per path, OR-ed. */
+    private static String likeFragment(String vParam, String... paths) {
+        StringBuilder b = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) b.append(" OR ");
+            b.append("TO_STRING(").append(paths[i]).append(") LIKE $").append(vParam);
+        }
+        return b.append(")").toString();
+    }
+
+    /** IN-list fragment over one or more paths: {@code TO_STRING(p) IN $v} per path, OR-ed. */
+    private static String inListFragment(String vParam, String... paths) {
+        StringBuilder b = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) b.append(" OR ");
+            b.append("TO_STRING(").append(paths[i]).append(") IN $").append(vParam);
+        }
+        return b.append(")").toString();
+    }
+
+    /** IS NULL fragment: field is null or missing across one or more paths (any path null/missing → true). */
+    private static String isNullFragment(String... paths) {
+        StringBuilder b = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) b.append(" AND ");
+            b.append(paths[i]).append(" IS NOT VALUED");
+        }
+        return b.append(")").toString();
+    }
+
+    /** IS NOT NULL fragment: field is present and non-null on at least one path. */
+    private static String isNotNullFragment(String... paths) {
+        StringBuilder b = new StringBuilder("(");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) b.append(" OR ");
+            b.append(paths[i]).append(" IS VALUED");
+        }
+        return b.append(")").toString();
+    }
+
+    /**
+     * Append a single predicate fragment (map-only paths, no PDX branch) to {@code sb}; return false
+     * on validation failure (unvalidated field name).
+     */
+    private static boolean appendMapOnlyPredFrag(
+            StringBuilder sb, OqlQuery.FieldPredicate predicate, JsonObject params,
+            String paramPrefix, String envPath, String barePath) {
+        OqlQuery.PushdownOp op = predicate.op();
+        if (op == OqlQuery.PushdownOp.IS_NULL) {
+            sb.append(isNullFragment(envPath, barePath));
+        } else if (op == OqlQuery.PushdownOp.IS_NOT_NULL) {
+            sb.append(isNotNullFragment(envPath, barePath));
+        } else if (op == OqlQuery.PushdownOp.IN_LIST) {
+            List<String> items = predicate.inList();
+            if (items == null || items.isEmpty()) return false;
+            com.couchbase.client.java.json.JsonArray arr = com.couchbase.client.java.json.JsonArray.create();
+            for (String item : items) arr.add(item);
+            params.put(paramPrefix, arr);
+            sb.append(inListFragment(paramPrefix, envPath, barePath));
+        } else if (op == OqlQuery.PushdownOp.LIKE) {
+            params.put(paramPrefix, predicate.text());
+            sb.append(likeFragment(paramPrefix, envPath, barePath));
+        } else if (predicate.numeric()) {
+            params.put(paramPrefix, predicate.number());
+            sb.append(numericFragment(op.symbol(), paramPrefix, envPath, barePath));
+        } else {
+            params.put(paramPrefix, predicate.text());
+            Double numeric = parseNumericOrNull(predicate.text());
+            String nParam = null;
+            if (numeric != null) {
+                nParam = paramPrefix + "_n";
+                params.put(nParam, numeric);
+            }
+            sb.append(stringFragment(paramPrefix, nParam, envPath, barePath));
+        }
+        return true;
     }
 
     /**
