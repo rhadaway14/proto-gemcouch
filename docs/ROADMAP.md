@@ -2,9 +2,9 @@
 
 A living backlog. **ProtoGemCouch reached 1.0.0 GA on 2026-06-20** — the road-to-1.0 work (Level 4
 production-readiness and the supportable GemFire/Geode SDK parity surface) is recorded as DONE in the
-sections below. **1.1.0 GA shipped 2026-06-21, 1.2.0 GA shipped 2026-06-24, and 1.3.0 GA shipped
-2026-06-26** (all recorded below); the **current focus is the 1.4.0 backlog** (theme: OQL query
-completeness). The contract for what is supported today is `docs/COMPATABILITY_MATRIX.md`.
+sections below. **1.1.0 GA shipped 2026-06-21, 1.2.0 GA shipped 2026-06-24, 1.3.0 GA shipped
+2026-06-26** (all recorded below); **1.4.0 M1–M3 are DONE and M4 hardening is in progress** (theme:
+OQL query completeness). The contract for what is supported today is `docs/COMPATABILITY_MATRIX.md`.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
@@ -386,34 +386,47 @@ non-goal** (a Couchbase-backed shim would load both whole regions and cross-prod
 Milestone dates are nominal targets from a ~2026-06-26 start (the project has shipped each minor well ahead
 of calendar).
 
-### 1.4.0-M1 — Aggregate functions (headline) · target 2026-07-17
-`SELECT COUNT(*)`, `COUNT(field)`, `SUM(field)`, `MIN(field)`, `MAX(field)`, `AVG(field)` over the
-WHERE-filtered set. Computed in-shim (numeric coercion for `SUM`/`AVG`; `Comparable` `MIN`/`MAX`;
-`COUNT(field)` skips nulls). The aggregate reply is a **different wire shape** than the row-list
-`SelectResults` — reverse-engineer it from a real Geode 1.15 server (extend `tools.GeodeQueryCapture`),
-reproduce it byte-exact, and golden-wire-lock it. Optionally push `COUNT`/`SUM` to **N1QL** when the WHERE
-is fully pushdown-eligible (re-checked in-shim). One-shot `QUERY` scope (CQ aggregates are out of scope).
-Refresh `docs/OQL.md` + the matrix. Risk: medium (new reply shape) — the capstone is the wire-shape capture.
+### 1.4.0-M1 — Aggregate functions (headline) · **COMPLETE** (ahead of the 2026-07-17 target)
+- [x] `SELECT COUNT(*)`, `COUNT(field)`, `SUM(field)`, `MIN(field)`, `MAX(field)`, `AVG(field)` over
+  the WHERE-filtered set, computed in-shim. The aggregate reply wire shape reverse-engineered from a real
+  Geode 1.15 server (via `tools.GeodeQueryCapture GROUP_BY_CAPTURE=1`) and golden-wire-locked. Works for
+  map and PDX values. Validated end-to-end by `ProtoGemCouchAggregateQueryIntegrationTest`.
 
-### 1.4.0-M2 — GROUP BY (+ HAVING) · target 2026-08-07
-`SELECT field, COUNT(*) FROM /r [WHERE …] GROUP BY field [HAVING …]`. Group the matched rows by one or more
-grouping keys, compute per-group aggregates, and frame the grouped struct rows (group-key columns +
-aggregate columns); `HAVING` filters groups post-aggregation. Reverse-engineer the grouped response shape
-from a real server. Real-client validated.
+### 1.4.0-M2 — GROUP BY · **COMPLETE** (ahead of the 2026-08-07 target)
+- [x] `SELECT <key>, <agg>(<field>|*) FROM /region [WHERE …] GROUP BY <key>` — groups the WHERE-filtered
+  set by one or more key columns, computes per-group aggregates. Result is `SelectResults<Struct>` with
+  real column names (`"0"` for COUNT; field name for SUM/AVG/MIN/MAX). `ORDER BY` and `HAVING` with
+  `GROUP BY` deferred (real Geode 1.15 fails on `HAVING` too). Wire shape captured from a real Geode
+  1.15 server. Works for map and PDX values. Validated by `ProtoGemCouchGroupByIntegrationTest`.
 
-### 1.4.0-M3 — DISTINCT + parenthesized WHERE + OR pushdown · target 2026-08-28
-- **`SELECT DISTINCT`** — dedupe projected rows; the reply's distinct/ordered `CollectionType` flag already
-  differs (`Ordered` vs `CumulativeNonDistinctResults`, see `docs/OQL.md`), so wire-lock the distinct path.
-- **Parenthesized WHERE** — nested `AND`/`OR` with precedence (parentheses currently raise an error).
-- **`OR` pushdown to N1QL** — the last predicate-pushdown gap left from 1.1.0-M2 (`OR` currently scans).
-Real-client validated; matrix + `docs/OQL.md` updated.
+### 1.4.0-M3 — DISTINCT + parenthesized WHERE + OR pushdown · **COMPLETE** (ahead of the 2026-08-28 target)
+- [x] **`SELECT DISTINCT`** — deduplicates projected rows using a `LinkedHashSet`; `SELECT DISTINCT *`
+  raises `UnsupportedQueryException` cleanly (Geode semantics); `DISTINCT` is combined with `WHERE`,
+  `ORDER BY`, `LIMIT`, and multi-field projections. Validated by `ProtoGemCouchDistinctQueryIntegrationTest`.
+- [x] **Parenthesized AND/OR (`WHERE`)** — nested `AND`/`OR` with parentheses now parse to DNF
+  (`List<List<Condition>>` or-of-and-groups) via a recursive `parseDnf` / `parseConjunction` /
+  `parseAtomDnf` descent; `splitTopLevel` is paren-depth + string-literal-aware. Cross-product
+  distribution handles `(A OR B) AND (C OR D)` → 4 groups. Parentheses previously raised
+  `UnsupportedQueryException`. Validated by `OqlQueryParenWhereTest` (11 unit tests) +
+  `ProtoGemCouchParenWhereIntegrationTest` (7 ITs).
+- [x] **`OR` pushdown to N1QL** — `pushdownOrGroups()` returns one `FieldPredicate` list per OR branch
+  (if all branches have eligible predicates); `CouchbaseRepository.queryPushdownByOrGroups` ORs the
+  per-group N1QL clauses via `buildOrGroupsWhere` (delegating to `buildGroupAndClause` with the same
+  `SAFE_FIELD` guard). Validated by `OqlQueryOrPushdownTest` (9 unit tests) + 4 new ITs in
+  `ProtoGemCouchQueryPushdownIntegrationTest`.
+- Exit: **M3 COMPLETE** — DISTINCT, paren WHERE (DNF), and OR pushdown all validated real-client; matrix
+  + `docs/OQL.md` updated.
 
-### 1.4.0-M4 — Hardening + RC → 1.4.0 GA · freeze target 2026-09-06 · GA target 2026-09-10
-The established pattern: soak the new query paths (a query-heavy / aggregate benchmark profile); a security
-re-review of the **expanded query-string parsing + N1QL-pushdown-of-aggregates** surface (re-confirm the
-bind-parameter + strict field-name validation holds for the new aggregate / group-by / distinct grammar —
-no N1QL injection); cross-version matrix re-validation; `CHANGELOG.md` `[1.4.0]`; cut `v1.4.0-rc1` → verify
-gates → cut `v1.4.0` GA + GitHub Release (GA tag operator-gated — confirm before tagging).
+### 1.4.0-M4 — Hardening + RC → 1.4.0 GA · **IN PROGRESS** · GA target 2026-09-10
+- [x] **Security re-review** — all M3 N1QL paths go through `SAFE_FIELD` in `buildGroupAndClause`;
+  `parseDnf`/`splitTopLevel` are pure OQL parsing with no N1QL surface; field names reaching
+  `pushdownOrGroups` are structurally constrained by the `CONDITION` regex. No new injection vectors.
+  `SECURITY.md` re-reviewed through 1.4.0.
+- [ ] Soak the new aggregate/group-by/distinct/OR-pushdown paths (query-heavy benchmark profile).
+- [ ] Cross-version matrix re-validation (1.4.0 adds no new client-facing wire forms for aggregate/group-by;
+  DISTINCT/paren-WHERE/OR-pushdown are server-internal).
+- [ ] `CHANGELOG.md` `[1.4.0]`; cut `v1.4.0-rc1` → verify gates → cut `v1.4.0` GA + GitHub Release
+  (GA tag operator-gated).
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
