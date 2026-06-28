@@ -1,13 +1,14 @@
 # OQL query support — design notes
 
-Status: **SELECT * / single-field projection / WHERE (AND+OR) / aggregate functions / GROUP BY done**, all
+Status: **SELECT * / single-field projection / WHERE (AND+OR+parentheses) / DISTINCT / aggregate functions / GROUP BY / OR pushdown done**, all
 end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`,
-`ProtoGemCouchAggregateQueryIntegrationTest`, `ProtoGemCouchGroupByIntegrationTest`). Supported:
-`SELECT (* | <field> | <agg>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY ...] [LIMIT n]` where
+`ProtoGemCouchAggregateQueryIntegrationTest`, `ProtoGemCouchGroupByIntegrationTest`,
+`ProtoGemCouchDistinctQueryIntegrationTest`, `ProtoGemCouchParenWhereIntegrationTest`). Supported:
+`SELECT [DISTINCT] (* | <field> | <agg>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY ...] [LIMIT n]` where
 conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals)
-combined with `AND`/`OR` (AND binds tighter; no parentheses), evaluated in-shim against the top-level
-fields of map-typed values; the response is filtered (and projected) accordingly, with `LIMIT` capping
-the result rows. The chunked
+combined with `AND`/`OR` (AND binds tighter) **with full parenthesis support**, evaluated in-shim against
+the top-level fields of map-typed values; the response is filtered (and projected) accordingly, with
+`LIMIT` capping the result rows. The chunked
 query-response format below was captured from a real Geode 1.15 server with `GeodeQueryCapture` and
 is implemented in `GemResponseWriter.buildQueryResponse` + `QueryHandler` (opcode 34); the OQL text
 is parsed by `OqlQuery`. Single-field projections reuse the same response shape with the projected
@@ -115,6 +116,28 @@ The result is a `SelectResults<Struct>` with actual column names (not `field$0`)
   implemented in `GemResponseWriter.buildGroupByQueryResponse`. Validated end-to-end by
   `ProtoGemCouchGroupByIntegrationTest`.
 
+**SELECT DISTINCT** (`SELECT DISTINCT <field> [, <field>] FROM /region [alias] [WHERE …] [LIMIT n]`,
+as of 1.4.0-M3): deduplicates the projected rows in-shim (first-seen order). Works on map and PDX
+values. `SELECT DISTINCT *` is not supported (real Geode 1.15 also raises a `SerializationException`
+for it — rejected cleanly at parse time).
+
+- Single-field: returns a `java.util.Set` of values (`ResultsCollectionType(java.util.Set, ObjectType(java.lang.Object))`), captured from a real Geode 1.15 server.
+- Multi-field: returns a `StructSet` with the actual field names (not `field$0`/`field$1`).
+- `WHERE` narrows rows before dedup; `LIMIT` caps after dedup.
+- Dedup is by string-form key (`OqlQuery.deduplicateRows`), preserving first-seen order.
+- Validated end-to-end by `ProtoGemCouchDistinctQueryIntegrationTest` (single + multi field, empty
+  region, WHERE, LIMIT, alias, PDX values).
+
+**Parenthesized AND/OR in WHERE** (as of 1.4.0-M3): `(A AND B) OR C`, `A AND (B OR C)`, and fully
+nested forms are now supported. The parser converts the expression to **Disjunctive Normal Form**
+(OR of AND-groups) so it fits the existing `List<List<Condition>>` data model without any structural
+change. `(A OR B) AND C` distributes to `[[A,C],[B,C]]`; a cross-product `(A OR B) AND (C OR D)`
+expands to four AND-groups. Previously any `(` or `)` in a WHERE raised `UnsupportedQueryException`;
+now only genuinely malformed conditions do. OR pushdown (below) benefits from paren-expanded DNF too:
+`status='active' AND (category='A' OR category='B')` expands to two AND-groups, each pushed as a
+separate N1QL branch. Validated by `OqlQueryParenWhereTest` (11 unit tests) and
+`ProtoGemCouchParenWhereIntegrationTest` (7 end-to-end tests).
+
 **Joins are deferred (out of scope for now).** Cross-region joins are uncommon and discouraged in
 GemFire (poor performance), and a Couchbase-backed shim would have to load both whole regions into
 memory and cross-product them — acceptable only for tiny regions. The ROI does not justify the
@@ -171,7 +194,9 @@ so the shim only fetches candidate documents. The design keeps results **identic
   (`field = <num>` / `< <= > >=` a numeric literal) on simple top-level fields. Ineligible conditions in
   the group (numeric `<>`/`!=`, string ranges, boolean/null literals, dotted/nested fields) are simply
   **skipped**, not fatal: pushing a subset of an `AND` is still a superset, and the shim re-applies the
-  full `WHERE`. An `OR` query is not pushed (falls back to the scan). (`OqlQuery.pushdownPredicates()`.)
+  full `WHERE`. (`OqlQuery.pushdownPredicates()` for single-group; `OqlQuery.pushdownOrGroups()` for
+  multi-group OR — each group's eligible predicates are pushed as one N1QL AND-branch; see OR pushdown
+  section below.)
   Projection and `ORDER BY` never block pushdown; they are applied in-shim to the candidates as before.
 - **`LIMIT n`** is supported (parsed by `OqlQuery`; applied in-shim to the result rows after `WHERE` /
   `ORDER BY` / projection). When the query has no `ORDER BY`, the `LIMIT` is also pushed to N1QL so the
@@ -237,17 +262,30 @@ instead of every PDX doc being swept in and re-filtered. Notes:
 - Index the sidecar path for speed, e.g.
   `CREATE INDEX idx_orders_pdx_status ON \`your-bucket\`(TO_STRING(\`pdxFields\`.\`status\`)) WHERE META().id LIKE "orders::%";`
 
+**OR pushdown (as of 1.4.0-M3).** An `OR`-of-`AND` `WHERE` is now pushed to N1QL as well, via
+`OqlQuery.pushdownOrGroups()` + `CouchbaseRepository.queryPushdownByOrGroups()`. Each AND-group's
+eligible conditions are ANDed in N1QL; the groups are then ORed together in a single N1QL statement.
+The opaque-type escape (`c.type NOT IN [...]`) appears once at the end, shared across all groups. If any
+OR-group has zero eligible predicates (e.g. the whole group is a `NEQ`), the entire OR falls back to the
+scan — a group with no eligible conditions would match every document, eliminating the pushdown benefit.
+Validated end-to-end by `ProtoGemCouchQueryPushdownIntegrationTest` (four OR-pushdown tests: two-group
+OR, AND-in-group, PDX values, no-match case) and by `OqlQueryOrPushdownTest` (9 unit tests covering
+eligibility, AND-in-group, ineligible-group fallback, numeric predicates, and backward compatibility of
+`pushdownPredicates` for the single-group path).
+
 **Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), the eligible
-subset of a mixed `AND`, `LIMIT` with no `ORDER BY` (including with no `WHERE`), and **PDX scalar fields**
-(via the sidecar) are pushed; numeric `<>`/`!=`, string ranges, and `OR` queries still scan.
+subset of a mixed `AND`, `OR`-of-`AND` (each group must have at least one eligible predicate), `LIMIT`
+with no `ORDER BY` (including with no `WHERE`), and **PDX scalar fields** (via the sidecar) are pushed;
+numeric `<>`/`!=`, string ranges, and boolean/null literals still scan.
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
-fallback, mixed region, projection; **partial push** of a mixed `AND`; `LIMIT` — pushed cap, no-`WHERE`
-region cap, `LIMIT` > match count, `ORDER BY` top-N, non-map refetch guard; and **PDX** — selective
-scalar-field equality/range and a PDX instance carrying a non-scalar field) plus `OqlQueryPushdownTest`
-(eligibility, partial subset, `hasWhere`), `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest`
-(scalar-field extraction for the sidecar).
+pushdown (two-group, AND-in-group, PDX, no-match), mixed region, projection; **partial push** of a mixed
+`AND`; `LIMIT` — pushed cap, no-`WHERE` region cap, `LIMIT` > match count, `ORDER BY` top-N, non-map
+refetch guard; and **PDX** — selective scalar-field equality/range and a PDX instance carrying a
+non-scalar field) plus `OqlQueryPushdownTest` (eligibility, partial subset, `hasWhere`),
+`OqlQueryOrPushdownTest` (OR-group eligibility, AND-in-group, ineligible fallback, numeric predicates),
+`OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
 
 **Measured win + perf-gate.** A query-weighted benchmark (`query-heavy` profile + `BENCH_QUERYABLE_VALUES`,
 which seeds map values with a top-level `k` field and runs `SELECT * FROM /r WHERE k = N`) quantifies the
