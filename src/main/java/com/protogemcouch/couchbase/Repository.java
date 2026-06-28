@@ -205,6 +205,21 @@ public interface Repository {
     }
 
     /**
+     * Push a GROUP BY query to N1QL when eligible (single group key, single top-level field, single
+     * aggregate column). Restricted to map-typed documents so the result is exact for map-typed regions.
+     *
+     * <p>Returns the grouped result rows in the same format as {@link OqlQuery#computeGroupBy} (one
+     * inner list per group, values in {@code groupByColumns} order), or {@link Optional#empty()} when
+     * pushdown is unavailable (no index, error, ineligible region type, etc.). The default is "no pushdown".
+     */
+    default Optional<List<List<Object>>> groupByPushdown(
+            String region,
+            List<OqlQuery.GroupByColumn> groupByColumns,
+            List<OqlQuery.FieldPredicate> predicates) {
+        return Optional.empty();
+    }
+
+    /**
      * Install an extractor that, given a stored PDX instance's wire bytes, returns its scalar fields
      * (name→value). When set, the backend writes those fields as a queryable sidecar next to the opaque
      * PDX bytes so {@link #queryPushdownByPredicates} can filter PDX documents by field (instead of

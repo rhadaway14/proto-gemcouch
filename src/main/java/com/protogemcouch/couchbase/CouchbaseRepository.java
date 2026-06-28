@@ -1333,6 +1333,125 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    @Override
+    public Optional<List<List<Object>>> groupByPushdown(
+            String region,
+            List<OqlQuery.GroupByColumn> groupByColumns,
+            List<OqlQuery.FieldPredicate> predicates) {
+        // Extract the single group key column and the aggregate column.
+        OqlQuery.GroupByColumn keyCol = null;
+        OqlQuery.GroupByColumn aggCol = null;
+        for (OqlQuery.GroupByColumn col : groupByColumns) {
+            if (col.isGroupKey()) keyCol = col;
+            else aggCol = col;
+        }
+        if (keyCol == null || keyCol.fieldPath() == null || keyCol.fieldPath().size() != 1) {
+            return Optional.empty();
+        }
+        String keyField = keyCol.fieldPath().get(0);
+        if (!SAFE_FIELD.matcher(keyField).matches()) {
+            return Optional.empty();
+        }
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        String mapFilter = "c.`type` IN [\""
+                + TYPE_STRING_OBJECT_HASH_MAP + "\", \"" + TYPE_STRING_HASH_MAP + "\"]";
+        StringBuilder whereBuilder = new StringBuilder("META(c).id LIKE $prefix AND ").append(mapFilter);
+        for (int i = 0; i < predicates.size(); i++) {
+            OqlQuery.FieldPredicate p = predicates.get(i);
+            String field = p.field();
+            if (field == null || !SAFE_FIELD.matcher(field).matches()) {
+                return Optional.empty();
+            }
+            whereBuilder.append(" AND ");
+            String envPath  = "c.`value`.`" + field + "`.`value`";
+            String barePath = "c.`value`.`" + field + "`";
+            if (p.numeric()) {
+                String nParam = "an_" + i;
+                params.put(nParam, p.number());
+                whereBuilder.append(numericFragment(p.op().symbol(), nParam, envPath, barePath));
+            } else {
+                String vParam = "av_" + i;
+                params.put(vParam, p.text());
+                Double numeric = parseNumericOrNull(p.text());
+                String nParam = null;
+                if (numeric != null) {
+                    nParam = "an_" + i;
+                    params.put(nParam, numeric);
+                }
+                whereBuilder.append(stringFragment(vParam, nParam, envPath, barePath));
+            }
+        }
+
+        // Group-key expression (covers both map encodings).
+        String keyEnvPath  = "c.`value`.`" + keyField + "`.`value`";
+        String keyBarePath = "c.`value`.`" + keyField + "`";
+        String keyExpr = "COALESCE(" + keyEnvPath + ", " + keyBarePath + ")";
+
+        // Aggregate expression.
+        String aggExpr;
+        if (aggCol == null || aggCol.fn() == OqlQuery.AggregateFunction.COUNT_STAR) {
+            aggExpr = "COUNT(*)";
+        } else {
+            OqlQuery.AggregateFunction fn = aggCol.fn();
+            if (aggCol.fieldPath() == null || aggCol.fieldPath().size() != 1) {
+                return Optional.empty();
+            }
+            String af = aggCol.fieldPath().get(0);
+            if (!SAFE_FIELD.matcher(af).matches()) {
+                return Optional.empty();
+            }
+            String afEnv  = "c.`value`.`" + af + "`.`value`";
+            String afBare = "c.`value`.`" + af + "`";
+            String afExpr = "COALESCE(" + afEnv + ", " + afBare + ")";
+            switch (fn) {
+                case COUNT_FIELD: aggExpr = "COUNT(" + afExpr + ")"; break;
+                case SUM:         aggExpr = "SUM(TO_NUMBER(" + afExpr + "))"; break;
+                case AVG:         aggExpr = "AVG(TO_NUMBER(" + afExpr + "))"; break;
+                case MIN:         aggExpr = "MIN(" + afExpr + ")"; break;
+                case MAX:         aggExpr = "MAX(" + afExpr + ")"; break;
+                default: return Optional.empty();
+            }
+        }
+
+        OqlQuery.AggregateFunction aggFn = (aggCol != null) ? aggCol.fn() : OqlQuery.AggregateFunction.COUNT_STAR;
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT " + keyExpr + " AS k, " + aggExpr + " AS v FROM " + keyspace
+                + " c WHERE " + whereBuilder + " GROUP BY " + keyExpr;
+
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .parameters(params)
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            List<JsonObject> n1qlRows = result.rowsAs(JsonObject.class);
+            List<List<Object>> rows = new ArrayList<>(n1qlRows.size());
+            for (JsonObject n1qlRow : n1qlRows) {
+                Object k = n1qlRow.get("k");
+                Object v = n1qlRow.get("v");
+                Number aggVal = toAggregateNumber(aggFn, v);
+                List<Object> row = new ArrayList<>(groupByColumns.size());
+                for (OqlQuery.GroupByColumn col : groupByColumns) {
+                    if (col.isGroupKey()) row.add(k);
+                    else row.add(aggVal);
+                }
+                rows.add(row);
+            }
+            log.info(StructuredLog.event(
+                    "repository_groupby_pushdown_ok", "region", region,
+                    "keyField", keyField, "predicates", predicates.size(), "groups", rows.size()));
+            return Optional.of(rows);
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_groupby_pushdown_unavailable", "region", region,
+                    "keyField", keyField, "error", e.getMessage()));
+            return Optional.empty();
+        }
+    }
+
     /** Convert the raw N1QL aggregate result to the Number type the shim wire encoder expects. */
     private static Number toAggregateNumber(OqlQuery.AggregateFunction fn, Object raw) {
         if (raw == null) {

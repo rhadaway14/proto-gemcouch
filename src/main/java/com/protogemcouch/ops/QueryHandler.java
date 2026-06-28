@@ -257,11 +257,33 @@ public class QueryHandler implements OperationHandler {
     }
 
     /**
-     * Handle a GROUP BY query: fetch candidates, filter, group-and-aggregate in-shim, then reply
-     * with the StructBag wire shape that Geode 1.15 produces for GROUP BY results.
+     * Handle a GROUP BY query: try GROUP BY pushdown to N1QL first when eligible, then fall back to
+     * fetch-candidates + in-shim grouping with the StructBag wire shape.
      */
     private void handleGroupBy(ChannelHandlerContext ctx, String oql, OqlQuery query,
                                String region, int txId) {
+        // GROUP BY pushdown: push the whole group-and-aggregate to N1QL when eligible (single key,
+        // single top-level field, single-AND-group or absent WHERE, map-typed region).
+        if (pushdownEnabled) {
+            Optional<List<OqlQuery.FieldPredicate>> gbEligible = query.pushdownGroupBy();
+            if (gbEligible.isPresent()) {
+                Optional<List<List<Object>>> pushed = repository.groupByPushdown(
+                        region, query.groupByColumns(), gbEligible.get());
+                if (pushed.isPresent()) {
+                    List<List<Object>> rows = pushed.get();
+                    log.info(StructuredLog.event(
+                            "handler_groupby_ok", "query", oql, "region", region,
+                            "rows", -1, "groups", rows.size(),
+                            "pushdown", true, "txId", txId));
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(
+                            GemResponseWriter.buildGroupByQueryResponse(txId, query.groupByColumns(), rows)));
+                    return;
+                }
+            }
+        }
+
+        // Fallback: fetch candidates (predicate or OR pushdown when eligible, else full scan),
+        // filter in-shim, then group-and-aggregate in-shim.
         Collection<StoredValue> candidates = null;
         boolean pushdownUsed = false;
         if (pushdownEnabled) {
