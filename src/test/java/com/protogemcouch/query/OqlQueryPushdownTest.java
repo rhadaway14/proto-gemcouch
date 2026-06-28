@@ -11,10 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Eligibility of {@link OqlQuery#pushdownPredicates()} — the conservative gate that decides which
- * queries may be pushed to the backend. Eligible: a single AND-group of string-equality and/or numeric
- * comparison ({@code = < <= > >=} a numeric literal) conditions on simple top-level fields. Everything
- * else returns empty so the shim scans (the matcher stays authoritative), guaranteeing pushdown never
- * changes results. Projection and ORDER BY are intentionally ignored (the caller re-applies them).
+ * queries may be pushed to the backend. Eligible: a single AND-group of string-equality, numeric
+ * comparison ({@code = < <= > >= <> !=} a numeric literal), string range ({@code < <= > >=} a string
+ * literal), {@code IN (list)}, {@code LIKE}, and {@code IS [NOT] NULL} conditions on simple top-level
+ * fields ({@code BETWEEN} desugars to two range conditions). Ineligible (string {@code <>}/{@code !=},
+ * boolean/null literals, nested paths) returns empty so the shim scans (the matcher stays authoritative),
+ * guaranteeing pushdown never changes results. Projection and ORDER BY are intentionally ignored.
  */
 class OqlQueryPushdownTest {
 
@@ -83,10 +85,10 @@ class OqlQueryPushdownTest {
 
     @Test
     void partialPushReturnsOnlyTheEligibleSubsetOfAnAndGroup() {
-        // The ineligible numeric <> is skipped; only the eligible string equality is pushed (the matcher
-        // still applies the full WHERE), so a mixed AND is selective instead of falling back to a scan.
+        // The ineligible boolean equality is skipped; only the eligible string equality is pushed (the
+        // matcher still applies the full WHERE), so a mixed AND is selective instead of scanning.
         Optional<List<OqlQuery.FieldPredicate>> e =
-                preds("SELECT * FROM /r WHERE status = 'active' AND amount <> 5");
+                preds("SELECT * FROM /r WHERE status = 'active' AND active = true");
         assertTrue(e.isPresent());
         assertEquals(1, e.get().size());
         assertEquals("status", e.get().get(0).field());
@@ -94,7 +96,8 @@ class OqlQueryPushdownTest {
 
     @Test
     void andGroupWithNoEligibleConditionIsNotPushed() {
-        assertFalse(preds("SELECT * FROM /r WHERE a <> 1 AND b <> 2").isPresent());
+        // Boolean equalities are ineligible → the whole group has nothing to push.
+        assertFalse(preds("SELECT * FROM /r WHERE active = true AND deleted = false").isPresent());
     }
 
     @Test
@@ -105,10 +108,18 @@ class OqlQueryPushdownTest {
     }
 
     @Test
-    void numericInequalityAndStringRangeAreNotEligible() {
-        assertFalse(preds("SELECT * FROM /r WHERE amount <> 42").isPresent(), "numeric != not pushed");
-        assertFalse(preds("SELECT * FROM /r WHERE amount != 42").isPresent(), "numeric != not pushed");
-        assertFalse(preds("SELECT * FROM /r WHERE name > 'm'").isPresent(), "string range not pushed");
+    void numericInequalityAndStringRangeAreEligible() {
+        // 1.6.0-M2: numeric <>/!= and string ranges now push (string <> still scans — see below).
+        assertEquals(OqlQuery.PushdownOp.NEQ, preds("SELECT * FROM /r WHERE amount <> 42").get().get(0).op());
+        assertEquals(OqlQuery.PushdownOp.NEQ, preds("SELECT * FROM /r WHERE amount != 42").get().get(0).op());
+        OqlQuery.FieldPredicate range = preds("SELECT * FROM /r WHERE name > 'm'").get().get(0);
+        assertEquals(OqlQuery.PushdownOp.GT, range.op());
+        assertFalse(range.numeric(), "string range is non-numeric");
+    }
+
+    @Test
+    void stringInequalityIsNotEligible() {
+        assertFalse(preds("SELECT * FROM /r WHERE status <> 'closed'").isPresent(), "string <> not pushed");
     }
 
     @Test

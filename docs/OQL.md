@@ -5,7 +5,8 @@ end-to-end against a real Geode client (`ProtoGemCouchQueryIntegrationTest`,
 `ProtoGemCouchAggregateQueryIntegrationTest`, `ProtoGemCouchGroupByIntegrationTest`,
 `ProtoGemCouchDistinctQueryIntegrationTest`, `ProtoGemCouchParenWhereIntegrationTest`). Supported:
 `SELECT [DISTINCT] (* | <field> | <agg>(<field>|*) | <key>, <agg>(<field>|*)) FROM /region [alias] [WHERE <conditions>] [GROUP BY <keys>] [ORDER BY ...] [LIMIT n]` where
-conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals)
+conditions are `<field> <op> <literal>` (ops `= <> != < <= > >=`; string/number/boolean/null literals),
+plus `field IN (...)`, `field LIKE 'pat'`, and `field IS [NOT] NULL`,
 combined with `AND`/`OR` (AND binds tighter) **with full parenthesis support**, evaluated in-shim against
 the top-level fields of map-typed values; the response is filtered (and projected) accordingly, with
 `LIMIT` capping the result rows. The chunked
@@ -193,13 +194,17 @@ With **`OQL_PUSHDOWN=true`** (default off), eligible queries instead pre-filter 
 so the shim only fetches candidate documents. The design keeps results **identical to the scan**:
 
 - **Eligibility + partial push.** Within a single `AND`-group `WHERE`, the **eligible subset** of
-  conditions is pushed — **string-equality** (`field = '…'`) and **numeric comparison**
-  (`field = <num>` / `< <= > >=` a numeric literal) on simple top-level fields. Ineligible conditions in
-  the group (numeric `<>`/`!=`, string ranges, boolean/null literals, dotted/nested fields) are simply
-  **skipped**, not fatal: pushing a subset of an `AND` is still a superset, and the shim re-applies the
-  full `WHERE`. (`OqlQuery.pushdownPredicates()` for single-group; `OqlQuery.pushdownOrGroups()` for
-  multi-group OR — each group's eligible predicates are pushed as one N1QL AND-branch; see OR pushdown
-  section below.)
+  conditions is pushed — **string-equality** (`field = '…'`), **numeric comparison**
+  (`field = <num>` / `< <= > >=` / `<>` `!=` a numeric literal), **string range** (`< <= > >=` a string
+  literal), **`IN (list)`**, **`LIKE`**, and **`IS [NOT] NULL`** on simple top-level fields. Ineligible
+  conditions in the group (string `<>`/`!=`, boolean/null literals, dotted/nested fields) are simply
+  **skipped**, not fatal:
+  pushing a subset of an `AND` is still a superset, and the shim re-applies the full `WHERE`.
+  (`OqlQuery.pushdownPredicates()` for single-group; `OqlQuery.pushdownOrGroups()` for multi-group OR —
+  each group's eligible predicates are pushed as one N1QL AND-branch; see OR pushdown section below.)
+  String-range pushdown compares by string form (`TO_STRING(field) <op> $v`, with a `TYPE = "number"`
+  superset escape); the matcher re-filters by `String.compareTo`, which matches N1QL's binary collation
+  for BMP characters (supplementary-plane characters at a range boundary can differ — a documented bound).
   Projection never blocks pushdown; it is applied in-shim to the candidates as before.
 - **`ORDER BY` pushdown (server-side top-N).** When every `ORDER BY` key is a simple top-level field
   (`OqlQuery.pushdownOrderBy()`), the sort is pushed to N1QL alongside the `WHERE` (predicate or OR
@@ -310,10 +315,14 @@ Key design points:
 **Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), the eligible
 subset of a mixed `AND`, `OR`-of-`AND` (each group must have at least one eligible predicate), `LIMIT`
 (with or without `ORDER BY`, including with no `WHERE`), **`ORDER BY` on top-level fields** (single and
-multi-key, for a server-side top-N), **PDX scalar fields** (via the sidecar), and **aggregate
-functions** (COUNT/SUM/AVG/MIN/MAX on map-typed regions with single-AND-group WHERE) are pushed;
-numeric `<>`/`!=`, string ranges, boolean/null literals, nested/array `ORDER BY` keys, OR-WHEREs for
-aggregates, and PDX regions for aggregates still use the in-shim path.
+multi-key, for a server-side top-N), **string ranges** (`< <= > >=` on string literals), **numeric
+`<>`/`!=`**, **PDX scalar fields** (via the sidecar), and **aggregate functions** (COUNT/SUM/AVG/MIN/MAX
+on map-typed regions with single-AND-group WHERE) are pushed; string `<>`/`!=`, boolean/null literals,
+nested/array `ORDER BY` keys, OR-WHEREs for aggregates, and PDX regions for aggregates still use the
+in-shim path. (For exactness, **aggregate/GROUP BY** pushdown declines a *string-range* predicate and
+falls back to the in-shim aggregate; the candidate-fetch path still pushes it.) **`BETWEEN` is not Geode
+OQL** — the real client's query compiler rejects it, so it never reaches the shim; use `field >= lo AND
+field <= hi`.
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
@@ -324,7 +333,9 @@ ordering, multi-key, PDX values, no-`WHERE` region-scoped top-N; and **PDX** —
 equality/range and a PDX instance carrying a non-scalar field) plus `OqlQueryPushdownTest` (eligibility,
 partial subset, `hasWhere`), `OqlQueryOrPushdownTest` (OR-group eligibility, AND-in-group, ineligible
 fallback, numeric predicates), `OqlQueryOrderByPushdownTest` (ORDER BY eligibility + handler wiring),
+`OqlQueryM2RangePredicateTest` (string range / numeric `<>` parse + eligibility),
 `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
+The IT suite also covers string ranges (`>`/`<`, over PDX) and numeric `<>` (alone and ANDed).
 
 **Measured win + perf-gate.** A query-weighted benchmark (`query-heavy` profile + `BENCH_QUERYABLE_VALUES`,
 which seeds map values with a top-level `k` field and runs `SELECT * FROM /r WHERE k = N`) quantifies the

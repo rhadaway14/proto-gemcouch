@@ -423,6 +423,54 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
         assertEquals(0, r.size(), "no rows match either OR branch");
     }
 
+    // --- string range / numeric <> (1.6.0-M2) ---
+    // (BETWEEN is not part of Geode OQL — the real client's compiler rejects it — so it is not tested.)
+
+    @Test
+    void stringRangePushdownIsCorrect() throws Exception {
+        region.put("a", new HashMap<>(Map.of("name", "alice")));
+        region.put("b", new HashMap<>(Map.of("name", "nora")));
+        region.put("c", new HashMap<>(Map.of("name", "zoe")));
+
+        assertEquals(2, query("SELECT * FROM /" + regionName + " WHERE name > 'm'").size(),
+                "> 'm' matches nora and zoe");
+        assertEquals(1, query("SELECT * FROM /" + regionName + " WHERE name < 'm'").size(),
+                "< 'm' matches only alice");
+    }
+
+    @Test
+    void stringRangeOverPdxValuesStaysCorrect() throws Exception {
+        region.put("a", pdxOrder("alpha", 1));
+        region.put("b", pdxOrder("mike", 2));
+        region.put("c", pdxOrder("zulu", 3));
+
+        // status is a PDX scalar field (sidecar); the string range filters it, matcher re-checks.
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE status >= 'm'");
+        assertEquals(2, r.size(), "mike and zulu are >= 'm'");
+    }
+
+    @Test
+    void numericNotEqualPushdownIsCorrect() throws Exception {
+        region.put("a", new HashMap<>(Map.of("amount", 5)));
+        region.put("b", new HashMap<>(Map.of("amount", 10)));
+        region.put("c", new HashMap<>(Map.of("amount", 5)));
+        region.put("d", new HashMap<>(Map.of("amount", 20)));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName + " WHERE amount <> 5");
+        assertEquals(2, r.size(), "<> 5 matches the 10 and 20 rows, not the two 5s");
+    }
+
+    @Test
+    void numericNotEqualWithEqualityAndsCorrectly() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 5)));
+        region.put("b", new HashMap<>(Map.of("status", "active", "amount", 9)));
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 9)));
+
+        SelectResults<?> r = query("SELECT * FROM /" + regionName
+                + " WHERE status = 'active' AND amount <> 5");
+        assertEquals(1, r.size(), "active AND amount != 5 → only the active/9 row");
+    }
+
     private SelectResults<?> query(String oql) throws Exception {
         return (SelectResults<?>) cache.getQueryService().newQuery(oql).execute();
     }
