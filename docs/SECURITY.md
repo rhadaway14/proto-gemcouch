@@ -400,6 +400,43 @@ Operators creating the secondary indexes pushdown uses should scope them per reg
 (`WHERE META().id LIKE "region::%"`) and grant the shim's Couchbase user only the privileges it needs
 (KV + read-only Query); the shim never issues DDL itself.
 
+### Re-review — 1.4.0 (OR pushdown, aggregates, GROUP BY, DISTINCT)
+
+1.4.0 added four new code paths; all were reviewed against the injection invariant:
+
+- **OR pushdown** (`queryPushdownByOrGroups`): each AND-group in the OR is processed by the same
+  `buildGroupAndClause` as the single-group path. No new field interpolation; per-group param names
+  are disambiguated with a `g<group>_<i>` prefix (still generated from integer indices, not user data).
+- **Aggregate pushdown** (added in 1.5.0-M1 but listed here for completeness of the 1.4.0 aggregate
+  work): `SELECT <aggExpr> AS r` — the aggregate field name passes `SAFE_FIELD` before interpolation;
+  all predicate values go through bind params; the result column alias (`r`) is a hardcoded literal.
+- **GROUP BY pushdown** (1.5.0-M2): group-key field, aggregate field, both checked with `SAFE_FIELD`
+  before interpolation; the `GROUP BY` expression reuses the same `COALESCE(envPath, barePath)` string
+  (already interpolated with validated identifiers); no additional injection surface.
+- **DISTINCT / paren WHERE / DNF expansion**: purely in-memory in `OqlQuery` — no N1QL surface.
+  `parseDnf`/`splitTopLevel` are pure OQL parsing; field names reaching `pushdownOrGroups` are
+  structurally constrained by the `CONDITION` regex.
+
+### Re-review — 1.5.0-M3 (IN list, LIKE, IS NULL / IS NOT NULL)
+
+Three new predicate types reach the N1QL layer; reviewed:
+
+- **IN_LIST**: items are placed into a `JsonArray` and bound as a single parameter (`$v`). N1QL
+  `TO_STRING(field) IN $v` — the array contents are never string-interpolated, only bound.
+- **LIKE**: the pattern is bound as a string parameter (`$v`). N1QL `TO_STRING(field) LIKE $v` — the
+  `%` and `_` wildcards in the pattern are interpreted by Couchbase's query engine, not by the shim,
+  and they arrive as a bind value, not as part of the query string. No injection surface.
+- **IS NULL / IS NOT NULL**: no value is needed; the N1QL fragment is a hardcoded `IS NOT VALUED` /
+  `IS VALUED` predicate on the already-validated field path. Nothing from user input is interpolated.
+- **`appendMapOnlyPredFrag` helper**: shared by `aggregatePushdown` and `groupByPushdown`; receives
+  field paths already validated by the callers' `SAFE_FIELD` guards. The `paramPrefix` argument is
+  always a caller-generated `"av_" + <int>` string — never user input.
+
+**Summary through 1.5.0-M3**: The original guarantee holds: the only user-derived token ever
+interpolated into a N1QL string is a field name that has passed `SAFE_FIELD`; all literal values
+travel as Couchbase bind parameters. `LIMIT` is a Java `int`. Read-only query flag is set on all
+N1QL calls.
+
 ---
 
 ## Durable subscription persistence (1.2.0)

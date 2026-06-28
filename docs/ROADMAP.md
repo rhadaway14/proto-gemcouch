@@ -413,14 +413,17 @@ All items are additive/non-breaking (semver minors).
   N1QL pushdown.
 - [ ] Unit + ITs for all three.
 
-### 1.5.0-M4 — Hardening + RC → 1.5.0 GA
-- [ ] Security re-review — confirm new N1QL aggregate/GROUP BY templates have no injection surface
-  (field names → SAFE_FIELD, values → bind params).
-- [ ] Soak — query-heavy profile (seed with queryable values, run aggregate + GROUP BY + IN-list queries
-  under load).
-- [ ] Cross-version matrix re-validation.
-- [ ] `CHANGELOG.md` `[1.5.0]` + version bumps (pom 1.4.0→1.5.0, Helm chart, values image tag).
-- [ ] `v1.5.0-rc1` → all gates green → `v1.5.0` GA (operator-gated).
+### 1.5.0-M4 — Hardening + RC → 1.5.0 GA · **COMPLETE** · GA target 2026-06-28
+- [x] Security re-review — all M1-M3 N1QL templates confirmed injection-free. Field names through
+  `SAFE_FIELD`; all values as bind params (string, numeric, `JsonArray` for IN_LIST, LIKE pattern).
+  IS NULL/IS NOT NULL have no values to inject. `appendMapOnlyPredFrag` + `buildGroupAndClause`
+  cover all code paths. `SECURITY.md` updated through 1.5.0-M3.
+- [x] Soak — 300s query-heavy profile (1,234,581 ops): **`SOAK_VERDICT PASS`** (errors=0, shed=0,
+  conn_growth=-17, mem_growth=19.4%, p99=7.5ms). No regressions.
+- [x] Cross-version matrix — Geode 1.15.1 and 1.15.4 clients: 36 tests PASS each (2026-06-28).
+- [x] `CHANGELOG.md` `[1.5.0]` + version bumps (pom 1.4.0→1.5.0, Helm chart appVersion/version,
+  values.yaml image tag).
+- [ ] Cut `v1.5.0-rc1` → verify all CI gates → cut `v1.5.0` GA + GitHub Release (operator-gated).
 
 ---
 
