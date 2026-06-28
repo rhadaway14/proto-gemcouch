@@ -244,8 +244,87 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
 
         SelectResults<?> top2 = query(
                 "SELECT e.amount FROM /" + regionName + " e ORDER BY amount DESC LIMIT 2");
-        // ORDER BY is not pushed (top-N needs the full sorted set); LIMIT is applied after the sort.
+        // ORDER BY + LIMIT is now pushed for a true server-side top-N (the backend sorts and caps);
+        // the result order is authoritative and identical to the in-shim sort.
         assertEquals(List.of(40, 30), new java.util.ArrayList<>(top2), "top-2 by amount descending");
+    }
+
+    // --- ORDER BY pushdown (1.6.0-M1) ---
+
+    @Test
+    void orderByAscendingPushedDownIsFullySorted() throws Exception {
+        region.put("a", new HashMap<>(Map.of("amount", 30)));
+        region.put("b", new HashMap<>(Map.of("amount", 10)));
+        region.put("c", new HashMap<>(Map.of("amount", 20)));
+        region.put("d", new HashMap<>(Map.of("amount", 40)));
+
+        SelectResults<?> sorted = query(
+                "SELECT e.amount FROM /" + regionName + " e ORDER BY amount ASC");
+        assertEquals(List.of(10, 20, 30, 40), new ArrayList<>(sorted),
+                "ORDER BY ASC is pushed and fully sorted (numeric)");
+    }
+
+    @Test
+    void orderByDescendingWithWhereTopNPushedDown() throws Exception {
+        for (int i = 0; i < 6; i++) {
+            region.put("a" + i, new HashMap<>(Map.of("status", "active", "amount", i * 10)));
+        }
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 999)));
+
+        SelectResults<?> top3 = query("SELECT e.amount FROM /" + regionName
+                + " e WHERE status = 'active' ORDER BY amount DESC LIMIT 3");
+        assertEquals(List.of(50, 40, 30), new ArrayList<>(top3),
+                "server-side top-N of the active rows by amount descending (closed/999 excluded)");
+    }
+
+    @Test
+    void orderByStringFieldPushedDown() throws Exception {
+        region.put("a", new HashMap<>(Map.of("name", "charlie")));
+        region.put("b", new HashMap<>(Map.of("name", "alice")));
+        region.put("c", new HashMap<>(Map.of("name", "bob")));
+
+        SelectResults<?> sorted = query(
+                "SELECT e.name FROM /" + regionName + " e ORDER BY name ASC");
+        assertEquals(List.of("alice", "bob", "charlie"), new ArrayList<>(sorted),
+                "string ORDER BY is pushed and lexically sorted");
+    }
+
+    @Test
+    void orderByMultiKeyPushedDown() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "amount", 10)));
+        region.put("b", new HashMap<>(Map.of("status", "active", "amount", 30)));
+        region.put("c", new HashMap<>(Map.of("status", "closed", "amount", 20)));
+        region.put("d", new HashMap<>(Map.of("status", "closed", "amount", 40)));
+
+        // status ASC, then amount DESC within each status group.
+        SelectResults<?> sorted = query("SELECT e.amount FROM /" + regionName
+                + " e ORDER BY status ASC, amount DESC");
+        assertEquals(List.of(30, 10, 40, 20), new ArrayList<>(sorted),
+                "multi-key ORDER BY (status asc, amount desc) is pushed and ordered correctly");
+    }
+
+    @Test
+    void orderByOverPdxValuesStaysCorrect() throws Exception {
+        // PDX scalar fields are ordered via the pdxFields sidecar path in the COALESCE order key.
+        region.put("a", pdxOrder("active", 30));
+        region.put("b", pdxOrder("active", 10));
+        region.put("c", pdxOrder("active", 20));
+
+        SelectResults<?> sorted = query(
+                "SELECT e.amount FROM /" + regionName + " e ORDER BY amount ASC");
+        assertEquals(List.of(10, 20, 30), new ArrayList<>(sorted),
+                "ORDER BY on PDX scalar values is correct (superset + authoritative backend sort)");
+    }
+
+    @Test
+    void orderByRegionScopedTopNWithNoWhere() throws Exception {
+        for (int i = 0; i < 8; i++) {
+            region.put("k" + i, new HashMap<>(Map.of("amount", i)));
+        }
+        SelectResults<?> top3 = query(
+                "SELECT e.amount FROM /" + regionName + " e ORDER BY amount DESC LIMIT 3");
+        assertEquals(List.of(7, 6, 5), new ArrayList<>(top3),
+                "no-WHERE ORDER BY + LIMIT pushes a region-scoped server-side top-N");
     }
 
     @Test

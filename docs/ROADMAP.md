@@ -374,7 +374,59 @@ queryable instead of opaque) and tightened the golden-wire request coverage.
 
 ---
 
-## Current focus — 1.5.0 backlog (theme: OQL at scale — fast aggregates, fast grouping, complete predicate pushdown)
+## Current focus — 1.6.0 backlog (theme: OQL pushdown completeness)
+
+With 1.4.0–1.5.0 building out the pushdown engine (aggregates, GROUP BY, the common predicate types),
+1.6.0 closes the remaining full-scan fallback gaps: server-side ORDER BY, the last predicate forms, and
+DISTINCT pushdown — plus pushdown observability so operators can see which queries push and why. All
+items are additive/non-breaking (semver minors).
+
+### 1.6.0-M1 — ORDER BY pushdown to N1QL (headline) · **COMPLETE** (2026-06-28)
+- [x] When every `ORDER BY` key is a simple top-level field, the sort is pushed to Couchbase N1QL
+  alongside the `WHERE` (predicate, OR-groups, or no `WHERE`) and the `LIMIT` — a true server-side
+  top-N: the backend sorts and caps, so the shim fetches the top-N rows instead of the whole region (it
+  previously always sorted in-shim after a full candidate fetch).
+- [x] `OqlQuery.pushdownOrderBy()` is the eligibility gate (returns `OrderByKey`s for single top-level
+  fields; empty for a nested/array key, which still sorts in-shim). New public `OqlQuery.OrderByKey`
+  record exposes the field + direction to the repository layer.
+- [x] `Repository.queryPushdownByPredicates(region, predicates, orderBy, limit)` and
+  `queryPushdownByOrGroups(…, orderBy, limit)` — new default no-op overloads; `CouchbaseRepository`
+  emits `ORDER BY TO_NUMBER(x) <dir>, TO_STRING(x) <dir>` over `x = COALESCE(value.<f>.value,
+  value.<f>, pdxFields.<f>)` (mirrors the in-shim "numeric when parseable, else string" comparator).
+  `TracingRepository` delegates both.
+- [x] `QueryHandler.tryOrderedPushdown()` runs first for ordered queries: when ordering is pushed the
+  backend row order is **authoritative** (the in-shim sort is skipped; the matcher still re-filters,
+  preserving relative order), with the same unbounded-refetch top-N guard as the LIMIT path. A
+  nested/array key, an unpushable `WHERE`, disabled pushdown, or any backend error falls back cleanly to
+  the unordered candidate fetch + in-shim sort.
+- [x] Security: every `ORDER BY` field passes `SAFE_FIELD` before interpolation; no literal values in the
+  ORDER BY clause. `REQUEST_PLUS` scan consistency.
+- [x] Validated by `OqlQueryOrderByPushdownTest` (9 eligibility + 6 handler-wiring unit tests) and 6 new
+  real-client cases in `ProtoGemCouchQueryPushdownIntegrationTest` (ascending full sort, descending
+  top-N with `WHERE`, string ordering, multi-key, PDX values, no-`WHERE` region-scoped top-N) — 29/29
+  pushdown ITs green. `docs/OQL.md` updated.
+- Known semantics difference vs the scan (documented): `NULL`/missing and mixed-type fields follow N1QL
+  collation rather than the in-shim "nulls last" rule.
+
+### 1.6.0-M2 — Remaining predicate gaps
+- [ ] **`BETWEEN`** — `WHERE age BETWEEN 18 AND 65` → `$lo <= TO_NUMBER(field) AND TO_NUMBER(field) <= $hi`.
+- [ ] **String range predicates** — `WHERE name > 'M'` (today only numeric ranges push; strings scan).
+- [ ] **Numeric `<>`/`!=`** — currently scans.
+- [ ] Unit + ITs for each.
+
+### 1.6.0-M3 — DISTINCT pushdown + pushdown observability
+- [ ] **DISTINCT pushdown** — push `SELECT DISTINCT` to N1QL (in-shim only since 1.4.0-M3).
+- [ ] **Pushdown observability** — Micrometer/OTel counter `pushdown_queries_total` with
+  `result=pushed|fallback` + `fallback_reason`, emitted per query and visible on `/metrics`.
+- [ ] Unit + ITs.
+
+### 1.6.0-M4 — Hardening + RC → 1.6.0 GA
+- [ ] Security re-review, soak (query-heavy profile), cross-version matrix, CHANGELOG finalization,
+  version bumps, RC → GA.
+
+---
+
+## 1.5.0 — SHIPPED 2026-06-28 (theme: OQL at scale — fast aggregates, fast grouping, complete predicate pushdown)
 
 With 1.4.0 delivering OQL expressiveness (aggregates, GROUP BY, DISTINCT, paren WHERE, OR pushdown), 1.5.0
 makes those features **fast at scale** by pushing aggregates and GROUP BY down to Couchbase N1QL, and

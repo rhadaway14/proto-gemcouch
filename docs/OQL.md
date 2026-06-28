@@ -21,7 +21,10 @@ array of structs, each an `Object[]` of its field values. `GemResponseWriter.bui
 generates both for any field count; the bytes were diffed byte-for-byte against the real Geode
 server (`GeodeQueryCapture`, M=2 and M=3 captures).
 
-**ORDER BY** (`ORDER BY field [ASC|DESC]`, multi-key) sorts the matched values in-shim. The
+**ORDER BY** (`ORDER BY field [ASC|DESC]`, multi-key) sorts the matched values. By default this is an
+in-shim sort; when pushdown is on and every ORDER BY key is a simple top-level field, the sort is
+**pushed to N1QL** for a true server-side top-N (see the ORDER BY pushdown note in the pushdown
+section below). The
 non-distinct CollectionType does not preserve client-side order, so ordered SELECT */single-field
 responses use Geode's **`...internal.Ordered`** CollectionType + an Object[] (`0x34`) result (also
 captured + byte-matched). **ORDER BY also works with struct (multi-field) projections**: the
@@ -197,15 +200,29 @@ so the shim only fetches candidate documents. The design keeps results **identic
   full `WHERE`. (`OqlQuery.pushdownPredicates()` for single-group; `OqlQuery.pushdownOrGroups()` for
   multi-group OR — each group's eligible predicates are pushed as one N1QL AND-branch; see OR pushdown
   section below.)
-  Projection and `ORDER BY` never block pushdown; they are applied in-shim to the candidates as before.
+  Projection never blocks pushdown; it is applied in-shim to the candidates as before.
+- **`ORDER BY` pushdown (server-side top-N).** When every `ORDER BY` key is a simple top-level field
+  (`OqlQuery.pushdownOrderBy()`), the sort is pushed to N1QL alongside the `WHERE` (predicate or OR
+  groups, or no `WHERE` at all), and the `LIMIT` is pushed too — so the backend sorts and caps, and the
+  shim only fetches the top-N rows instead of the whole region. Unlike predicate pushdown (a superset the
+  matcher re-filters), a pushed `ORDER BY` is **authoritative**: the shim trusts the backend row order
+  and does not re-sort (the matcher still re-filters, which preserves the surviving rows' relative
+  order). The backend sort mirrors the in-shim comparator — `TO_NUMBER(x) <dir>, TO_STRING(x) <dir>`
+  over `x = COALESCE(value.<f>.value, value.<f>, pdxFields.<f>)`, so numeric (and numeric-string) fields
+  order numerically and other strings lexically. As with the LIMIT cap, a backend-capped page can lose
+  true matches to false positives, so the same **unbounded refetch guard** (still backend-ordered) runs
+  when a full page yields fewer than `n` matches. A nested/array `ORDER BY` key, or a `WHERE` that
+  exists but cannot be pushed, falls back to the unordered candidate fetch + in-shim sort. Known
+  semantics difference vs the scan: `NULL`/missing values and mixed-type fields follow N1QL collation
+  rather than the in-shim "nulls last" rule.
 - **`LIMIT n`** is supported (parsed by `OqlQuery`; applied in-shim to the result rows after `WHERE` /
-  `ORDER BY` / projection). When the query has no `ORDER BY`, the `LIMIT` is also pushed to N1QL so the
-  backend caps the candidate rows — this includes a **`LIMIT` with no `WHERE`** (`SELECT * FROM /r LIMIT n`),
-  which pushes a region-scoped capped query instead of scanning the whole region. Because the predicate
-  is a *superset*, a capped page can contain non-matches; if the matcher then yields fewer than `n`
-  matches from a full page, the shim **refetches the candidates unbounded** so it never under-returns.
-  With `ORDER BY`, the `LIMIT` is applied only in-shim after the sort (a top-N needs the full matched
-  set), while the `WHERE` still pushes.
+  `ORDER BY` / projection). The `LIMIT` is pushed to N1QL whenever the query is pushdown-eligible —
+  whether or not it has an `ORDER BY` (with `ORDER BY` the backend sorts then caps; without it the
+  backend caps the candidate rows) — this includes a **`LIMIT` with no `WHERE`** (`SELECT * FROM /r
+  LIMIT n`), which pushes a region-scoped capped query instead of scanning the whole region. Because the
+  predicate is a *superset*, a capped page can contain non-matches; if the matcher then yields fewer
+  than `n` matches from a full page, the shim **refetches the candidates unbounded** so it never
+  under-returns.
 - **The matcher stays authoritative.** N1QL only chooses *candidate* documents; the shim re-applies
   `OqlQuery.matches` (the same PDX-aware resolver as the scan), then projects/sorts/pages as usual. So
   the candidate set only has to be a **superset** of the true matches.
@@ -292,18 +309,21 @@ Key design points:
 
 **Caveats (current slice).** String-equality, numeric equality/range (`= < <= > >=`), the eligible
 subset of a mixed `AND`, `OR`-of-`AND` (each group must have at least one eligible predicate), `LIMIT`
-with no `ORDER BY` (including with no `WHERE`), **PDX scalar fields** (via the sidecar), and **aggregate
+(with or without `ORDER BY`, including with no `WHERE`), **`ORDER BY` on top-level fields** (single and
+multi-key, for a server-side top-N), **PDX scalar fields** (via the sidecar), and **aggregate
 functions** (COUNT/SUM/AVG/MIN/MAX on map-typed regions with single-AND-group WHERE) are pushed;
-numeric `<>`/`!=`, string ranges, boolean/null literals, OR-WHEREs for aggregates, and PDX regions for
-aggregates still use the in-shim path.
+numeric `<>`/`!=`, string ranges, boolean/null literals, nested/array `ORDER BY` keys, OR-WHEREs for
+aggregates, and PDX regions for aggregates still use the in-shim path.
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
 pushdown (two-group, AND-in-group, PDX, no-match), mixed region, projection; **partial push** of a mixed
-`AND`; `LIMIT` — pushed cap, no-`WHERE` region cap, `LIMIT` > match count, `ORDER BY` top-N, non-map
-refetch guard; and **PDX** — selective scalar-field equality/range and a PDX instance carrying a
-non-scalar field) plus `OqlQueryPushdownTest` (eligibility, partial subset, `hasWhere`),
-`OqlQueryOrPushdownTest` (OR-group eligibility, AND-in-group, ineligible fallback, numeric predicates),
+`AND`; `LIMIT` — pushed cap, no-`WHERE` region cap, `LIMIT` > match count, non-map
+refetch guard; **`ORDER BY` pushdown** — ascending full sort, descending top-N with `WHERE`, string
+ordering, multi-key, PDX values, no-`WHERE` region-scoped top-N; and **PDX** — selective scalar-field
+equality/range and a PDX instance carrying a non-scalar field) plus `OqlQueryPushdownTest` (eligibility,
+partial subset, `hasWhere`), `OqlQueryOrPushdownTest` (OR-group eligibility, AND-in-group, ineligible
+fallback, numeric predicates), `OqlQueryOrderByPushdownTest` (ORDER BY eligibility + handler wiring),
 `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
 
 **Measured win + perf-gate.** A query-weighted benchmark (`query-heavy` profile + `BENCH_QUERYABLE_VALUES`,
