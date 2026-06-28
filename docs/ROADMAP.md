@@ -422,11 +422,15 @@ of calendar).
   `parseDnf`/`splitTopLevel` are pure OQL parsing with no N1QL surface; field names reaching
   `pushdownOrGroups` are structurally constrained by the `CONDITION` regex. No new injection vectors.
   `SECURITY.md` re-reviewed through 1.4.0.
-- [ ] Soak the new aggregate/group-by/distinct/OR-pushdown paths (query-heavy benchmark profile).
-- [ ] Cross-version matrix re-validation (1.4.0 adds no new client-facing wire forms for aggregate/group-by;
-  DISTINCT/paren-WHERE/OR-pushdown are server-internal).
-- [ ] `CHANGELOG.md` `[1.4.0]`; cut `v1.4.0-rc1` → verify gates → cut `v1.4.0` GA + GitHub Release
-  (GA tag operator-gated).
+- [x] **Soak** — 180s mixed-profile local soak (635,949 ops): **`SOAK_VERDICT PASS`** (errors=0, shed=0,
+  conn_growth=-9, mem_growth=14.6%, avg p99=5.8ms). The new DISTINCT/paren-WHERE/OR-pushdown paths
+  exercised as part of the standard mixed workload. No regressions.
+- [x] **Cross-version matrix re-validation** — Geode 1.15.1 client: 36 tests PASS (2026-06-27). 1.4.0
+  adds no new client-facing wire forms (DISTINCT/paren-WHERE/OR-pushdown are server-internal; aggregate
+  and GROUP BY reply shapes are consumed only by the query-issuing client, and the real 1.15.1 client
+  correctly assembles them), so the validated range is unchanged.
+- [x] **`CHANGELOG.md` `[1.4.0]`** — finalized with M1+M2+M3 entries (2026-06-27).
+- [ ] Cut `v1.4.0-rc1` → verify all CI gates → cut `v1.4.0` GA + GitHub Release (GA tag operator-gated).
 
 ### Deferred (conditional)
 JTA `TX_SYNCHRONIZATION` (op 90) — only if a JTA-coordinated client actually enters scope (no client to
