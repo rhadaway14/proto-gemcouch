@@ -56,6 +56,18 @@ public final class OqlQuery {
     private static final Pattern IN_CONDITION = Pattern.compile(
             "(?i)^\\s*(.+?)\\s+IN\\s+([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s*$");
 
+    /** List membership: {@code field IN ('a', 'b')} or {@code field IN SET ('a', 'b')}. */
+    private static final Pattern IN_LIST_CONDITION = Pattern.compile(
+            "(?i)^\\s*([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s+IN\\s+(?:SET\\s+)?\\((.+)\\)\\s*$");
+
+    /** Pattern matching: {@code field LIKE 'pattern%'}. */
+    private static final Pattern LIKE_CONDITION = Pattern.compile(
+            "(?i)^\\s*([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s+LIKE\\s+(.+?)\\s*$");
+
+    /** Null check: {@code field IS NULL} or {@code field IS NOT NULL}. */
+    private static final Pattern IS_NULL_CONDITION = Pattern.compile(
+            "(?i)^\\s*([A-Za-z_][A-Za-z0-9_.\\[\\]]*)\\s+IS\\s+(NOT\\s+)?NULL\\s*$");
+
     /** One dotted path segment: a field name with zero or more {@code [index]} suffixes. */
     private static final Pattern SEGMENT = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)((?:\\[[0-9]+\\])*)");
 
@@ -152,7 +164,8 @@ public final class OqlQuery {
 
     /** The comparison of a pushdown-eligible scalar predicate. */
     public enum PushdownOp {
-        EQ("="), LT("<"), LTE("<="), GT(">"), GTE(">=");
+        EQ("="), LT("<"), LTE("<="), GT(">"), GTE(">="),
+        LIKE("LIKE"), IN_LIST("IN"), IS_NULL("IS NULL"), IS_NOT_NULL("IS NOT NULL");
 
         private final String symbol;
 
@@ -167,18 +180,38 @@ public final class OqlQuery {
     }
 
     /**
-     * A pushdown-eligible scalar predicate on a top-level field: either a string equality
-     * ({@code numeric == false}, {@code op == EQ}, compare {@link #text}) or a numeric comparison
-     * ({@code numeric == true}, compare {@link #number}). The backend translates these to a region-scoped
-     * N1QL predicate that is a <em>superset</em> of the matches (the caller's matcher re-filters).
+     * A pushdown-eligible scalar predicate on a top-level field. Covers string equality ({@code op=EQ},
+     * {@link #text}), numeric comparison ({@link #numeric}=true, {@link #number}), LIKE ({@link #text}
+     * = pattern), IN list ({@link #inList} = the string values), and IS NULL / IS NOT NULL (no value).
+     * The backend translates these to N1QL; results are at least a superset of true matches (the caller's
+     * matcher re-filters), except for aggregate/GROUP BY pushdown which is restricted to map types and
+     * is exact.
      */
-    public record FieldPredicate(String field, PushdownOp op, boolean numeric, String text, double number) {
+    public record FieldPredicate(String field, PushdownOp op, boolean numeric, String text, double number,
+                                 List<String> inList) {
         static FieldPredicate stringEquality(String field, String text) {
-            return new FieldPredicate(field, PushdownOp.EQ, false, text, 0d);
+            return new FieldPredicate(field, PushdownOp.EQ, false, text, 0d, null);
         }
 
         static FieldPredicate numericComparison(String field, PushdownOp op, double number, String text) {
-            return new FieldPredicate(field, op, true, text, number);
+            return new FieldPredicate(field, op, true, text, number, null);
+        }
+
+        static FieldPredicate likePredicate(String field, String pattern) {
+            return new FieldPredicate(field, PushdownOp.LIKE, false, pattern, 0d, null);
+        }
+
+        static FieldPredicate inListPredicate(String field, List<String> values) {
+            return new FieldPredicate(field, PushdownOp.IN_LIST, false, null, 0d,
+                    List.copyOf(values));
+        }
+
+        static FieldPredicate isNullPredicate(String field) {
+            return new FieldPredicate(field, PushdownOp.IS_NULL, false, null, 0d, null);
+        }
+
+        static FieldPredicate isNotNullPredicate(String field) {
+            return new FieldPredicate(field, PushdownOp.IS_NOT_NULL, false, null, 0d, null);
         }
     }
 
@@ -565,14 +598,9 @@ public final class OqlQuery {
                 continue; // nested-field path: not pushable, but the matcher still applies it
             }
             String field = condition.path.get(0);
-            if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
-                predicates.add(FieldPredicate.stringEquality(field, condition.literal.asText()));
-            } else if (condition.literal.isNumeric()) {
-                PushdownOp op = numericOp(condition.op);
-                if (op != null) { // numeric =/</<=/>/>= ; skip numeric <>//!= (rarely selective)
-                    predicates.add(FieldPredicate.numericComparison(
-                            field, op, condition.literal.numberValue(), condition.literal.asText()));
-                }
+            FieldPredicate fp = toPushdownPredicate(field, condition);
+            if (fp != null) {
+                predicates.add(fp);
             }
             // else (string range, boolean, null, ...): skip — the matcher re-filters authoritatively.
         }
@@ -595,14 +623,9 @@ public final class OqlQuery {
             for (Condition condition : group) {
                 if (condition.path.size() != 1) continue;
                 String field = condition.path.get(0);
-                if (condition.op == Operator.EQ && condition.literal.isPlainString()) {
-                    predicates.add(FieldPredicate.stringEquality(field, condition.literal.asText()));
-                } else if (condition.literal.isNumeric()) {
-                    PushdownOp op = numericOp(condition.op);
-                    if (op != null) {
-                        predicates.add(FieldPredicate.numericComparison(
-                                field, op, condition.literal.numberValue(), condition.literal.asText()));
-                    }
+                FieldPredicate fp = toPushdownPredicate(field, condition);
+                if (fp != null) {
+                    predicates.add(fp);
                 }
             }
             if (predicates.isEmpty()) {
@@ -611,6 +634,46 @@ public final class OqlQuery {
             groups.add(predicates);
         }
         return Optional.of(groups);
+    }
+
+    /**
+     * Convert a single parsed Condition on a top-level field to a FieldPredicate for N1QL pushdown.
+     * Returns null when the condition is not pushdown-eligible (nested field, NEQ, containment IN, etc.).
+     */
+    private static FieldPredicate toPushdownPredicate(String field, Condition condition) {
+        switch (condition.op) {
+            case IS_NULL:     return FieldPredicate.isNullPredicate(field);
+            case IS_NOT_NULL: return FieldPredicate.isNotNullPredicate(field);
+            case LIKE:
+                if (condition.literal != null && condition.literal.isPlainString()) {
+                    return FieldPredicate.likePredicate(field, condition.literal.asText());
+                }
+                return null;
+            case IN_LIST: {
+                List<Literal> list = condition.literal != null ? condition.literal.asList() : null;
+                if (list == null || list.isEmpty()) return null;
+                List<String> texts = new ArrayList<>();
+                for (Literal item : list) {
+                    if (!item.isPlainString()) return null; // mixed/numeric lists: skip pushdown
+                    texts.add(item.asText());
+                }
+                return FieldPredicate.inListPredicate(field, texts);
+            }
+            case EQ:
+                if (condition.literal != null && condition.literal.isPlainString()) {
+                    return FieldPredicate.stringEquality(field, condition.literal.asText());
+                }
+                // fall through to numeric check
+            default:
+                if (condition.literal != null && condition.literal.isNumeric()) {
+                    PushdownOp op = numericOp(condition.op);
+                    if (op != null) {
+                        return FieldPredicate.numericComparison(
+                                field, op, condition.literal.numberValue(), condition.literal.asText());
+                    }
+                }
+                return null;
+        }
     }
 
     /** Map a comparison operator to its pushdown form; {@code null} for the unsupported {@code NEQ}. */
@@ -1091,14 +1154,59 @@ public final class OqlQuery {
             return new Condition(toPath(m.group(1), alias), Operator.of(m.group(2)),
                     Literal.parse(m.group(3)));
         }
+        // `field IN ('a', 'b')` or `field IN SET ('a', 'b')` — list membership (field on left).
+        Matcher inList = IN_LIST_CONDITION.matcher(clause);
+        if (inList.matches()) {
+            List<Literal> items = parseInList(inList.group(2));
+            return new Condition(toPath(inList.group(1), alias), Operator.IN_LIST,
+                    Literal.listLiteral(items));
+        }
+        // `<literal> IN <path>`: the path resolves to the collection; the literal is the
+        // element sought (containment). The left operand must be a literal, not a field.
         Matcher in = IN_CONDITION.matcher(clause);
         if (in.matches()) {
-            // `<literal> IN <path>`: the path resolves to the collection; the literal is the
-            // element sought (containment). The left operand must be a literal, not a field.
             return new Condition(toPath(in.group(2), alias), Operator.IN,
                     Literal.parse(in.group(1)));
         }
+        // `field LIKE 'pattern'`
+        Matcher like = LIKE_CONDITION.matcher(clause);
+        if (like.matches()) {
+            return new Condition(toPath(like.group(1), alias), Operator.LIKE,
+                    Literal.parse(like.group(2)));
+        }
+        // `field IS NULL` or `field IS NOT NULL`
+        Matcher isNull = IS_NULL_CONDITION.matcher(clause);
+        if (isNull.matches()) {
+            boolean notNull = isNull.group(2) != null;
+            return new Condition(toPath(isNull.group(1), alias),
+                    notNull ? Operator.IS_NOT_NULL : Operator.IS_NULL, null);
+        }
         throw new UnsupportedQueryException("unsupported condition: " + clause.trim());
+    }
+
+    /**
+     * Parse a comma-separated list of OQL literals (the content inside the parentheses of an IN list).
+     * Respects single-quoted strings containing commas.
+     */
+    private static List<Literal> parseInList(String content) {
+        List<Literal> items = new ArrayList<>();
+        int start = 0;
+        boolean inQuote = false;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\'' && !inQuote) {
+                inQuote = true;
+            } else if (c == '\'' && inQuote) {
+                inQuote = false;
+            } else if (c == ',' && !inQuote) {
+                String token = content.substring(start, i).trim();
+                if (!token.isEmpty()) items.add(Literal.parse(token));
+                start = i + 1;
+            }
+        }
+        String last = content.substring(start).trim();
+        if (!last.isEmpty()) items.add(Literal.parse(last));
+        return items;
     }
 
     /**
@@ -1168,7 +1276,7 @@ public final class OqlQuery {
     }
 
     enum Operator {
-        EQ, NEQ, LT, LTE, GT, GTE, IN;
+        EQ, NEQ, LT, LTE, GT, GTE, IN, IN_LIST, LIKE, IS_NULL, IS_NOT_NULL;
 
         static Operator of(String token) {
             switch (token) {
@@ -1197,6 +1305,9 @@ public final class OqlQuery {
 
         boolean matches(StoredValue value, FieldResolver resolver) {
             Object actual = resolver.resolve(value, path);
+            // IS NULL and IS NOT NULL handle ABSENT specially (absent field = null-like in OQL).
+            if (op == Operator.IS_NULL)     return actual == ABSENT || actual == null;
+            if (op == Operator.IS_NOT_NULL) return actual != ABSENT && actual != null;
             if (actual == ABSENT) {
                 return false;
             }
@@ -1204,6 +1315,15 @@ public final class OqlQuery {
                 case EQ: return literal.equalsValue(actual);
                 case NEQ: return !literal.equalsValue(actual);
                 case IN: return containsLiteral(actual);
+                case IN_LIST: {
+                    List<Literal> list = literal.asList();
+                    if (list == null) return false;
+                    for (Literal item : list) {
+                        if (item.equalsValue(actual)) return true;
+                    }
+                    return false;
+                }
+                case LIKE: return likeMatches(literal.asText(), actual);
                 default:
                     Integer cmp = literal.compareValue(actual);
                     if (cmp == null) {
@@ -1217,6 +1337,25 @@ public final class OqlQuery {
                         default: return false;
                     }
             }
+        }
+
+        /** Convert OQL/SQL LIKE pattern (% = any sequence, _ = any char) to a Java regex and match. */
+        private static boolean likeMatches(String pattern, Object actual) {
+            if (pattern == null) return false;
+            String s = String.valueOf(actual);
+            // Convert LIKE pattern to regex: escape regex metacharacters except % and _, then expand.
+            StringBuilder regex = new StringBuilder("(?s)");
+            for (int i = 0; i < pattern.length(); i++) {
+                char c = pattern.charAt(i);
+                if (c == '%') {
+                    regex.append(".*");
+                } else if (c == '_') {
+                    regex.append('.');
+                } else {
+                    regex.append(Pattern.quote(String.valueOf(c)));
+                }
+            }
+            return s.matches(regex.toString());
         }
 
         /** True if the resolved collection (a {@link java.util.Collection} or array) contains the literal. */
@@ -1308,12 +1447,27 @@ public final class OqlQuery {
         private final String text;
         private final Boolean bool;
         private final boolean isNull;
+        private final List<Literal> list; // non-null only for IN_LIST literal
 
         private Literal(Double number, String text, Boolean bool, boolean isNull) {
+            this(number, text, bool, isNull, null);
+        }
+
+        private Literal(Double number, String text, Boolean bool, boolean isNull, List<Literal> list) {
             this.number = number;
             this.text = text;
             this.bool = bool;
             this.isNull = isNull;
+            this.list = list;
+        }
+
+        static Literal listLiteral(List<Literal> items) {
+            return new Literal(null, null, null, false, List.copyOf(items));
+        }
+
+        /** Returns the list items when this is a list literal, or {@code null} otherwise. */
+        List<Literal> asList() {
+            return list;
         }
 
         static Literal parse(String raw) {
