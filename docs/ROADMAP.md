@@ -423,7 +423,7 @@ All items are additive/non-breaking (semver minors).
 - [x] Cross-version matrix — Geode 1.15.1 and 1.15.4 clients: 36 tests PASS each (2026-06-28).
 - [x] `CHANGELOG.md` `[1.5.0]` + version bumps (pom 1.4.0→1.5.0, Helm chart appVersion/version,
   values.yaml image tag).
-- [ ] Cut `v1.5.0-rc1` → verify all CI gates → cut `v1.5.0` GA + GitHub Release (operator-gated).
+- [x] Cut `v1.5.0` GA + GitHub Release (2026-06-28) — tag pushed, release pipeline in progress.
 
 ---
 
