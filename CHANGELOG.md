@@ -4,7 +4,19 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.0] - 2026-06-27
+
+The **OQL completeness** release — aggregate functions, GROUP BY, DISTINCT, parenthesized AND/OR WHERE,
+and OR pushdown to N1QL. All changes are additive and non-breaking (a semantic-versioning minor): no new
+client-facing wire forms, so existing 1.15.x clients are unaffected and the validated cross-version range
+(Geode 1.13/1.14/1.15) is unchanged. Highlights since 1.3.0:
+
+- **Aggregate functions (M1)** — `COUNT`/`SUM`/`MIN`/`MAX`/`AVG` computed in-shim, with the reverse-engineered
+  and golden-wire-locked aggregate reply shape.
+- **GROUP BY (M2)** — `SELECT key, COUNT(*) FROM /r GROUP BY key`; per-group aggregates with the grouped
+  StructBag wire shape captured from a real Geode 1.15 server.
+- **DISTINCT + paren WHERE + OR pushdown (M3)** — `SELECT DISTINCT` deduplicates rows; parenthesized
+  AND/OR is expanded via DNF; OR-of-AND queries push to N1QL as multi-branch OR clauses.
 
 ### Added
 
@@ -528,7 +540,8 @@ cosign-signed image at `docker.io/rhadaway14/protogemcouch:0.2.0` (and `latest`)
 - **Certificate rotation:** the Helm chart mounts the inbound-TLS keystore/truststore from a Secret and
   rolls pods on change; zero-downtime rolling-restart rotation + mTLS CA-rotation ordering documented.
 
-[Unreleased]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/rhadaway14/proto-gemcouch/compare/v1.2.0...v1.3.0
 [0.3.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rhadaway14/proto-gemcouch/releases/tag/v0.2.0
