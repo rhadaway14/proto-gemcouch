@@ -452,9 +452,21 @@ items are additive/non-breaking (semver minors).
   collapses to one row in-shim because `deduplicateRows`' key uses `StoredValue.value()` (null for
   non-strings) — a pre-existing bug; the pushdown path is correctly identical to that in-shim behavior.
 
-### 1.6.0-M4 — Hardening + RC → 1.6.0 GA
-- [ ] Security re-review, soak (query-heavy profile), cross-version matrix, CHANGELOG finalization,
-  version bumps, RC → GA.
+### 1.6.0-M4 — Hardening + RC → 1.6.0 GA · **IN PROGRESS** (2026-06-30)
+- [x] **Security re-review** — M1–M3 N1QL paths confirmed injection-free: ORDER BY fields + DISTINCT
+  field + all predicate fields pass `SAFE_FIELD`; comparison/sort operators are hardcoded `PushdownOp`
+  enum symbols; literals are bind params; the `pushdown_queries_total` labels are a closed constant set
+  (no user input on `/metrics`). `REQUEST_PLUS` + read-only on all N1QL calls. `docs/SECURITY.md`
+  updated with a "Re-review — 1.6.0" section.
+- [x] **Soak** — query-heavy profile, pushdown on (27,420 queries): **`SOAK_VERDICT PASS`** (errors=0,
+  query p99 ≈ 182 ms). Recorded in `docs/SOAK_RESULTS.md`.
+- [x] **Cross-version matrix** — 1.6.0 adds no new client-facing wire forms (pushdown / ORDER BY /
+  DISTINCT emission + new predicate fragments are server-internal; the observability counter is a
+  server-side metric), so the validated Geode 1.13 / 1.14 / 1.15 range is unchanged.
+- [x] **Version bumps + CHANGELOG** — pom 1.5.0→1.6.0, Helm chart version/appVersion, values image tag;
+  `CHANGELOG.md` `[1.6.0]` finalized (M1–M3 + M4 hardening).
+- [ ] **RC → GA** (operator-gated) — cut `v1.6.0-rc1`, verify the four release gates, then cut `v1.6.0`
+  GA + GitHub Release on operator approval.
 
 ---
 

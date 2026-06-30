@@ -657,6 +657,32 @@ This profile is stable, but clearly much slower than the CRUD profiles. `SIZE` a
 
 ---
 
+## 6. 1.6.0 — query-heavy pushdown soak (M4 hardening)
+
+### Configuration
+- Profile: `query-heavy` with `BENCH_QUERYABLE_VALUES=true` (seeds map values with a top-level `k`
+  field and runs `WHERE k = N`, a pushdown-eligible query)
+- Shim: `OQL_PUSHDOWN=true` against a Couchbase with a primary index (full M1–M3 pushdown engine)
+- Concurrency: `8`
+- Measured duration: `5m`
+
+### Result
+- Total operations: **27,420**
+- Successes: **27,420**
+- Errors: **0**
+- Query p99: **≈182 ms**
+
+### Interpretation
+The full 1.6.0 pushdown engine (ORDER BY / string-range / numeric `<>` / DISTINCT + the
+`pushdown_queries_total` observability counter) sustained a 5-minute query-heavy load with zero errors
+and a stable query p99. The pushdown counter showed 100% `result="pushed"` for the field-equality
+workload, confirming the eligible-query fast path engages end-to-end. No regression vs the 1.5.0 soak.
+
+### Status
+**Pass** — `SOAK_VERDICT PASS`
+
+---
+
 ## Overall findings
 
 ## Stable workload classes

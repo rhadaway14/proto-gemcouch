@@ -437,6 +437,35 @@ interpolated into a N1QL string is a field name that has passed `SAFE_FIELD`; al
 travel as Couchbase bind parameters. `LIMIT` is a Java `int`. Read-only query flag is set on all
 N1QL calls.
 
+### Re-review — 1.6.0 (M1 ORDER BY, M2 string-range / numeric `<>`, M3 DISTINCT + observability)
+
+The 1.6.0 pushdown additions were reviewed against the same guarantee; no new injection surface:
+
+- **ORDER BY pushdown (M1)**: `buildOrderByClause` interpolates each sort field only after it passes
+  `SAFE_FIELD`, and returns `null` (→ caller falls back, no query issued) if any field fails. The sort
+  direction is a hardcoded `"ASC"`/`"DESC"` derived from the parsed `ascending` boolean — never a
+  user string. No literal values appear in an ORDER BY clause. `OqlQuery.OrderByKey` carries only a
+  field name + a boolean.
+- **String-range predicates (M2)**: `stringComparisonFragment` interpolates only the comparison
+  operator **symbol** (a hardcoded `<`/`<=`/`>`/`>=` from the `PushdownOp` enum, not user text); the
+  bound value travels as the `$v` parameter (`TO_STRING(field) <op> $v`). Field paths are
+  `SAFE_FIELD`-validated by the callers as before.
+- **Numeric `<>`/`!=` (M2)**: reuses the existing `numericFragment` with the `PushdownOp.NEQ` symbol
+  (`!=`, hardcoded); the numeric value is a bound `$n` parameter. `PushdownOp.symbol()` returns only
+  the fixed enum-defined symbols, so the operator token is never user-derived.
+- **DISTINCT pushdown (M3)**: `distinctPushdown` validates the projection field with `SAFE_FIELD`
+  before building `SELECT DISTINCT COALESCE(...) AS v`, and re-validates each predicate field via
+  `appendMapOnlyPredFrag` (returning `Optional.empty()` on any failure). `REQUEST_PLUS` + read-only set.
+- **Pushdown observability (M3)**: `pushdown_queries_total` labels are a closed set of constant
+  strings (`result` ∈ {`pushed`,`fallback`}, `fallback_reason` ∈ a fixed enum of reasons) chosen by
+  the shim — no user input reaches a metric label, so there is no metrics-cardinality or
+  label-injection exposure on the `/metrics` endpoint.
+
+**Summary through 1.6.0**: unchanged guarantee — every user-derived token interpolated into N1QL is a
+`SAFE_FIELD`-validated field name; comparison/sort operators are hardcoded enum symbols; all literals
+are bind parameters; `LIMIT` is a Java `int`; read-only + `REQUEST_PLUS` on all N1QL calls. No new
+deserialization or eval surface.
+
 ---
 
 ## Durable subscription persistence (1.2.0)
