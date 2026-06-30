@@ -1,6 +1,7 @@
 package com.protogemcouch.ops;
 
 import com.protogemcouch.couchbase.Repository;
+import com.protogemcouch.observability.MetricsRegistry;
 import com.protogemcouch.observability.StructuredLog;
 import com.protogemcouch.query.OqlQuery;
 import com.protogemcouch.serialization.StoredValue;
@@ -38,16 +39,47 @@ public class QueryHandler implements OperationHandler {
     private final Repository repository;
     private final OqlQuery.FieldResolver fieldResolver;
     private final boolean pushdownEnabled;
+    private final MetricsRegistry metrics;
 
     public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver) {
-        this(repository, fieldResolver, false);
+        this(repository, fieldResolver, false, null);
     }
 
     public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver, boolean pushdownEnabled) {
+        this(repository, fieldResolver, pushdownEnabled, null);
+    }
+
+    public QueryHandler(Repository repository, OqlQuery.FieldResolver fieldResolver,
+                        boolean pushdownEnabled, MetricsRegistry metrics) {
         this.repository = repository;
         // PDX-aware resolver (shared with CQ matching): reads PDX object fields, else map-typed values.
         this.fieldResolver = fieldResolver;
         this.pushdownEnabled = pushdownEnabled;
+        this.metrics = metrics;
+    }
+
+    /** Record an OQL query's pushdown outcome (no-op when no metrics registry is wired). */
+    private void recordPushdown(boolean pushed, String fallbackReason) {
+        if (metrics != null) {
+            metrics.recordPushdownQuery(pushed, fallbackReason);
+        }
+    }
+
+    /**
+     * The fallback reason for a query that did not push: {@code "disabled"} when pushdown is off,
+     * {@code "backend_unavailable"} when an eligible pushdown form existed but the backend returned
+     * nothing (no index / error), else {@code "ineligible"}.
+     */
+    private String fallbackReason(OqlQuery query) {
+        if (!pushdownEnabled) {
+            return "disabled";
+        }
+        boolean anyEligible = query.pushdownPredicates().isPresent()
+                || query.pushdownOrGroups().isPresent()
+                || (query.hasOrderBy() && query.pushdownOrderBy().isPresent())
+                || (query.isDistinct() && query.pushdownDistinct().isPresent())
+                || (query.hasLimit() && !query.hasWhere());
+        return anyEligible ? "backend_unavailable" : "ineligible";
     }
 
     @Override
@@ -85,6 +117,35 @@ public class QueryHandler implements OperationHandler {
         if (query.isAggregate()) {
             handleAggregate(ctx, oql, query, region, txId);
             return;
+        }
+
+        // DISTINCT pushdown (1.6.0-M3): push SELECT DISTINCT <field> [WHERE] to N1QL so the backend
+        // dedups (single top-level field; absent or fully-eligible WHERE; map-typed → exact). ORDER BY /
+        // LIMIT keep the in-shim path. The backend-deduped values are run through the in-shim dedup too,
+        // so values sharing a string form merge exactly as the scan would.
+        if (pushdownEnabled && query.isDistinct() && !query.hasOrderBy() && !query.hasLimit()
+                && query.projectionFieldCount() == 1) {
+            Optional<List<OqlQuery.FieldPredicate>> distinctPreds = query.pushdownDistinct();
+            if (distinctPreds.isPresent()) {
+                String field = query.projectionFieldNames().get(0);
+                Optional<List<StoredValue>> pushed =
+                        repository.distinctPushdown(region, field, distinctPreds.get());
+                if (pushed.isPresent()) {
+                    List<List<StoredValue>> rows = new ArrayList<>(pushed.get().size());
+                    for (StoredValue value : pushed.get()) {
+                        rows.add(List.of(value));
+                    }
+                    List<List<StoredValue>> distinctRows = OqlQuery.deduplicateRows(rows);
+                    byte[] response = GemResponseWriter.buildDistinctQueryResponse(
+                            txId, 1, query.projectionFieldNames(), distinctRows);
+                    recordPushdown(true, null);
+                    log.info(StructuredLog.event(
+                            "handler_query_ok", "query", oql, "region", region, "rows", distinctRows.size(),
+                            "pushdown", true, "distinct", true, "txId", txId));
+                    ctx.writeAndFlush(Unpooled.wrappedBuffer(response));
+                    return;
+                }
+            }
         }
 
         // Candidate source: pushed-down (backend pre-filtered) when eligible, else the full-region scan.
@@ -207,6 +268,7 @@ public class QueryHandler implements OperationHandler {
                     : GemResponseWriter.buildQueryResponse(txId, values);
         }
 
+        recordPushdown(pushdownUsed, pushdownUsed ? null : fallbackReason(query));
         log.info(StructuredLog.event(
                 "handler_query_ok", "query", oql, "region", region, "rows", rowCount,
                 "pushdown", pushdownUsed, "limit", query.hasLimit() ? limit : -1, "txId", txId));
@@ -231,6 +293,7 @@ public class QueryHandler implements OperationHandler {
                         region, query.aggregateFunction(), query.aggregateFieldPath(), eligible.get());
                 if (pushed.isPresent()) {
                     Object result = pushed.get();
+                    recordPushdown(true, null);
                     log.info(StructuredLog.event(
                             "handler_aggregate_ok", "query", oql, "region", region,
                             "fn", query.aggregateFunction(), "rows", -1,
@@ -268,6 +331,10 @@ public class QueryHandler implements OperationHandler {
         List<StoredValue> matched = matchesOf(candidates, query);
         Object result = query.computeAggregateRaw(matched, fieldResolver);
 
+        // Aggregate fell back to the in-shim compute (the candidate fetch may still have pushed): the
+        // aggregate itself was not pushed, so classify it as a fallback with the appropriate reason.
+        recordPushdown(false, !pushdownEnabled ? "disabled"
+                : (query.pushdownPredicates().isPresent() ? "backend_unavailable" : "ineligible"));
         log.info(StructuredLog.event(
                 "handler_aggregate_ok", "query", oql, "region", region,
                 "fn", query.aggregateFunction(), "rows", matched.size(),
@@ -291,6 +358,7 @@ public class QueryHandler implements OperationHandler {
                         region, query.groupByColumns(), gbEligible.get());
                 if (pushed.isPresent()) {
                     List<List<Object>> rows = pushed.get();
+                    recordPushdown(true, null);
                     log.info(StructuredLog.event(
                             "handler_groupby_ok", "query", oql, "region", region,
                             "rows", -1, "groups", rows.size(),
@@ -328,6 +396,10 @@ public class QueryHandler implements OperationHandler {
         List<StoredValue> matched = matchesOf(candidates, query);
         List<List<Object>> rows = query.computeGroupBy(matched, fieldResolver);
 
+        // GROUP BY fell back to in-shim grouping (the candidate fetch may still have pushed): classify the
+        // query as a fallback with the appropriate reason (eligible-but-backend-empty vs ineligible).
+        recordPushdown(false, !pushdownEnabled ? "disabled"
+                : (query.pushdownGroupBy().isPresent() ? "backend_unavailable" : "ineligible"));
         log.info(StructuredLog.event(
                 "handler_groupby_ok", "query", oql, "region", region,
                 "rows", matched.size(), "groups", rows.size(),

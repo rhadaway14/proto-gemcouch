@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -469,6 +471,65 @@ class ProtoGemCouchQueryPushdownIntegrationTest {
         SelectResults<?> r = query("SELECT * FROM /" + regionName
                 + " WHERE status = 'active' AND amount <> 5");
         assertEquals(1, r.size(), "active AND amount != 5 → only the active/9 row");
+    }
+
+    // --- DISTINCT pushdown (1.6.0-M3) ---
+
+    @Test
+    void distinctPushdownReturnsDistinctValues() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active")));
+        region.put("b", new HashMap<>(Map.of("status", "active")));
+        region.put("c", new HashMap<>(Map.of("status", "closed")));
+        region.put("d", new HashMap<>(Map.of("status", "pending")));
+        region.put("e", new HashMap<>(Map.of("status", "closed")));
+
+        SelectResults<?> r = query("SELECT DISTINCT status FROM /" + regionName);
+        assertEquals(Set.of("active", "closed", "pending"), new HashSet<>(r),
+                "distinct pushdown dedups to the three distinct statuses");
+    }
+
+    @Test
+    void distinctPushdownWithWhereIsCorrect() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active", "tier", "gold")));
+        region.put("b", new HashMap<>(Map.of("status", "closed", "tier", "gold")));
+        region.put("c", new HashMap<>(Map.of("status", "active", "tier", "gold")));
+        region.put("d", new HashMap<>(Map.of("status", "pending", "tier", "silver")));
+
+        SelectResults<?> r = query(
+                "SELECT DISTINCT status FROM /" + regionName + " WHERE tier = 'gold'");
+        assertEquals(Set.of("active", "closed"), new HashSet<>(r),
+                "distinct statuses among the gold-tier rows only");
+    }
+
+    // --- pushdown observability counter on /metrics (1.6.0-M3) ---
+
+    @Test
+    void pushdownMetricsCounterIsExposedOnMetrics() throws Exception {
+        region.put("a", new HashMap<>(Map.of("status", "active")));
+        region.put("b", new HashMap<>(Map.of("status", "closed")));
+
+        // A pushed query (string equality) and an ineligible fallback (no WHERE, no LIMIT, no ORDER BY).
+        query("SELECT * FROM /" + regionName + " WHERE status = 'active'");
+        query("SELECT * FROM /" + regionName + " WHERE status <> 'active'"); // string <> → ineligible
+
+        String metrics = scrapeMetrics();
+        assertTrue(metrics.contains("protogemcouch_pushdown_queries_total"),
+                "the pushdown counter family is exposed on /metrics");
+        assertTrue(metrics.contains("result=\"pushed\""), "a pushed query was recorded");
+        assertTrue(metrics.contains("result=\"fallback\""), "a fallback query was recorded");
+    }
+
+    private String scrapeMetrics() throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) URI.create(
+                "http://" + HOST + ":" + HEALTH_PORT + "/metrics").toURL().openConnection();
+        connection.setConnectTimeout(2000);
+        connection.setReadTimeout(2000);
+        connection.setRequestMethod("GET");
+        try {
+            return new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private SelectResults<?> query(String oql) throws Exception {

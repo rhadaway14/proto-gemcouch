@@ -1518,6 +1518,96 @@ public class CouchbaseRepository implements Repository {
         }
     }
 
+    @Override
+    public Optional<List<StoredValue>> distinctPushdown(
+            String region, String field, List<OqlQuery.FieldPredicate> predicates) {
+        if (field == null || !SAFE_FIELD.matcher(field).matches()) {
+            return Optional.empty();
+        }
+
+        JsonObject params = JsonObject.create();
+        params.put("prefix", DocumentKeyUtil.regionPrefix(region) + "%");
+
+        // Map-types-only WHERE (no opaque/PDX escape): the distinct set is exact for map-typed regions.
+        String mapFilter = "c.`type` IN [\""
+                + TYPE_STRING_OBJECT_HASH_MAP + "\", \"" + TYPE_STRING_HASH_MAP + "\"]";
+        StringBuilder whereBuilder = new StringBuilder("META(c).id LIKE $prefix AND ").append(mapFilter);
+        for (int i = 0; i < predicates.size(); i++) {
+            OqlQuery.FieldPredicate p = predicates.get(i);
+            String f = p.field();
+            if (f == null || !SAFE_FIELD.matcher(f).matches()) {
+                return Optional.empty();
+            }
+            whereBuilder.append(" AND ");
+            String envPath  = "c.`value`.`" + f + "`.`value`";
+            String barePath = "c.`value`.`" + f + "`";
+            if (!appendMapOnlyPredFrag(whereBuilder, p, params, "dv_" + i, envPath, barePath)) {
+                return Optional.empty();
+            }
+        }
+
+        String envPath  = "c.`value`.`" + field + "`.`value`";
+        String barePath = "c.`value`.`" + field + "`";
+        String valueExpr = "COALESCE(" + envPath + ", " + barePath + ")";
+        String keyspace = "`" + collection.bucketName() + "`.`" + collection.scopeName()
+                + "`.`" + collection.name() + "`";
+        String statement = "SELECT DISTINCT " + valueExpr + " AS v FROM " + keyspace
+                + " c WHERE " + whereBuilder;
+
+        try {
+            QueryResult result = cluster.query(statement, QueryOptions.queryOptions()
+                    .parameters(params)
+                    .readonly(true)
+                    .scanConsistency(QueryScanConsistency.REQUEST_PLUS));
+            List<JsonObject> rows = result.rowsAs(JsonObject.class);
+            List<StoredValue> values = new ArrayList<>(rows.size());
+            for (JsonObject row : rows) {
+                values.add(wrapScalarValue(row.get("v")));
+            }
+            log.info(StructuredLog.event(
+                    "repository_distinct_pushdown_ok", "region", region,
+                    "field", field, "predicates", predicates.size(), "values", values.size()));
+            return Optional.of(values);
+        } catch (Exception e) {
+            log.warn(StructuredLog.event(
+                    "repository_distinct_pushdown_unavailable", "region", region,
+                    "field", field, "error", e.getMessage()));
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Wrap a raw N1QL scalar (from {@code rowsAs(JsonObject).get(...)}) into the {@link StoredValue} the
+     * wire encoder expects, mirroring {@code OqlQuery}'s in-shim projection wrap so a pushed DISTINCT row
+     * encodes identically to a scanned one. A {@code null}/MISSING distinct value becomes the empty string
+     * (matching {@code projectRow}'s {@code wrap(null)}). The JSON scalar set is String/Boolean/Integer/
+     * Long/Double (Couchbase's decode of stored scalars); other numerics fall back to double.
+     */
+    private static StoredValue wrapScalarValue(Object value) {
+        if (value == null) {
+            return StoredValue.stringValue("");
+        }
+        if (value instanceof String s) {
+            return StoredValue.stringValue(s);
+        }
+        if (value instanceof Boolean b) {
+            return StoredValue.booleanValue(b);
+        }
+        if (value instanceof Integer i) {
+            return StoredValue.integerValue(i);
+        }
+        if (value instanceof Long l) {
+            return StoredValue.longValue(l);
+        }
+        if (value instanceof Double d) {
+            return StoredValue.doubleValue(d);
+        }
+        if (value instanceof Number n) {
+            return StoredValue.doubleValue(n.doubleValue());
+        }
+        return StoredValue.stringValue(String.valueOf(value));
+    }
+
     /** Convert the raw N1QL aggregate result to the Number type the shim wire encoder expects. */
     private static Number toAggregateNumber(OqlQuery.AggregateFunction fn, Object raw) {
         if (raw == null) {

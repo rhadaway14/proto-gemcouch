@@ -29,6 +29,17 @@ public class MetricsRegistry {
     private final Map<Integer, OpMetrics> perOpcode = new ConcurrentHashMap<>();
 
     /**
+     * OQL pushdown outcome counters, keyed by {@code (result, fallbackReason)} so operators can see how
+     * many queries pushed to N1QL vs fell back to the in-shim scan, and why. {@code result} is
+     * {@code "pushed"} or {@code "fallback"}; {@code fallbackReason} is {@code "none"} for a pushed query
+     * and one of {@code "disabled" | "ineligible" | "backend_unavailable"} for a fallback.
+     */
+    private final Map<PushdownKey, LongAdder> pushdownQueries = new ConcurrentHashMap<>();
+
+    private record PushdownKey(String result, String fallbackReason) {
+    }
+
+    /**
      * Sampled-at-scrape gauges for live, non-cumulative state (the in-memory registry sizes). Each is a
      * supplier read when metrics are rendered, so the value is always current without the registries
      * having to push updates. Registered once at startup via {@link #registerGauge}.
@@ -102,6 +113,27 @@ public class MetricsRegistry {
     /** A PDX type/enum registration was rejected because the registry was at its configured cap. */
     public void recordPdxRegistryRejected() {
         pdxRegistryRejected.increment();
+    }
+
+    /**
+     * Record an OQL query's pushdown outcome. {@code pushed} true means the query was satisfied by a
+     * backend (N1QL) pushdown; false means it fell back to the in-shim scan, with {@code fallbackReason}
+     * explaining why ({@code "disabled" | "ineligible" | "backend_unavailable"}). A pushed query records
+     * the reason as {@code "none"}.
+     */
+    public void recordPushdownQuery(boolean pushed, String fallbackReason) {
+        String result = pushed ? "pushed" : "fallback";
+        String reason = pushed ? "none" : (fallbackReason == null ? "ineligible" : fallbackReason);
+        pushdownQueries.computeIfAbsent(new PushdownKey(result, reason), k -> new LongAdder()).increment();
+    }
+
+    /** Pushdown counters as sorted {@code (result, reason, count)} rows, for stable rendering. */
+    private List<Object[]> sortedPushdownCounters() {
+        return pushdownQueries.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<PushdownKey, LongAdder>, String>comparing(e -> e.getKey().result())
+                        .thenComparing(e -> e.getKey().fallbackReason()))
+                .map(e -> new Object[]{e.getKey().result(), e.getKey().fallbackReason(), e.getValue().sum()})
+                .toList();
     }
 
     /**
@@ -204,6 +236,17 @@ public class MetricsRegistry {
             lines.add(StructuredLog.event("metrics_gauges", kv));
         }
 
+        List<Object[]> pushdownRows = sortedPushdownCounters();
+        if (!pushdownRows.isEmpty()) {
+            Object[] kv = new Object[pushdownRows.size() * 2];
+            for (int i = 0; i < pushdownRows.size(); i++) {
+                Object[] row = pushdownRows.get(i);
+                kv[i * 2] = row[0] + ":" + row[1]; // result:reason
+                kv[i * 2 + 1] = row[2];
+            }
+            lines.add(StructuredLog.event("metrics_pushdown", kv));
+        }
+
         sortedOpcodeEntries().forEach(entry -> {
             int opcode = entry.getKey();
             OpMetrics m = entry.getValue();
@@ -281,6 +324,19 @@ public class MetricsRegistry {
             out.append('"').append(jsonEscape(gauge.name())).append("\":").append(gauge.supplier().getAsLong());
         }
         out.append("},");
+
+        out.append("\"pushdown\":[");
+        boolean firstPushdown = true;
+        for (Object[] row : sortedPushdownCounters()) {
+            if (!firstPushdown) {
+                out.append(',');
+            }
+            firstPushdown = false;
+            out.append("{\"result\":\"").append(jsonEscape((String) row[0]))
+                    .append("\",\"fallbackReason\":\"").append(jsonEscape((String) row[1]))
+                    .append("\",\"count\":").append((long) row[2]).append('}');
+        }
+        out.append("],");
 
         out.append("\"operations\":[");
 
@@ -390,6 +446,18 @@ public class MetricsRegistry {
         appendMetricHelp(out, "protogemcouch_pdx_registry_rejected_total", "Total PDX type/enum registrations rejected for exceeding the configured registry cap.");
         appendMetricType(out, "protogemcouch_pdx_registry_rejected_total", "counter");
         appendMetric(out, "protogemcouch_pdx_registry_rejected_total", pdxRegistryRejected.sum());
+
+        List<Object[]> pushdownRows = sortedPushdownCounters();
+        if (!pushdownRows.isEmpty()) {
+            appendMetricHelp(out, "protogemcouch_pushdown_queries_total",
+                    "Total OQL queries by pushdown result (pushed to N1QL vs in-shim fallback) and fallback reason.");
+            appendMetricType(out, "protogemcouch_pushdown_queries_total", "counter");
+            for (Object[] row : pushdownRows) {
+                String labels = "{result=\"" + prometheusEscape((String) row[0])
+                        + "\",fallback_reason=\"" + prometheusEscape((String) row[1]) + "\"}";
+                appendMetric(out, "protogemcouch_pushdown_queries_total", labels, (long) row[2]);
+            }
+        }
 
         // Sampled gauges for live in-memory registry sizes (read at scrape time).
         for (Gauge gauge : gauges) {

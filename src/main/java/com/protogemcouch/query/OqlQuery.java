@@ -378,6 +378,41 @@ public final class OqlQuery {
     }
 
     /**
+     * When this is a {@code SELECT DISTINCT <field>} over a single top-level field and the WHERE is
+     * absent or a single AND-group whose conditions are <em>all</em> pushdown-eligible, return those
+     * predicates so the backend can compute the distinct values directly ({@code SELECT DISTINCT}),
+     * restricted to map types — exact for map-typed regions, like aggregate/GROUP BY pushdown. Returns
+     * {@link Optional#empty()} when ineligible: not DISTINCT, multi-field or nested/array projection, an
+     * OR WHERE, or a WHERE with any non-pushable condition (a partial push would loosen the filter and
+     * could yield distinct values the scan would not — so DISTINCT requires the <em>full</em> WHERE).
+     *
+     * <p>The single projection field name is available via {@link #projectionFieldNames()}.
+     */
+    public Optional<List<FieldPredicate>> pushdownDistinct() {
+        if (!distinct || projectionFields.size() != 1 || projectionFields.get(0).size() != 1) {
+            return Optional.empty();
+        }
+        if (orGroups.isEmpty()) {
+            return Optional.of(List.of()); // no WHERE: distinct over the whole (map-typed) region
+        }
+        if (orGroups.size() != 1) {
+            return Optional.empty(); // OR WHERE
+        }
+        List<FieldPredicate> predicates = new ArrayList<>();
+        for (Condition condition : orGroups.get(0)) {
+            if (condition.path.size() != 1) {
+                return Optional.empty(); // nested/array field → not fully pushable
+            }
+            FieldPredicate fp = toPushdownPredicate(condition.path.get(0), condition);
+            if (fp == null) {
+                return Optional.empty(); // an ineligible condition → can't push DISTINCT exactly
+            }
+            predicates.add(fp);
+        }
+        return Optional.of(predicates);
+    }
+
+    /**
      * Compute the aggregate over an already-WHERE-filtered list of values.
      *
      * <ul>
