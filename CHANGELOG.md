@@ -4,6 +4,52 @@ All notable changes to ProtoGemCouch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## [1.6.0] - 2026-06-30
+
+The **OQL pushdown completeness** release — closes the remaining full-scan fallback gaps in the
+pushdown engine: server-side `ORDER BY` (true top-N), the last predicate forms (string ranges, numeric
+`<>`/`!=`), and `DISTINCT` pushdown, plus per-query pushdown observability. All changes are additive and
+non-breaking (semver minor): pushdown is server-internal, so existing 1.15.x clients and the validated
+1.13/1.14/1.15 cross-version range are unchanged.
+
+### Added
+
+- **ORDER BY pushdown to N1QL (1.6.0-M1)** — when every `ORDER BY` key is a simple top-level field,
+  the sort is pushed to Couchbase (`ORDER BY TO_NUMBER(x) <dir>, TO_STRING(x) <dir>` over
+  `COALESCE(value.<f>.value, value.<f>, pdxFields.<f>)`) alongside the `WHERE` and `LIMIT` — a true
+  server-side top-N. The backend row order is authoritative when pushed (the matcher still re-filters,
+  preserving order), with the same unbounded-refetch guard as the LIMIT path. Nested/array keys, an
+  unpushable `WHERE`, or any error fall back to the in-shim sort. `OqlQuery.pushdownOrderBy()` +
+  `OqlQuery.OrderByKey`; order-aware `Repository.queryPushdownByPredicates/queryPushdownByOrGroups`
+  overloads. Known semantics note: `NULL`/missing + mixed-type fields follow N1QL collation.
+- **String-range + numeric `<>`/`!=` pushdown (1.6.0-M2)** — `WHERE name > 'M'` (`< <= > >=` on a
+  string literal) pushes as `TO_STRING(field) <op> $v` (with a `TYPE = "number"` superset escape);
+  numeric `<>`/`!=` pushes via the existing `numericFragment` (new `PushdownOp.NEQ`). Aggregate/GROUP
+  BY pushdown declines string ranges (falls back to the in-shim aggregate) to stay exact. `BETWEEN` is
+  **not** part of Geode OQL (the client's query compiler rejects it), so it is documented as a non-goal.
+- **DISTINCT pushdown to N1QL (1.6.0-M3)** — single-field `SELECT DISTINCT <field>` with an absent or
+  fully-eligible single-AND-group `WHERE` pushes `SELECT DISTINCT COALESCE(value.<f>.value, value.<f>)
+  AS v … AND type IN [map types]` (map-types-only → exact, like aggregate/GROUP BY); the shim still runs
+  `deduplicateRows` over the result. `OqlQuery.pushdownDistinct()` + `Repository.distinctPushdown(…)`.
+- **Pushdown observability (1.6.0-M3)** — `protogemcouch_pushdown_queries_total{result="pushed"|
+  "fallback", fallback_reason="none"|"disabled"|"ineligible"|"backend_unavailable"}` is recorded per
+  query across the regular / aggregate / GROUP BY / DISTINCT paths, exposed on `/metrics` (Prometheus),
+  the JSON snapshot, and a `metrics_pushdown` log line.
+
+### Hardening (1.6.0-M4)
+
+- **Security re-review** — the M1–M3 N1QL paths confirmed injection-free: every interpolated sort/field
+  token passes `SAFE_FIELD`; comparison/sort operators are hardcoded `PushdownOp` enum symbols; all
+  literals are bind parameters; pushdown-counter labels are a closed constant set (no user input on
+  `/metrics`). `REQUEST_PLUS` + read-only on all N1QL calls. `docs/SECURITY.md` updated through 1.6.0.
+- **Soak** — query-heavy profile, pushdown on (27,420 queries): **`SOAK_VERDICT PASS`** (errors=0,
+  query p99 ≈ 182 ms). No regressions vs 1.5.0.
+- **Cross-version matrix** — 1.6.0 adds no new client-facing wire forms (pushdown, ORDER BY/DISTINCT
+  emission, and the new predicate fragments are all server-internal; the observability counter is a
+  server-side metric), so the validated Geode 1.13 / 1.14 / 1.15 client range is unchanged.
+
+---
+
 ## [1.5.0] - 2026-06-28
 
 The **OQL at scale** release — aggregate pushdown, GROUP BY pushdown, and three new predicate types
