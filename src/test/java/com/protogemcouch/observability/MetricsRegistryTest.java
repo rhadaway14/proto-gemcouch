@@ -372,4 +372,43 @@ class MetricsRegistryTest {
         assertTrue(json.contains("\"latencySumSeconds\":0.003400000"));
     }
 
+    @Test
+    void pushdownCounterRendersInPrometheusWithLabels() {
+        MetricsRegistry registry = new MetricsRegistry();
+
+        registry.recordPushdownQuery(true, null);
+        registry.recordPushdownQuery(true, null);
+        registry.recordPushdownQuery(false, "ineligible");
+        registry.recordPushdownQuery(false, "backend_unavailable");
+
+        String prom = registry.snapshotPrometheus();
+        assertTrue(prom.contains("# TYPE protogemcouch_pushdown_queries_total counter"));
+        assertTrue(prom.contains(
+                "protogemcouch_pushdown_queries_total{result=\"pushed\",fallback_reason=\"none\"} 2"));
+        assertTrue(prom.contains(
+                "protogemcouch_pushdown_queries_total{result=\"fallback\",fallback_reason=\"ineligible\"} 1"));
+        assertTrue(prom.contains(
+                "protogemcouch_pushdown_queries_total{result=\"fallback\",fallback_reason=\"backend_unavailable\"} 1"));
+    }
+
+    @Test
+    void pushdownCounterRendersInJsonAndLines() {
+        MetricsRegistry registry = new MetricsRegistry();
+        registry.recordPushdownQuery(true, null);
+        registry.recordPushdownQuery(false, "disabled");
+
+        String json = registry.snapshotJson();
+        assertTrue(json.contains("\"pushdown\":["));
+        assertTrue(json.contains("\"result\":\"pushed\",\"fallbackReason\":\"none\",\"count\":1"));
+        assertTrue(json.contains("\"result\":\"fallback\",\"fallbackReason\":\"disabled\",\"count\":1"));
+
+        assertTrue(registry.snapshotLines().stream()
+                .anyMatch(line -> line.contains("event=metrics_pushdown")));
+    }
+
+    @Test
+    void pushdownCounterAbsentWhenNoQueriesRecorded() {
+        MetricsRegistry registry = new MetricsRegistry();
+        assertFalse(registry.snapshotPrometheus().contains("protogemcouch_pushdown_queries_total"));
+    }
 }

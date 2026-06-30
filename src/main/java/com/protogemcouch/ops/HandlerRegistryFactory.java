@@ -72,7 +72,7 @@ public final class HandlerRegistryFactory {
             repository.setPdxScalarExtractor(
                     bytes -> PdxFieldAccessor.readScalarFields(bytes, pdxTypeRegistry));
         }
-        QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver, pushdownEnabled);
+        QueryHandler queryHandler = new QueryHandler(repository, pdxFieldResolver, pushdownEnabled, metrics);
         registry.register(MessageTypes.QUERY, queryHandler);
         registry.register(MessageTypes.QUERY_WITH_PARAMETERS, queryHandler);
         registry.register(MessageTypes.CONTAINS_KEY, new ContainsHandler(repository, transactions));

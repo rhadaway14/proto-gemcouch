@@ -170,6 +170,14 @@ public class TracingRepository implements Repository {
     }
 
     @Override
+    public java.util.Optional<List<StoredValue>> distinctPushdown(
+            String region, String field,
+            List<com.protogemcouch.query.OqlQuery.FieldPredicate> predicates) {
+        return traced("distinctPushdown", "region", region,
+                () -> delegate.distinctPushdown(region, field, predicates));
+    }
+
+    @Override
     public void setPdxScalarExtractor(
             java.util.function.Function<byte[], java.util.Map<String, Object>> extractor) {
         delegate.setPdxScalarExtractor(extractor);

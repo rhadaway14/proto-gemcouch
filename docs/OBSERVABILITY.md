@@ -194,6 +194,26 @@ catching a durable client falling behind (durable_queue_depth climbing) before i
 confirming the optional PDX registry cap is engaging (pdx_registry_rejected_total > 0)
 ```
 
+### OQL pushdown outcomes
+
+When `OQL_PUSHDOWN` is enabled, each OQL query records its pushdown outcome:
+
+```text
+protogemcouch_pushdown_queries_total{result="pushed",fallback_reason="none"}
+protogemcouch_pushdown_queries_total{result="fallback",fallback_reason="disabled"}
+protogemcouch_pushdown_queries_total{result="fallback",fallback_reason="ineligible"}
+protogemcouch_pushdown_queries_total{result="fallback",fallback_reason="backend_unavailable"}
+```
+
+`result` is `pushed` (the query was satisfied by an N1QL pushdown) or `fallback` (it scanned in-shim);
+`fallback_reason` explains a fallback — `disabled` (pushdown off), `ineligible` (no pushable form: e.g.
+an OR-of-ineligible, string `<>`, boolean/null literal, or nested-field-only WHERE), or
+`backend_unavailable` (an eligible query whose pushdown returned nothing — typically a missing GSI or a
+query-service error). Covers the regular, aggregate, GROUP BY, and DISTINCT query paths. Useful for
+confirming pushdown is actually engaging (a high `backend_unavailable` rate usually means the secondary
+index is missing — see `docs/OQL.md`), and for spotting workloads dominated by `ineligible` queries that
+would benefit from a query rewrite.
+
 The PDX type/enum registry is unbounded by default; set `MAX_PDX_TYPES` / `MAX_PDX_ENUMS` to cap it.
 When a registration is rejected at the cap, the shim increments
 `protogemcouch_pdx_registry_rejected_total` and emits a `pdx_registry_cap_exceeded` event on the

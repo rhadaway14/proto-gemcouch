@@ -429,11 +429,28 @@ items are additive/non-breaking (semver minors).
 - Remaining still-scan: string `<>`/`!=`, boolean/null literals. (`BETWEEN` is not expressible in Geode
   OQL — see above.)
 
-### 1.6.0-M3 — DISTINCT pushdown + pushdown observability
-- [ ] **DISTINCT pushdown** — push `SELECT DISTINCT` to N1QL (in-shim only since 1.4.0-M3).
-- [ ] **Pushdown observability** — Micrometer/OTel counter `pushdown_queries_total` with
-  `result=pushed|fallback` + `fallback_reason`, emitted per query and visible on `/metrics`.
-- [ ] Unit + ITs.
+### 1.6.0-M3 — DISTINCT pushdown + pushdown observability · **COMPLETE** (2026-06-28)
+- [x] **DISTINCT pushdown** — single-field `SELECT DISTINCT <field>` (no `ORDER BY`/`LIMIT`, absent or
+  fully-eligible single-AND-group WHERE) pushes `SELECT DISTINCT COALESCE(value.<f>.value, value.<f>) AS v
+  … AND type IN [map types]` so the backend dedups (map-types-only → exact, like aggregate/GROUP BY). The
+  shim still runs `deduplicateRows` over the returned values (so values sharing a string form merge as the
+  scan would). `OqlQuery.pushdownDistinct()` gates eligibility (requires the **full** WHERE be pushable —
+  a partial push would loosen the filter and yield extra distinct values); `Repository.distinctPushdown`
+  is the new interface method; `CouchbaseRepository` wraps each N1QL scalar back to a `StoredValue`.
+  Multi-field/nested DISTINCT, ORDER BY/LIMIT, OR/partial WHEREs, and mixed map+PDX fall back to in-shim.
+- [x] **Pushdown observability** — `MetricsRegistry.recordPushdownQuery(...)` emits
+  `protogemcouch_pushdown_queries_total{result="pushed"|"fallback", fallback_reason="none"|"disabled"|
+  "ineligible"|"backend_unavailable"}` per query (Prometheus on `/metrics`, JSON snapshot, and a
+  `metrics_pushdown` log line), across the regular / aggregate / GROUP BY / DISTINCT paths. (The project's
+  metrics layer is a hand-rolled Prometheus registry, not Micrometer — same exposition format.)
+  `QueryHandler` records the outcome + reason at each path's decision point.
+- [x] Validated by `OqlQueryDistinctPushdownTest` (8 unit) + `MetricsRegistryTest` (counter render in
+  Prometheus/JSON/lines) + 3 new real-client ITs in `ProtoGemCouchQueryPushdownIntegrationTest` (DISTINCT
+  pushdown with/without WHERE, `/metrics` counter exposes pushed + fallback). 36/36 pushdown ITs green;
+  777 unit green. `docs/OQL.md` + `docs/OBSERVABILITY.md` updated.
+- Found (out of scope, flagged separately): single-field DISTINCT on a **numeric/non-string** field
+  collapses to one row in-shim because `deduplicateRows`' key uses `StoredValue.value()` (null for
+  non-strings) — a pre-existing bug; the pushdown path is correctly identical to that in-shim behavior.
 
 ### 1.6.0-M4 — Hardening + RC → 1.6.0 GA
 - [ ] Security re-review, soak (query-heavy profile), cross-version matrix, CHANGELOG finalization,

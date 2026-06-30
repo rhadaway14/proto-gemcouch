@@ -129,8 +129,18 @@ for it — rejected cleanly at parse time).
 - Multi-field: returns a `StructSet` with the actual field names (not `field$0`/`field$1`).
 - `WHERE` narrows rows before dedup; `LIMIT` caps after dedup.
 - Dedup is by string-form key (`OqlQuery.deduplicateRows`), preserving first-seen order.
+- **DISTINCT pushdown to N1QL (1.6.0-M3).** When pushdown is on, a single-field `SELECT DISTINCT <field>`
+  with no `ORDER BY`/`LIMIT` and an absent or fully-eligible single-AND-group `WHERE` pushes
+  `SELECT DISTINCT COALESCE(value.<f>.value, value.<f>) AS v FROM … WHERE … AND type IN [map types]` so
+  the backend dedups (restricted to map types → exact for map-typed regions, like aggregate/GROUP BY
+  pushdown). The shim still runs `deduplicateRows` over the returned values, so any sharing a string form
+  merge exactly as the scan would. Multi-field / nested-field DISTINCT, `ORDER BY`/`LIMIT`, OR or
+  partially-eligible WHEREs, and mixed map+PDX regions fall back to the in-shim dedup.
+  `OqlQuery.pushdownDistinct()` is the gate; `Repository.distinctPushdown(region, field, predicates)` is
+  the new interface method.
 - Validated end-to-end by `ProtoGemCouchDistinctQueryIntegrationTest` (single + multi field, empty
-  region, WHERE, LIMIT, alias, PDX values).
+  region, WHERE, LIMIT, alias, PDX values) and `ProtoGemCouchQueryPushdownIntegrationTest` (DISTINCT
+  pushdown with and without WHERE) + `OqlQueryDistinctPushdownTest` (eligibility + handler wiring).
 
 **Parenthesized AND/OR in WHERE** (as of 1.4.0-M3): `(A AND B) OR C`, `A AND (B OR C)`, and fully
 nested forms are now supported. The parser converts the expression to **Disjunctive Normal Form**
@@ -323,6 +333,12 @@ in-shim path. (For exactness, **aggregate/GROUP BY** pushdown declines a *string
 falls back to the in-shim aggregate; the candidate-fetch path still pushes it.) **`BETWEEN` is not Geode
 OQL** — the real client's query compiler rejects it, so it never reaches the shim; use `field >= lo AND
 field <= hi`.
+**Pushdown observability (1.6.0-M3).** Every OQL query records a `protogemcouch_pushdown_queries_total`
+counter (on `/metrics`, and in the JSON snapshot) labeled `result="pushed"|"fallback"` and
+`fallback_reason="none"|"disabled"|"ineligible"|"backend_unavailable"`, so operators can see how many
+queries push to N1QL vs scan in-shim, and why (pushdown off, no eligible form, or the backend returned
+nothing — no index/error). Covers the regular, aggregate, GROUP BY, and DISTINCT query paths.
+
 Pushdown reads via the Query service do **not** refresh entry-idle TTL (the KV scan path does, via
 get-and-touch); relevant only when both `CB_TTL_MODE=idle` and pushdown are enabled. Validated by
 `ProtoGemCouchQueryPushdownIntegrationTest` (string + numeric equality, ranges, mixed AND, `OR`
@@ -334,8 +350,10 @@ equality/range and a PDX instance carrying a non-scalar field) plus `OqlQueryPus
 partial subset, `hasWhere`), `OqlQueryOrPushdownTest` (OR-group eligibility, AND-in-group, ineligible
 fallback, numeric predicates), `OqlQueryOrderByPushdownTest` (ORDER BY eligibility + handler wiring),
 `OqlQueryM2RangePredicateTest` (string range / numeric `<>` parse + eligibility),
-`OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction for the sidecar).
-The IT suite also covers string ranges (`>`/`<`, over PDX) and numeric `<>` (alone and ANDed).
+`OqlQueryDistinctPushdownTest` (DISTINCT eligibility + handler wiring), `MetricsRegistryTest` (the
+pushdown counter), `OqlQueryTest` (`LIMIT` parsing), and `PdxFieldAccessorTest` (scalar-field extraction
+for the sidecar). The IT suite also covers string ranges (`>`/`<`, over PDX), numeric `<>` (alone and
+ANDed), DISTINCT pushdown (with/without WHERE), and the `/metrics` pushdown counter.
 
 **Measured win + perf-gate.** A query-weighted benchmark (`query-heavy` profile + `BENCH_QUERYABLE_VALUES`,
 which seeds map values with a top-level `k` field and runs `SELECT * FROM /r WHERE k = N`) quantifies the

@@ -249,6 +249,22 @@ public interface Repository {
     }
 
     /**
+     * Push a {@code SELECT DISTINCT <field>} (single top-level field) to N1QL when eligible, returning the
+     * distinct projected values (each already wrapped as a {@link StoredValue}). Restricted to map-typed
+     * documents so the result is exact for map-typed regions (the same model as {@link #aggregatePushdown}
+     * / {@link #groupByPushdown}); the caller still runs the in-shim dedup over the returned values, so any
+     * values sharing a string form merge exactly as the scan would.
+     *
+     * <p>{@code predicates} is the full (all-eligible) WHERE for the distinct, or empty for no WHERE.
+     * Returns {@link Optional#empty()} when pushdown is unavailable (no index, error, ineligible field);
+     * the default is "no pushdown".
+     */
+    default Optional<List<StoredValue>> distinctPushdown(
+            String region, String field, List<OqlQuery.FieldPredicate> predicates) {
+        return Optional.empty();
+    }
+
+    /**
      * Install an extractor that, given a stored PDX instance's wire bytes, returns its scalar fields
      * (name→value). When set, the backend writes those fields as a queryable sidecar next to the opaque
      * PDX bytes so {@link #queryPushdownByPredicates} can filter PDX documents by field (instead of
