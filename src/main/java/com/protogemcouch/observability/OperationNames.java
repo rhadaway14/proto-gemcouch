@@ -10,6 +10,8 @@ public final class OperationNames {
     public static String nameOf(int opcode) {
         return switch (opcode) {
             case MessageTypes.GET -> "GET";
+            case MessageTypes.QUERY -> "QUERY";
+            case MessageTypes.QUERY_WITH_PARAMETERS -> "QUERY";
             case MessageTypes.PING -> "PING";
             case MessageTypes.PUT -> "PUT";
             case MessageTypes.REMOVE -> "REMOVE";

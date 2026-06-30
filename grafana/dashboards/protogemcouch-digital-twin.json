@@ -1,0 +1,606 @@
+{
+  "uid": "protogemcouch-digital-twin",
+  "title": "ProtoGemCouch \u2014 Digital Twin",
+  "tags": [
+    "protogemcouch",
+    "pushdown",
+    "canvas"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 0,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "refresh": "10s",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "canvas",
+      "title": "ProtoGemCouch \u2014 live request path (digital twin)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(protogemcouch_operation_requests_total[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "reqps"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(protogemcouch_operation_latency_seconds_bucket{opcode=\"34\"}[$__rate_interval]))) * 1000",
+          "instant": true,
+          "legendFormat": "p99"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "expr": "sum(rate(protogemcouch_pushdown_queries_total{result=\"pushed\"}[5m])) / clamp_min(sum(rate(protogemcouch_pushdown_queries_total[5m])), 1) * 100",
+          "instant": true,
+          "legendFormat": "hit"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "D",
+          "expr": "sum(protogemcouch_connections_opened_total) - sum(protogemcouch_connections_closed_total)",
+          "instant": true,
+          "legendFormat": "conns"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "E",
+          "expr": "sum(protogemcouch_pushdown_queries_total{result=\"pushed\"})",
+          "instant": true,
+          "legendFormat": "pushed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "inlineEditing": true,
+        "showAdvancedTypes": true,
+        "panZoom": true,
+        "infinitePan": false,
+        "root": {
+          "name": "Element 1",
+          "type": "frame",
+          "elements": [
+            {
+              "name": "client",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "CLIENT\n(Geode)"
+                },
+                "size": 18,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#e5e7eb"
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "#11161f"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#6366f1"
+                },
+                "width": 3,
+                "radius": 8
+              },
+              "placement": {
+                "left": 40,
+                "top": 120,
+                "width": 200,
+                "height": 110
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": 1,
+                    "y": 0
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": 0
+                  },
+                  "targetName": "shim",
+                  "color": {
+                    "fixed": "#22c55e"
+                  },
+                  "size": {
+                    "fixed": 3
+                  },
+                  "path": "straight"
+                }
+              ]
+            },
+            {
+              "name": "shim",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "PROTOGEMCOUCH\nSHIM"
+                },
+                "size": 18,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#e5e7eb"
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "#11161f"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#22c55e"
+                },
+                "width": 3,
+                "radius": 8
+              },
+              "placement": {
+                "left": 420,
+                "top": 110,
+                "width": 240,
+                "height": 130
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "connections": [
+                {
+                  "source": {
+                    "x": 1,
+                    "y": 0
+                  },
+                  "target": {
+                    "x": -1,
+                    "y": 0
+                  },
+                  "targetName": "couchbase",
+                  "color": {
+                    "fixed": "#22c55e"
+                  },
+                  "size": {
+                    "fixed": 3
+                  },
+                  "path": "straight"
+                }
+              ]
+            },
+            {
+              "name": "couchbase",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "COUCHBASE\nN1QL"
+                },
+                "size": 18,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#e5e7eb"
+                }
+              },
+              "background": {
+                "color": {
+                  "fixed": "#11161f"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "#ef4444"
+                },
+                "width": 3,
+                "radius": 8
+              },
+              "placement": {
+                "left": 840,
+                "top": 120,
+                "width": 220,
+                "height": 110
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "l_req",
+              "type": "text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "requests/sec"
+                },
+                "size": 12,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#9ca3af"
+                }
+              },
+              "placement": {
+                "left": 420,
+                "top": 250,
+                "width": 240,
+                "height": 18
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "v_req",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "reqps"
+                },
+                "size": 26,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#a78bfa"
+                },
+                "valueSuffix": " rps"
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "width": 0
+              },
+              "placement": {
+                "left": 420,
+                "top": 264,
+                "width": 240,
+                "height": 40
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "l_p99",
+              "type": "text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "query p99"
+                },
+                "size": 12,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#9ca3af"
+                }
+              },
+              "placement": {
+                "left": 420,
+                "top": 50,
+                "width": 115,
+                "height": 18
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "v_p99",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "p99"
+                },
+                "size": 26,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#38bdf8"
+                },
+                "valueSuffix": " ms"
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "width": 0
+              },
+              "placement": {
+                "left": 420,
+                "top": 64,
+                "width": 115,
+                "height": 40
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "l_hit",
+              "type": "text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "pushdown hit"
+                },
+                "size": 12,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#9ca3af"
+                }
+              },
+              "placement": {
+                "left": 545,
+                "top": 50,
+                "width": 115,
+                "height": 18
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "v_hit",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "hit"
+                },
+                "size": 26,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#22c55e"
+                },
+                "valueSuffix": " %"
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "width": 0
+              },
+              "placement": {
+                "left": 545,
+                "top": 64,
+                "width": 115,
+                "height": 40
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "l_pushed",
+              "type": "text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "pushed -> N1QL"
+                },
+                "size": 12,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#9ca3af"
+                }
+              },
+              "placement": {
+                "left": 840,
+                "top": 250,
+                "width": 220,
+                "height": 18
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "v_pushed",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "pushed"
+                },
+                "size": 26,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#f87171"
+                },
+                "valueSuffix": ""
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "width": 0
+              },
+              "placement": {
+                "left": 840,
+                "top": 264,
+                "width": 220,
+                "height": 40
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "l_conns",
+              "type": "text",
+              "config": {
+                "text": {
+                  "mode": "fixed",
+                  "fixed": "active conns"
+                },
+                "size": 12,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#9ca3af"
+                }
+              },
+              "placement": {
+                "left": 40,
+                "top": 250,
+                "width": 200,
+                "height": 18
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            },
+            {
+              "name": "v_conns",
+              "type": "metric-value",
+              "config": {
+                "text": {
+                  "mode": "field",
+                  "field": "conns"
+                },
+                "size": 26,
+                "align": "center",
+                "valign": "middle",
+                "color": {
+                  "fixed": "#facc15"
+                },
+                "valueSuffix": ""
+              },
+              "background": {
+                "color": {
+                  "fixed": "transparent"
+                }
+              },
+              "border": {
+                "color": {
+                  "fixed": "transparent"
+                },
+                "width": 0
+              },
+              "placement": {
+                "left": 40,
+                "top": 264,
+                "width": 200,
+                "height": 40
+              },
+              "constraint": {
+                "horizontal": "left",
+                "vertical": "top"
+              }
+            }
+          ],
+          "background": {
+            "color": {
+              "fixed": "transparent"
+            }
+          },
+          "border": {
+            "color": {
+              "fixed": "dark-green"
+            }
+          },
+          "constraint": {
+            "horizontal": "left",
+            "vertical": "top"
+          },
+          "placement": {
+            "top": 0,
+            "left": 0,
+            "width": 1100,
+            "height": 460
+          }
+        }
+      }
+    }
+  ]
+}

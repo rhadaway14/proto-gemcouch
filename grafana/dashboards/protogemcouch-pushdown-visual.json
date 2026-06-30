@@ -1,0 +1,231 @@
+{
+  "uid": "protogemcouch-pushdown-visual",
+  "title": "ProtoGemCouch \u2014 Pushdown (Visual)",
+  "tags": [
+    "protogemcouch",
+    "pushdown",
+    "echarts"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 0,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "refresh": "10s",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Pushdown flow (Sankey): result \u2192 reason",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (result, fallback_reason) (protogemcouch_pushdown_queries_total)",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        }
+      ],
+      "options": {
+        "renderer": "canvas",
+        "visualEditor": {
+          "code": "",
+          "dataset": [],
+          "series": []
+        },
+        "editor": {
+          "format": "auto",
+          "height": 600
+        },
+        "themeEditor": {
+          "config": "{}",
+          "name": "default",
+          "height": 0
+        },
+        "map": "none",
+        "getOption": "\nconst series = (context.data && context.data.series) || [];\nconst links = [];\nconst nodeSet = {};\nseries.forEach(fr => {\n  const vf = fr.fields.find(f => f.type === 'number');\n  if (!vf || !vf.values || !vf.values.length) return;\n  const l = vf.labels || {};\n  const result = l.result || 'unknown';\n  const reason = 'reason: ' + (l.fallback_reason || 'none');\n  const v = vf.values[vf.values.length - 1] || 0;\n  if (v <= 0) return;\n  nodeSet[result] = 1; nodeSet[reason] = 1;\n  links.push({ source: result, target: reason, value: v });\n});\nconst nodes = Object.keys(nodeSet).map(n => ({ name: n }));\nreturn {\n  backgroundColor: 'transparent',\n  tooltip: { trigger: 'item' },\n  series: [{\n    type: 'sankey', left: 24, right: 140, top: 20, bottom: 20,\n    data: nodes, links: links,\n    emphasis: { focus: 'adjacency' },\n    label: { color: '#ccc' },\n    lineStyle: { color: 'gradient', curveness: 0.5 }\n  }]\n};\n"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Pushdown breakdown (Sunburst)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (result, fallback_reason) (protogemcouch_pushdown_queries_total)",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        }
+      ],
+      "options": {
+        "renderer": "canvas",
+        "visualEditor": {
+          "code": "",
+          "dataset": [],
+          "series": []
+        },
+        "editor": {
+          "format": "auto",
+          "height": 600
+        },
+        "themeEditor": {
+          "config": "{}",
+          "name": "default",
+          "height": 0
+        },
+        "map": "none",
+        "getOption": "\nconst series = (context.data && context.data.series) || [];\nconst byResult = {};\nseries.forEach(fr => {\n  const vf = fr.fields.find(f => f.type === 'number');\n  if (!vf || !vf.values || !vf.values.length) return;\n  const l = vf.labels || {};\n  const result = l.result || 'unknown';\n  const reason = l.fallback_reason || 'none';\n  const v = vf.values[vf.values.length - 1] || 0;\n  if (v <= 0) return;\n  byResult[result] = byResult[result] || {};\n  byResult[result][reason] = (byResult[result][reason] || 0) + v;\n});\nconst data = Object.keys(byResult).map(r => ({\n  name: r,\n  children: Object.keys(byResult[r]).map(rs => ({ name: rs, value: byResult[r][rs] }))\n}));\nreturn {\n  backgroundColor: 'transparent',\n  tooltip: {},\n  series: [{ type: 'sunburst', radius: [0, '92%'], data: data,\n             label: { rotate: 'radial', color: '#eee', minAngle: 8 } }]\n};\n"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Pushdown hit ratio (Gauge)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(protogemcouch_pushdown_queries_total{result=\"pushed\"}[5m])) / clamp_min(sum(rate(protogemcouch_pushdown_queries_total[5m])), 1) * 100",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        }
+      ],
+      "options": {
+        "renderer": "canvas",
+        "visualEditor": {
+          "code": "",
+          "dataset": [],
+          "series": []
+        },
+        "editor": {
+          "format": "auto",
+          "height": 600
+        },
+        "themeEditor": {
+          "config": "{}",
+          "name": "default",
+          "height": 0
+        },
+        "map": "none",
+        "getOption": "\nconst series = (context.data && context.data.series) || [];\nlet v = 0;\nif (series[0]) {\n  const vf = series[0].fields.find(f => f.type === 'number');\n  if (vf && vf.values && vf.values.length) v = vf.values[vf.values.length - 1] || 0;\n}\nreturn {\n  backgroundColor: 'transparent',\n  series: [{\n    type: 'gauge', min: 0, max: 100, radius: '90%',\n    progress: { show: true, width: 18 },\n    axisLine: { lineStyle: { width: 18 } },\n    pointer: { show: true },\n    detail: { valueAnimation: true, formatter: '{value}%', color: '#eee', fontSize: 28 },\n    data: [{ value: Math.round(v * 10) / 10, name: 'Pushed' }],\n    title: { color: '#ccc' }\n  }]\n};\n"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Requests by operation (Treemap)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (operation) (protogemcouch_operation_requests_total)",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "__auto"
+        }
+      ],
+      "options": {
+        "renderer": "canvas",
+        "visualEditor": {
+          "code": "",
+          "dataset": [],
+          "series": []
+        },
+        "editor": {
+          "format": "auto",
+          "height": 600
+        },
+        "themeEditor": {
+          "config": "{}",
+          "name": "default",
+          "height": 0
+        },
+        "map": "none",
+        "getOption": "\nconst series = (context.data && context.data.series) || [];\nconst data = series.map(fr => {\n  const vf = fr.fields.find(f => f.type === 'number');\n  const l = (vf && vf.labels) || {};\n  const v = (vf && vf.values && vf.values.length) ? vf.values[vf.values.length - 1] : 0;\n  return { name: l.operation || (vf && vf.name) || '?', value: v };\n}).filter(d => d.value > 0);\nreturn {\n  backgroundColor: 'transparent',\n  tooltip: { formatter: '{b}: {c}' },\n  series: [{ type: 'treemap', roam: false, data: data,\n             label: { show: true, color: '#fff' },\n             levels: [{ itemStyle: { borderColor: '#111', borderWidth: 2, gapWidth: 2 } }] }]\n};\n"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

@@ -39,3 +39,11 @@ datasources:
         spanEndTimeShift: '2m'
         filterByTraceID: false
         filterBySpanID: false
+
+  # TestData — drives the ILLUSTRATIVE "Global Regions" map only. ProtoGemCouch is a single-region
+  # deployment with no per-region telemetry, so that panel uses synthetic CSV rows (clearly labelled),
+  # purely to demonstrate the multi-region map visual. No real ProtoGemCouch data flows through here.
+  - name: TestData
+    type: grafana-testdata-datasource
+    uid: testdata
+    editable: false

@@ -67,6 +67,17 @@ services:
       # registry so ids are consistent across replicas and survive a restart. Validated by
       # ProtoGemCouchPdxRegistryPersistenceMultiReplicaIntegrationTest (this shim + protogemcouch-replica).
       PDX_PERSISTENCE: "true"
+      # OQL pushdown ON so the observability demo drives N1QL pushdown (couchbase-init creates the
+      # primary index the pushdown path needs) — exercises the 1.6.0 pushdown_queries_total counter.
+      OQL_PUSHDOWN: "true"
+      # Distributed tracing -> Jaeger (OTLP gRPC). Tracing.initFromEnv() enables the per-operation spans
+      # + the TracingRepository backend spans when an OTLP endpoint is set.
+      OTEL_SERVICE_NAME: "protogemcouch-shim"
+      OTEL_TRACES_EXPORTER: "otlp"
+      OTEL_METRICS_EXPORTER: "none"
+      OTEL_LOGS_EXPORTER: "none"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8081/ready >/dev/null || exit 1"]
       interval: 15s
@@ -440,6 +451,18 @@ services:
       - "9100:9100"
     restart: unless-stopped
 
+  # Distributed-tracing backend (OTLP in, Jaeger UI out). The shim exports per-operation + backend
+  # spans here when OTEL_* is set (see the protogemcouch service). UI at http://localhost:16686.
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: protogemcouch-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: protogemcouch-prometheus
@@ -516,6 +539,10 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: dark
+      # Business Charts (Apache ECharts) panel — powers the "stunning" visuals: Sankey, Sunburst,
+      # Treemap, Liquid-fill gauge, Radar, etc. Downloaded on container start (needs internet).
+      GF_INSTALL_PLUGINS: volkovlabs-echarts-panel
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: volkovlabs-echarts-panel
       # Land directly on the provisioned dashboard.
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/protogemcouch-observability.json
     volumes:
